@@ -87,8 +87,8 @@
             });
 
             if (!optionsResponse.ok) {
-                const error = await parseJsonResponse(optionsResponse, 'Passkey verification unavailable.').catch(() => ({ error: 'Passkey verification unavailable.' }));
-                throw new Error(error.error || 'Passkey verification unavailable.');
+                const error = await parseJsonResponse(optionsResponse, `Passkey verification unavailable (HTTP ${optionsResponse.status}).`).catch(() => ({ error: `Passkey verification unavailable (HTTP ${optionsResponse.status}).` }));
+                throw new Error(error.error || `Passkey verification unavailable (HTTP ${optionsResponse.status}).`);
             }
 
             const options = await parseJsonResponse(optionsResponse, 'Passkey verification unavailable.');

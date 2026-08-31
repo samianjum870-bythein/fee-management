@@ -136,8 +136,8 @@
             });
 
             if (!optionsResponse.ok) {
-                const error = await parseJsonResponse(optionsResponse, 'Passkey authentication unavailable.').catch(() => ({ error: 'Passkey authentication unavailable.' }));
-                throw new Error(error.error || 'Passkey authentication unavailable.');
+                const error = await parseJsonResponse(optionsResponse, `Passkey authentication unavailable (HTTP ${optionsResponse.status}).`).catch(() => ({ error: `Passkey authentication unavailable (HTTP ${optionsResponse.status}).` }));
+                throw new Error(error.error || `Passkey authentication unavailable (HTTP ${optionsResponse.status}).`);
             }
 
             const options = await parseJsonResponse(optionsResponse, 'Passkey authentication unavailable.');
@@ -236,8 +236,8 @@
             });
 
             if (!optionsResponse.ok) {
-                const error = await parseJsonResponse(optionsResponse, 'Passkey authentication unavailable.').catch(() => ({ error: 'Passkey authentication unavailable.' }));
-                throw new Error(error.error || 'Passkey authentication unavailable.');
+                const error = await parseJsonResponse(optionsResponse, `Passkey authentication unavailable (HTTP ${optionsResponse.status}).`).catch(() => ({ error: `Passkey authentication unavailable (HTTP ${optionsResponse.status}).` }));
+                throw new Error(error.error || `Passkey authentication unavailable (HTTP ${optionsResponse.status}).`);
             }
 
             const options = await parseJsonResponse(optionsResponse, 'Passkey authentication unavailable.');
