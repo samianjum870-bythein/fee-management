@@ -147,7 +147,7 @@
         displayPasskeyStatus('Preparing secure passkey registration…');
 
         try {
-            const csrfToken = getCookie('csrftoken');
+            let csrfToken = getCookie('csrftoken');
             const response = await fetch('{% url "staff_webauthn_registration_options" %}', {
                 method: 'POST',
                 headers: {

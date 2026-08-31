@@ -102,7 +102,7 @@
         }
 
         try {
-            const csrfToken = getCookie('csrftoken');
+            let csrfToken = getCookie('csrftoken');
             if (!csrfToken) {
                 // Fallback to template variable
                 const metaCsrf = document.querySelector('meta[name=\"csrf-token\"]');
@@ -179,14 +179,8 @@
     }
 
     document.getElementById('passkey-login-btn')?.addEventListener('click', function () {
-        const usernameInput = document.getElementById('username');
-        const username = usernameInput ? usernameInput.value.trim() : '';
-        if (!username) {
-            alert('Please enter your username before using passkey login.');
-            if (usernameInput) usernameInput.focus();
-            return;
-        }
-        loginWithPasskey(username);
+        // Discoverable credentials allow passkey-only login without a username.
+        loginWithPasskey();
     });
 
     async function completePendingPasskeyLogin() {
@@ -202,7 +196,7 @@
         }
 
         try {
-            const csrfToken = getCookie('csrftoken');
+            let csrfToken = getCookie('csrftoken');
             if (!csrfToken) {
                 // Fallback to template variable
                 const metaCsrf = document.querySelector('meta[name=\"csrf-token\"]');

@@ -443,6 +443,12 @@ def staff_webauthn_registration_verify(request):
 
         request.session.pop('staff_webauthn_registration_challenge', None)
         request.session['staff_pending_passkey'] = False
+        # Password + verified passkey is a complete login. Promote the pending
+        # identity so the portal is released and protected actions can work.
+        request.session['staff_id'] = int(staff_id)
+        request.session['staff_schema_name'] = schema_name
+        request.session.pop('pending_staff_id', None)
+        request.session.pop('pending_schema_name', None)
         request.session.modified = True
         logger.info('Registration success, returning success response')
         return JsonResponse({'success': True, 'message': 'Passkey registered successfully.'})
@@ -459,29 +465,31 @@ def staff_webauthn_authentication_options(request):
             data = {}
     username = (data.get('username') or request.POST.get('username') or '').strip()
 
-    # Require username for passkey login
-    if not username:
-        return JsonResponse({'error': 'Username is required for passkey login.'}, status=400)
-
     with schema_context('public'):
-        credential = StaffCredential.objects.filter(username=username, is_active=True).first()
-        if credential is None:
-            return JsonResponse({'error': 'Account not found.'}, status=404)
-        passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
-        if not passkeys:
-            return JsonResponse({'error': 'No passkeys registered for this account.'}, status=403)
-
-        # Store login context in session
-        request.session['staff_webauthn_login_username'] = credential.username
-        request.session['staff_webauthn_login_staff_id'] = credential.staff_id
-        request.session['staff_webauthn_login_schema_name'] = credential.schema_name
+        # Empty allowCredentials enables discoverable, username-less passkeys.
+        # If a username is supplied, narrow the challenge to that account.
+        if username:
+            credential = StaffCredential.objects.filter(username=username, is_active=True).first()
+            if credential is None:
+                return JsonResponse({'error': 'Account not found.'}, status=404)
+            passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
+            if not passkeys:
+                return JsonResponse({'error': 'No passkeys registered for this account.'}, status=403)
+            request.session['staff_webauthn_login_username'] = credential.username
+            request.session['staff_webauthn_login_staff_id'] = credential.staff_id
+            request.session['staff_webauthn_login_schema_name'] = credential.schema_name
+        else:
+            passkeys = []
+            request.session.pop('staff_webauthn_login_username', None)
+            request.session.pop('staff_webauthn_login_staff_id', None)
+            request.session.pop('staff_webauthn_login_schema_name', None)
 
     challenge = secrets.token_bytes(32)
     request.session['staff_webauthn_auth_challenge'] = bytes_to_base64url(challenge)
     allow_credentials = [
         PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id), type='public-key')
         for item in passkeys
-    ]
+    ] or None
     options = generate_authentication_options(
         rp_id=_staff_compute_rp_id(request),
         challenge=challenge,

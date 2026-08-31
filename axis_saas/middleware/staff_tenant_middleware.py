@@ -41,6 +41,12 @@ class StaffTenantMiddleware:
         is_verify_passkey_path = request.path_info == '/portal/staff/verify-passkey/'
         allow_pending_verify = is_verify_passkey_path and is_pending_passkey and bool(staff_id and schema_name)
 
+        # Passwordless authentication starts without a tenant identity. Its
+        # endpoints query public-schema credentials and establish the identity.
+        if is_webauthn_auth and not (staff_id and schema_name):
+            connection.set_schema_to_public()
+            return self.get_response(request)
+
         if (not staff_id or not schema_name) and not (is_webauthn_auth or is_webauthn_register or allow_pending_verify):
             request.session.flush()
             return redirect('staff_login')
