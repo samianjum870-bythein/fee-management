@@ -9,6 +9,7 @@ from django.contrib.auth.hashers import make_password
 
 from django.core.cache import cache
 from django.db import connection
+from django.db import transaction
 from django.contrib import messages
 from django.db.models import Count, Q
 from django.http import JsonResponse
@@ -68,8 +69,6 @@ def staff_login(request):
                 request.session.flush()
                 request.session['school_admin_authenticated'] = False
                 request.session['school_admin_schema'] = ''
-                request.session['staff_id'] = staff.pk
-                request.session['staff_schema_name'] = credential.schema_name
                 request.session['pending_staff_id'] = staff.pk
                 request.session['pending_schema_name'] = credential.schema_name
                 request.session['staff_username'] = credential.username
@@ -136,10 +135,17 @@ def staff_logout(request):
 
 def require_staff_login(view_func):
     def wrapped(request, *args, **kwargs):
-        if not request.session.get('staff_id') or not request.session.get('staff_schema_name'):
+        staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
+        schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
+        pending_paths = {
+            '/portal/staff/profile/',
+            '/portal/staff/security/webauthn/register/options/',
+            '/portal/staff/security/webauthn/register/verify/',
+        }
+        if (not staff_id or not schema_name) or (
+            request.session.get('staff_id') is None and request.path_info not in pending_paths
+        ):
             return redirect('staff_login')
-        schema_name = request.session.get('staff_schema_name')
-        staff_id = request.session.get('staff_id')
 
         if not settings.DEBUG:
             session_token = request.session.get('staff_session_token')
@@ -284,13 +290,14 @@ def staff_attendance_mark(request, class_id, attendance_date):
 @require_staff_login
 @require_http_methods(['GET'])
 def staff_profile(request):
-    schema_name = request.session['staff_schema_name']
+    schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
+    staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
     from django_tenants.utils import schema_context
     with schema_context(schema_name):
-        staff = Staff.objects.get(pk=request.session['staff_id'])
+        staff = Staff.objects.get(pk=staff_id)
     with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
-    passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential).order_by('-last_used', '-created_at')) if credential else []
+    passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
     if credential is not None:
         credential.raw_password = None
     return render(request, 'mobile/staff/profile.html', {
@@ -336,8 +343,9 @@ def _staff_expected_origins(request):
 
 @require_http_methods(['POST'])
 def staff_webauthn_registration_options(request):
-    schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-    staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
+    schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
+    staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
+    logger.info('Registration options requested for staff_id=%s schema=%s', staff_id, schema_name)
     if not schema_name or not staff_id:
         return JsonResponse({'error': 'Authentication required.'}, status=401)
 
@@ -368,15 +376,16 @@ def staff_webauthn_registration_options(request):
 
 
 
-@require_staff_login
 @require_http_methods(['POST'])
-
-
 def staff_webauthn_registration_verify(request):
-    logger.info(f"Registration verify called for staff {request.session.get('staff_id')}")
-    schema_name = request.session.get('staff_schema_name')
-    staff_id = request.session.get('staff_id')
+    schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
+    staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
     expected_challenge = request.session.get('staff_webauthn_registration_challenge')
+    logger.info(
+        'Registration verify session keys=%s staff_id=%s schema=%s pending_passkey=%s',
+        sorted(request.session.keys()), staff_id, schema_name,
+        request.session.get('staff_pending_passkey'),
+    )
     if not schema_name or not staff_id or not expected_challenge:
         return JsonResponse({'success': False, 'message': 'Registration session expired.'}, status=400)
 
@@ -387,6 +396,7 @@ def staff_webauthn_registration_verify(request):
 
     with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff_id, schema_name=schema_name).first()
+        logger.info('Registration credential found=%s for staff_id=%s schema=%s', bool(credential), staff_id, schema_name)
         if credential is None:
             return JsonResponse({'success': False, 'message': 'Credential not found.'}, status=404)
 
@@ -405,24 +415,28 @@ def staff_webauthn_registration_verify(request):
         logger.info(f"WebAuthn registration verification succeeded for credential_id={bytes_to_base64url(verification.credential_id)}")
 
         try:
-            obj, created = WebAuthnCredential.objects.update_or_create(
-                credential_id=bytes_to_base64url(verification.credential_id),
-                defaults={
-                    'staff_credential': credential,
-                    'public_key': bytes_to_base64url(verification.credential_public_key),
-                    'sign_count': verification.sign_count,
-                    'device_name': payload.get('deviceName', 'Unknown Device'),
-                    'is_active': True,
-                },
-            )
+            with transaction.atomic():
+                obj, created = WebAuthnCredential.objects.update_or_create(
+                    credential_id=bytes_to_base64url(verification.credential_id),
+                    defaults={
+                        'staff_credential': credential,
+                        'public_key': bytes_to_base64url(verification.credential_public_key),
+                        'sign_count': verification.sign_count,
+                        'device_name': payload.get('deviceName', 'Unknown Device'),
+                        'is_active': True,
+                    },
+                )
             if not created and obj.is_active is False:
                 obj.is_active = True
                 obj.save(update_fields=['is_active'])
+            logger.info('Registration credential saved id=%s created=%s active=%s', obj.pk, created, obj.is_active)
         except Exception as e:
             logger.error(f"Failed to save WebAuthn credential: {e}")
             return JsonResponse({'success': False, 'message': f'Database error: {str(e)}'}, status=500)
 
         request.session.pop('staff_webauthn_registration_challenge', None)
+        request.session['staff_pending_passkey'] = False
+        request.session.modified = True
         logger.info('Registration success, returning success response')
         return JsonResponse({'success': True, 'message': 'Passkey registered successfully.'})
 
