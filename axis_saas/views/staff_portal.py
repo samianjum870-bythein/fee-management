@@ -482,9 +482,19 @@ def staff_webauthn_authentication_options(request):
                 data = json.loads(request.body.decode('utf-8') or '{}')
             except json.JSONDecodeError:
                 data = {}
+
+        pending_username = request.session.get('pending_username') or request.session.get('staff_username') or ''
+        pending_staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
+        pending_schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
         username = (data.get('username') or request.POST.get('username') or '').strip()
+
+        if pending_username:
+            if username and username != pending_username:
+                return JsonResponse({'error': 'This passkey does not belong to the signed-in account.'}, status=403)
+            username = pending_username
+
         if not username:
-            username = (request.session.get('pending_username') or request.session.get('staff_username') or '').strip()
+            username = pending_username
 
         with schema_context('public'):
             # Empty allowCredentials enables discoverable, username-less passkeys.
@@ -493,6 +503,10 @@ def staff_webauthn_authentication_options(request):
                 credential = StaffCredential.objects.filter(username=username, is_active=True).first()
                 if credential is None:
                     return JsonResponse({'error': 'Account not found.'}, status=404)
+                if pending_staff_id and str(credential.staff_id) != str(pending_staff_id):
+                    return JsonResponse({'error': 'This passkey does not belong to the signed-in account.'}, status=403)
+                if pending_schema_name and credential.schema_name != pending_schema_name:
+                    return JsonResponse({'error': 'This passkey belongs to a different tenant.'}, status=403)
                 passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
                 if not passkeys:
                     return JsonResponse({'error': 'No passkeys registered for this account.'}, status=403)

@@ -224,7 +224,8 @@
                     csrfToken = metaCsrf.getAttribute('content');
                 }
             }
-            const username = document.getElementById('username')?.value.trim();
+            const pendingUsername = '{{ request.session.staff_username|default:'' }}';
+            const username = (document.getElementById('username')?.value.trim() || pendingUsername || '').trim();
             const optionsResponse = await fetch('{% url "staff_webauthn_authentication_options" %}', {
                 method: 'POST',
                 headers: {
