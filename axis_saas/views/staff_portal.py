@@ -542,7 +542,7 @@ def staff_webauthn_authentication_options(request):
         request.session.pop('staff_webauthn_login_staff_id', None)
         request.session.pop('staff_webauthn_login_schema_name', None)
         request.session.modified = True
-        return JsonResponse({'error': 'Passkey authentication is unavailable right now. Please try again.'}, status=500)
+        return JsonResponse({'error': 'This passkey challenge could not be prepared for your account. Please try again or sign in with your password again.'}, status=400)
 
 @require_http_methods(['POST'])
 
@@ -641,7 +641,7 @@ def staff_webauthn_authentication_verify(request):
         request.session.pop('staff_webauthn_login_staff_id', None)
         request.session.pop('staff_webauthn_login_schema_name', None)
         request.session.modified = True
-        return JsonResponse({'success': False, 'message': 'Passkey authentication is unavailable right now. Please try again.'}, status=500)
+        return JsonResponse({'success': False, 'message': 'This passkey could not be verified for your account. Please try again.'}, status=400)
 
 @require_staff_login
 @require_http_methods(['POST'])
