@@ -110,6 +110,7 @@ def staff_verify_passkey(request):
     staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
     schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
     username = request.session.get('pending_username') or request.session.get('staff_username', '')
+    logger.info('Rendering passkey verification for pending staff_id=%s username=%s schema=%s', staff_id, username, schema_name)
     if not staff_id or not schema_name:
         return redirect('staff_login')
     return render(request, 'mobile/staff/verify_passkey.html', {

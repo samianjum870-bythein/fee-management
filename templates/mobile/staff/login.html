@@ -39,6 +39,10 @@
         return '';
     }
 
+    function getCsrfToken() {
+        return getCookie('csrftoken') || document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '';
+    }
+
     function base64UrlToUint8Array(value) {
         if (!value) {
             throw new Error('Missing WebAuthn value.');
@@ -112,7 +116,7 @@
         }
 
         try {
-            let csrfToken = getCookie('csrftoken');
+            let csrfToken = getCsrfToken();
             if (!csrfToken) {
                 // Fallback to template variable
                 const metaCsrf = document.querySelector('meta[name=\"csrf-token\"]');
@@ -193,8 +197,10 @@
     }
 
     document.getElementById('passkey-login-btn')?.addEventListener('click', function () {
-        // Discoverable credentials allow passkey-only login without a username.
-        loginWithPasskey();
+        // Use the username when supplied for the reliable scoped flow; an empty
+        // field still enables discoverable username-less passkey login.
+        const username = document.getElementById('username')?.value.trim() || '';
+        loginWithPasskey(username);
     });
 
     async function completePendingPasskeyLogin() {
@@ -210,7 +216,7 @@
         }
 
         try {
-            let csrfToken = getCookie('csrftoken');
+            let csrfToken = getCsrfToken();
             if (!csrfToken) {
                 // Fallback to template variable
                 const metaCsrf = document.querySelector('meta[name=\"csrf-token\"]');

@@ -9,6 +9,7 @@
     <div id="passkey-status" class="alert" style="color: #1d4ed8; background: rgba(59,130,246,.08);">
         Preparing secure passkey verification…
     </div>
+    {% csrf_token %}
 
     <div style="margin-top: 16px;">
         <button type="button" id="verify-passkey-btn" class="btn-primary" style="width:100%; padding: .8rem 1rem; border-radius: .8rem; font-weight: 600;">Verify with Passkey</button>
@@ -21,6 +22,10 @@
         const parts = value.split(`; ${name}=`);
         if (parts.length === 2) return parts.pop().split(';').shift();
         return '';
+    }
+
+    function getCsrfToken() {
+        return getCookie('csrftoken') || document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '';
     }
 
     function base64UrlToUint8Array(value) {
@@ -67,7 +72,7 @@
 
         try {
             await ensureWebAuthnSupport();
-            const csrfToken = getCookie('csrftoken');
+            const csrfToken = getCsrfToken();
             const username = '{{ username|escapejs }}';
 
             status.textContent = 'Requesting your passkey challenge…';
