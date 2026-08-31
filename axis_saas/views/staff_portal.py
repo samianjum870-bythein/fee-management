@@ -58,6 +58,7 @@ def staff_login(request):
                     cache.set(ip_key, attempts + 1, 60)
                     return render(request, 'mobile/staff/login.html', {'error': 'Your staff account is inactive or missing.'})
 
+                has_passkey = bool(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).exists())
                 cache.delete(ip_key)
                 cache.delete(f'{ip_key}_blocked_until')
                 credential.reset_failed_attempts()
@@ -69,10 +70,13 @@ def staff_login(request):
                 request.session['school_admin_schema'] = ''
                 request.session['staff_id'] = staff.pk
                 request.session['staff_schema_name'] = credential.schema_name
+                request.session['pending_staff_id'] = staff.pk
+                request.session['pending_schema_name'] = credential.schema_name
                 request.session['staff_username'] = credential.username
                 request.session['staff_role'] = staff.role
                 request.session['staff_name'] = staff.full_name
                 request.session['staff_session_token'] = uuid.uuid4().hex
+                request.session['staff_pending_passkey'] = has_passkey
                 request.session.set_expiry(1800)
                 request.session.modified = True
                 session_keys = cache.get(f'staff_session_keys:{credential.schema_name}:{staff.pk}', [])
@@ -84,7 +88,9 @@ def staff_login(request):
                 cache.set(f'staff_session_keys:{credential.schema_name}:{staff.pk}', list(dict.fromkeys(session_keys)), 1800)
                 cache.set(f'staff_online:{credential.schema_name}:{staff.pk}', request.session.session_key, 1800)
                 cache.set(f'staff_session_token:{credential.schema_name}:{staff.pk}', request.session['staff_session_token'], 1800)
-                return redirect('staff_dashboard')
+                if has_passkey:
+                    return redirect('staff_verify_passkey')
+                return redirect('staff_profile_page')
 
         cache.set(ip_key, attempts + 1, 60)
         if credential:
@@ -92,6 +98,21 @@ def staff_login(request):
         return render(request, 'mobile/staff/login.html', {'error': 'Invalid username or password.'})
 
     return render(request, 'mobile/staff/login.html')
+
+
+@require_http_methods(['GET'])
+def staff_verify_passkey(request):
+    staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
+    schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
+    username = request.session.get('staff_username', '')
+    if not staff_id or not schema_name:
+        return redirect('staff_login')
+    return render(request, 'mobile/staff/verify_passkey.html', {
+        'staff_id': staff_id,
+        'schema_name': schema_name,
+        'username': username,
+    })
+
 
 def staff_logout(request):
     staff_id = request.session.get('staff_id')
@@ -313,11 +334,10 @@ def _staff_expected_origins(request):
     return configured_origins
 
 
-@require_staff_login
 @require_http_methods(['POST'])
 def staff_webauthn_registration_options(request):
-    schema_name = request.session.get('staff_schema_name')
-    staff_id = request.session.get('staff_id')
+    schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
+    staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
     if not schema_name or not staff_id:
         return JsonResponse({'error': 'Authentication required.'}, status=401)
 
@@ -527,6 +547,9 @@ def staff_webauthn_authentication_verify(request):
     request.session.pop('staff_webauthn_login_username', None)
     request.session.pop('staff_webauthn_login_staff_id', None)
     request.session.pop('staff_webauthn_login_schema_name', None)
+    request.session['staff_pending_passkey'] = False
+    request.session.pop('pending_staff_id', None)
+    request.session.pop('pending_schema_name', None)
     logger.info('Authentication success, returning redirect')
     return JsonResponse({'success': True, 'message': 'Passkey verified successfully.', 'redirect': '/portal/staff/dashboard/'})
 
