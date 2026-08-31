@@ -508,8 +508,16 @@ def staff_webauthn_authentication_options(request):
                 if pending_schema_name and credential.schema_name != pending_schema_name:
                     return JsonResponse({'error': 'This passkey belongs to a different tenant.'}, status=403)
                 passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
+                valid_passkeys = []
+                for item in passkeys:
+                    try:
+                        base64url_to_bytes(item.credential_id)
+                        valid_passkeys.append(item)
+                    except Exception:
+                        logger.warning('Skipping malformed WebAuthn credential id for staff credential %s', credential.pk)
+                passkeys = valid_passkeys
                 if not passkeys:
-                    return JsonResponse({'error': 'No passkeys registered for this account.'}, status=403)
+                    return JsonResponse({'error': 'No valid passkeys registered for this account.'}, status=403)
                 request.session['staff_webauthn_login_username'] = credential.username
                 request.session['staff_webauthn_login_staff_id'] = credential.staff_id
                 request.session['staff_webauthn_login_schema_name'] = credential.schema_name
@@ -527,13 +535,17 @@ def staff_webauthn_authentication_options(request):
             PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id), type='public-key')
             for item in passkeys
         ] or None
-        options = generate_authentication_options(
-            rp_id=_staff_compute_rp_id(request),
-            challenge=challenge,
-            timeout=60000,
-            allow_credentials=allow_credentials,
-            user_verification=UserVerificationRequirement.REQUIRED,
-        )
+        try:
+            options = generate_authentication_options(
+                rp_id=_staff_compute_rp_id(request),
+                challenge=challenge,
+                timeout=60000,
+                allow_credentials=allow_credentials,
+                user_verification=UserVerificationRequirement.REQUIRED,
+            )
+        except Exception as exc:
+            logger.exception('generate_authentication_options failed: %s', exc)
+            return JsonResponse({'error': 'This passkey challenge could not be prepared for your account. Please try again or sign in with your password again.'}, status=400)
         return JsonResponse(json.loads(options_to_json(options)))
     except Exception as exc:
         logger.exception('Staff WebAuthn authentication options failed: %s', exc)
