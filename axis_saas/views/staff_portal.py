@@ -72,6 +72,7 @@ def staff_login(request):
                 # Keep the identity pending until WebAuthn authentication succeeds.
                 request.session['pending_staff_id'] = staff.pk
                 request.session['pending_schema_name'] = credential.schema_name
+                request.session['pending_username'] = credential.username
                 request.session['staff_username'] = credential.username
                 request.session['staff_role'] = staff.role
                 request.session['staff_name'] = staff.full_name
@@ -102,9 +103,13 @@ def staff_login(request):
 
 @require_http_methods(['GET'])
 def staff_verify_passkey(request):
+    if not request.session.get('staff_pending_passkey'):
+        if request.session.get('staff_id') and request.session.get('staff_schema_name'):
+            return redirect('staff_dashboard')
+        return redirect('staff_login')
     staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
     schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-    username = request.session.get('staff_username', '')
+    username = request.session.get('pending_username') or request.session.get('staff_username', '')
     if not staff_id or not schema_name:
         return redirect('staff_login')
     return render(request, 'mobile/staff/verify_passkey.html', {
@@ -302,6 +307,8 @@ def staff_profile(request):
         credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
         # Both credential queries must run in public; these models are not tenant data.
         passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
+    if request.session.get('staff_pending_passkey') and passkeys:
+        return redirect('staff_verify_passkey')
     if credential is not None:
         credential.raw_password = None
     return render(request, 'mobile/staff/profile.html', {
@@ -449,6 +456,7 @@ def staff_webauthn_registration_verify(request):
         request.session['staff_schema_name'] = schema_name
         request.session.pop('pending_staff_id', None)
         request.session.pop('pending_schema_name', None)
+        request.session.pop('pending_username', None)
         request.session.modified = True
         logger.info('Registration success, returning success response')
         return JsonResponse({'success': True, 'message': 'Passkey registered successfully.'})
@@ -464,6 +472,8 @@ def staff_webauthn_authentication_options(request):
         except json.JSONDecodeError:
             data = {}
     username = (data.get('username') or request.POST.get('username') or '').strip()
+    if not username:
+        username = (request.session.get('pending_username') or request.session.get('staff_username') or '').strip()
 
     with schema_context('public'):
         # Empty allowCredentials enables discoverable, username-less passkeys.
@@ -581,6 +591,7 @@ def staff_webauthn_authentication_verify(request):
     request.session.pop('staff_webauthn_login_staff_id', None)
     request.session.pop('staff_webauthn_login_schema_name', None)
     request.session['staff_pending_passkey'] = False
+    request.session.pop('pending_username', None)
     request.session.pop('pending_staff_id', None)
     request.session.pop('pending_schema_name', None)
     logger.info('Authentication success, returning redirect')
