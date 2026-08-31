@@ -81,6 +81,12 @@
 
     async function loginWithPasskey(username = '') {
         console.log('loginWithPasskey called with username:', username);
+        const loginButton = document.getElementById('passkey-login-btn');
+        if (loginButton?.dataset.inFlight === 'true') return;
+        if (loginButton) {
+            loginButton.dataset.inFlight = 'true';
+            loginButton.disabled = true;
+        }
         const status = document.getElementById('passkey-login-status') || document.createElement('div');
         if (!document.getElementById('passkey-login-status')) {
             status.id = 'passkey-login-status';
@@ -98,6 +104,10 @@
         } catch (error) {
             status.textContent = error.message;
             status.style.color = '#b91c1c';
+            if (loginButton) {
+                loginButton.dataset.inFlight = 'false';
+                loginButton.disabled = false;
+            }
             return;
         }
 
@@ -110,7 +120,7 @@
                     csrfToken = metaCsrf.getAttribute('content');
                 }
             }
-            const payload = username ? { username } : {};
+            const optionsPayload = username ? { username } : {};
             const optionsResponse = await fetch('{% url "staff_webauthn_authentication_options" %}', {
                 method: 'POST',
                 headers: {
@@ -118,7 +128,7 @@
                     'X-CSRFToken': csrfToken,
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(optionsPayload)
             });
 
             if (!optionsResponse.ok) {
@@ -138,7 +148,7 @@
             };
 
             const credential = await navigator.credentials.get({ publicKey });
-            const payload = {
+            const authenticationPayload = {
                 id: credential.id,
                 rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
                 type: credential.type,
@@ -158,7 +168,7 @@
                     'X-CSRFToken': csrfToken,
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(authenticationPayload)
             });
 
             const verifyData = await parseJsonResponse(verifyResponse, 'Passkey verification failed.');
@@ -175,6 +185,10 @@
         } catch (error) {
             status.textContent = error.message || 'Passkey verification could not be completed.';
             status.style.color = '#b91c1c';
+            if (loginButton) {
+                loginButton.dataset.inFlight = 'false';
+                loginButton.disabled = false;
+            }
         }
     }
 
@@ -232,7 +246,7 @@
             };
 
             const credential = await navigator.credentials.get({ publicKey });
-            const payload = {
+            const authenticationPayload = {
                 id: credential.id,
                 rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
                 type: credential.type,
@@ -252,7 +266,7 @@
                     'X-CSRFToken': csrfToken,
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(authenticationPayload)
             });
 
             const verifyData = await parseJsonResponse(verifyResponse, 'Passkey verification failed.');

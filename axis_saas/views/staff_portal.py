@@ -533,15 +533,19 @@ def staff_webauthn_authentication_verify(request):
             return JsonResponse({'success': False, 'message': 'This passkey is not registered for the selected account.'}, status=403)
         if login_schema_name and webauthn_credential.staff_credential.schema_name != login_schema_name:
             return JsonResponse({'success': False, 'message': 'This passkey belongs to a different tenant.'}, status=403)
-        verification = verify_authentication_response(
-            credential=payload,
-            expected_challenge=base64url_to_bytes(expected_challenge),
-            expected_rp_id=_staff_compute_rp_id(request),
-            expected_origin=_staff_expected_origins(request),
-            credential_public_key=base64url_to_bytes(webauthn_credential.public_key),
-            credential_current_sign_count=webauthn_credential.sign_count,
-            require_user_verification=True,
-        )
+        try:
+            verification = verify_authentication_response(
+                credential=payload,
+                expected_challenge=base64url_to_bytes(expected_challenge),
+                expected_rp_id=_staff_compute_rp_id(request),
+                expected_origin=_staff_expected_origins(request),
+                credential_public_key=base64url_to_bytes(webauthn_credential.public_key),
+                credential_current_sign_count=webauthn_credential.sign_count,
+                require_user_verification=True,
+            )
+        except Exception as exc:
+            logger.warning('WebAuthn authentication failed: %s', exc)
+            return JsonResponse({'success': False, 'message': 'Passkey verification failed. Please try again.'}, status=400)
         webauthn_credential.sign_count = verification.new_sign_count
         webauthn_credential.last_used = timezone.now()
         webauthn_credential.save(update_fields=['sign_count', 'last_used'])

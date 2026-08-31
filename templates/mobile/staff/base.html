@@ -32,7 +32,7 @@
             color: var(--text);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
-        body {
+        body.authenticated-portal {
             padding-bottom: 86px;
         }
         a { color: inherit; }
@@ -262,7 +262,8 @@
     </style>
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% if request.session.staff_id and request.session.staff_schema_name %}authenticated-portal{% endif %}">
+    {% if request.session.staff_id and request.session.staff_schema_name %}
     <div class="topbar">
         <div class="brand-wrap">
             <div class="brand-mark">A</div>
@@ -275,6 +276,7 @@
             <a href="{% url 'staff_logout' %}">Logout</a>
         </div>
     </div>
+    {% endif %}
     <div class="container">
         {% if messages %}
             {% for message in messages %}
@@ -291,6 +293,7 @@
         {% block body %}{% endblock %}
     </div>
 
+    {% if request.session.staff_id and request.session.staff_schema_name %}
     <nav class="bottom-nav">
         <a href="{% url 'staff_dashboard' %}" class="{% if request.path == '/portal/staff/dashboard/' %}active{% endif %}">
             <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10.5V20h14v-9.5"/></svg>
@@ -309,5 +312,6 @@
             <span>More</span>
         </a>
     </nav>
+    {% endif %}
 </body>
 </html>

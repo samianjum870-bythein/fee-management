@@ -61,6 +61,9 @@
         const status = document.getElementById('passkey-status');
         const button = document.getElementById('verify-passkey-btn');
         if (!status || !button) return;
+        if (button.dataset.inFlight === 'true') return;
+        button.dataset.inFlight = 'true';
+        button.disabled = true;
 
         try {
             await ensureWebAuthnSupport();
@@ -134,6 +137,7 @@
         } catch (error) {
             status.textContent = error.message || 'Passkey verification could not be completed.';
             status.style.color = '#b91c1c';
+            button.dataset.inFlight = 'false';
             button.disabled = false;
         }
     }
