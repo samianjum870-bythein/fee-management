@@ -69,6 +69,7 @@ def staff_login(request):
                 request.session.flush()
                 request.session['school_admin_authenticated'] = False
                 request.session['school_admin_schema'] = ''
+                # Keep the identity pending until WebAuthn authentication succeeds.
                 request.session['pending_staff_id'] = staff.pk
                 request.session['pending_schema_name'] = credential.schema_name
                 request.session['staff_username'] = credential.username
@@ -290,6 +291,8 @@ def staff_attendance_mark(request, class_id, attendance_date):
 @require_staff_login
 @require_http_methods(['GET'])
 def staff_profile(request):
+    # Registration is allowed after password verification, so resolve either
+    # the fully authenticated identity or the pending identity.
     schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
     staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
     from django_tenants.utils import schema_context
@@ -297,7 +300,8 @@ def staff_profile(request):
         staff = Staff.objects.get(pk=staff_id)
     with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
-    passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
+        # Both credential queries must run in public; these models are not tenant data.
+        passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
     if credential is not None:
         credential.raw_password = None
     return render(request, 'mobile/staff/profile.html', {
@@ -343,6 +347,7 @@ def _staff_expected_origins(request):
 
 @require_http_methods(['POST'])
 def staff_webauthn_registration_options(request):
+    # During onboarding only the pending identity is available.
     schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
     staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
     logger.info('Registration options requested for staff_id=%s schema=%s', staff_id, schema_name)
@@ -378,6 +383,7 @@ def staff_webauthn_registration_options(request):
 
 @require_http_methods(['POST'])
 def staff_webauthn_registration_verify(request):
+    # Bind the new credential to the identity that passed the password step.
     schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
     staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
     expected_challenge = request.session.get('staff_webauthn_registration_challenge')
@@ -415,6 +421,7 @@ def staff_webauthn_registration_verify(request):
         logger.info(f"WebAuthn registration verification succeeded for credential_id={bytes_to_base64url(verification.credential_id)}")
 
         try:
+            # WebAuthnCredential is public-schema data; make its write atomic.
             with transaction.atomic():
                 obj, created = WebAuthnCredential.objects.update_or_create(
                     credential_id=bytes_to_base64url(verification.credential_id),
