@@ -300,39 +300,51 @@ def staff_attendance_mark(request, class_id, attendance_date):
 @require_staff_login
 @require_http_methods(['GET'])
 def staff_profile(request):
-    # Registration is allowed after password verification, so resolve either
-    # the fully authenticated identity or the pending identity.
-    schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-    staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
-    if not schema_name or not staff_id:
-        request.session.flush()
-        return redirect('staff_login')
-
-    from django_tenants.utils import schema_context
     try:
-        with schema_context(schema_name):
-            staff = Staff.objects.get(pk=staff_id)
-    except Exception:
-        request.session.flush()
+        # Registration is allowed after password verification, so resolve either
+        # the fully authenticated identity or the pending identity.
+        schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
+        staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
+        logger.info('PROFILE - schema_name=%s staff_id=%s', schema_name, staff_id)
+        if not schema_name or not staff_id:
+            logger.warning('PROFILE - missing schema or staff_id, flushing session')
+            request.session.flush()
+            return redirect('staff_login')
+
+        from django_tenants.utils import schema_context
+        try:
+            with schema_context(schema_name):
+                staff = Staff.objects.get(pk=staff_id)
+        except Exception as e:
+            logger.exception('PROFILE - failed to fetch staff: %s', e)
+            request.session.flush()
+            return redirect('staff_login')
+
+        with schema_context('public'):
+            credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
+            passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
+        logger.info('PROFILE - passkeys count=%d, pending_passkey=%s', len(passkeys), request.session.get('staff_pending_passkey'))
+        if request.session.get('staff_pending_passkey') and passkeys:
+            logger.info('PROFILE - redirecting to verify-passkey')
+            return redirect('staff_verify_passkey')
+        if credential is not None:
+            credential.raw_password = None
+        try:
+            response = render(request, 'mobile/staff/profile.html', {
+                'staff': staff,
+                'credential': credential,
+                'passkeys': passkeys,
+                'has_passkey': bool(passkeys),
+                'staff_passkey_required': getattr(request, 'staff_passkey_required', False),
+            })
+            logger.info('PROFILE - render successful, returning response')
+            return response
+        except Exception as e:
+            logger.exception('PROFILE - render failed: %s', e)
+            return redirect('staff_dashboard')
+    except Exception as e:
+        logger.exception('PROFILE - unexpected error: %s', e)
         return redirect('staff_login')
-
-    with schema_context('public'):
-        credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
-        # Both credential queries must run in public; these models are not tenant data.
-        passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
-    if request.session.get('staff_pending_passkey') and passkeys:
-        return redirect('staff_verify_passkey')
-    if credential is not None:
-        credential.raw_password = None
-    return render(request, 'mobile/staff/profile.html', {
-        'staff': staff,
-        'credential': credential,
-        'passkeys': passkeys,
-        'has_passkey': bool(passkeys),
-        'staff_passkey_required': request.staff_passkey_required,
-    })
-
-
 def _staff_compute_rp_id(request):
     configured_rp_id = getattr(settings, 'WEBAUTHN_RP_ID', '').strip().lower()
     if configured_rp_id:

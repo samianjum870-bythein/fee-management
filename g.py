@@ -2,7 +2,8 @@
 """
 axis_patcher.py
 
-Apply fixes to staff passkey second-factor and persistence issues.
+Fix staff passkey second-factor and persistence issues.
+Also fix the middleware to always return a response.
 
 Usage:
     python axis_patcher.py [--dry-run] [--verbose] [--target-dir PATH]
@@ -11,13 +12,14 @@ This script patches:
     - axis_saas/views/staff_portal.py
     - axis_saas/middleware/staff_tenant_middleware.py
 
-It adds detailed logging and ensures pending identity is used correctly.
+It adds detailed logging, ensures pending identity is used correctly,
+wraps staff_profile in a top-level try/except, and adds missing return
+in StaffTenantMiddleware.__call__.
 """
 
 import os
 import re
 import sys
-import shutil
 import logging
 import argparse
 from pathlib import Path
@@ -342,47 +344,68 @@ def staff_webauthn_registration_verify(request):
         logger.info('REG VERIFY - success, session promoted')
         return JsonResponse({'success': True, 'message': 'Passkey registered successfully.'})"""
 
-# Patch for middleware: add logging around staff_passkey_required computation
-MIDDLEWARE_PATCH = """
-        # Determine if passkey is required for the fully authenticated identity.
-        request.staff_passkey_required = False
-        try:
-            effective_staff_id = request.session.get('staff_id') or pending_staff_id
-            effective_schema_name = request.session.get('staff_schema_name') or pending_schema_name
-            logger.info("Middleware: effective_staff_id=%s effective_schema=%s pending_passkey=%s", effective_staff_id, effective_schema_name, is_pending_passkey)
-            if effective_staff_id and effective_schema_name:
-                with schema_context('public'):
-                    credential = StaffCredential.objects.filter(
-                        staff_id=effective_staff_id,
-                        schema_name=effective_schema_name,
-                    ).first()
-                logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
-                if credential and credential.has_passkey:
-                    request.staff_passkey_required = False
-                else:
-                    # No passkey or credential missing
-                    request.staff_passkey_required = True
-            else:
-                request.staff_passkey_required = False
+# Fixed staff_profile view with top-level try/except to guarantee return
+NEW_PROFILE_VIEW = """@require_staff_login
+@require_http_methods(['GET'])
+def staff_profile(request):
+    try:
+        # Registration is allowed after password verification, so resolve either
+        # the fully authenticated identity or the pending identity.
+        schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
+        staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
+        logger.info('PROFILE - schema_name=%s staff_id=%s', schema_name, staff_id)
+        if not schema_name or not staff_id:
+            logger.warning('PROFILE - missing schema or staff_id, flushing session')
+            request.session.flush()
+            return redirect('staff_login')
 
-            allowed_paths = [
-                '/portal/staff/profile/',
-                '/portal/staff/verify-passkey/',
-                '/portal/staff/security/webauthn/register/options/',
-                '/portal/staff/security/webauthn/register/verify/',
-                '/portal/staff/security/webauthn/auth/options/',
-                '/portal/staff/security/webauthn/auth/verify/',
-                '/portal/staff/logout/',
-                '/portal/staff/login/',
-            ]
-            logger.info("Middleware: staff_passkey_required=%s, path=%s", request.staff_passkey_required, request.path_info)
-            if request.staff_passkey_required and request.path_info not in allowed_paths:
-                logger.info("Middleware: redirecting to profile because passkey required")
-                return redirect('staff_profile_page')
-        except Exception as exc:
-            logger.exception('Middleware error: %s', exc)
-            request.staff_passkey_required = False
-"""
+        from django_tenants.utils import schema_context
+        try:
+            with schema_context(schema_name):
+                staff = Staff.objects.get(pk=staff_id)
+        except Exception as e:
+            logger.exception('PROFILE - failed to fetch staff: %s', e)
+            request.session.flush()
+            return redirect('staff_login')
+
+        with schema_context('public'):
+            credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
+            passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
+        logger.info('PROFILE - passkeys count=%d, pending_passkey=%s', len(passkeys), request.session.get('staff_pending_passkey'))
+        if request.session.get('staff_pending_passkey') and passkeys:
+            logger.info('PROFILE - redirecting to verify-passkey')
+            return redirect('staff_verify_passkey')
+        if credential is not None:
+            credential.raw_password = None
+        try:
+            response = render(request, 'mobile/staff/profile.html', {
+                'staff': staff,
+                'credential': credential,
+                'passkeys': passkeys,
+                'has_passkey': bool(passkeys),
+                'staff_passkey_required': getattr(request, 'staff_passkey_required', False),
+            })
+            logger.info('PROFILE - render successful, returning response')
+            return response
+        except Exception as e:
+            logger.exception('PROFILE - render failed: %s', e)
+            return redirect('staff_dashboard')
+    except Exception as e:
+        logger.exception('PROFILE - unexpected error: %s', e)
+        return redirect('staff_login')"""
+
+# The middleware patch: we will replace the entire __call__ method with a corrected version
+# that includes the final return self.get_response(request).
+# We'll construct the corrected method code using the existing content but adding the return.
+# To avoid duplicating huge code, we can just patch the return by appending it.
+
+# However, for simplicity and idempotence, we'll replace the method with a version that
+# has the return at the end. We'll generate the corrected method by reading the current file,
+# finding the __call__ method, and then appending the return if not present.
+
+# We'll implement a function that does this.
+
+# For the patcher script, we'll include a function that ensures the return is present.
 
 
 # -----------------------------------------------------------------------------
@@ -392,7 +415,6 @@ MIDDLEWARE_PATCH = """
 def find_function_boundaries(lines, function_name):
     """Find start and end line indices for a top-level function."""
     start = None
-    # find the line with 'def function_name'
     for i, line in enumerate(lines):
         if re.match(rf'^def\s+{function_name}\s*\(', line):
             start = i
@@ -426,18 +448,9 @@ def replace_function(file_path, function_name, new_function_code):
     if start is None:
         logger.error(f"Function {function_name} not found in {file_path}")
         return False
-    # We keep the decorator lines and the function definition line; we replace the body.
-    # Actually we want to replace the entire function including decorators.
-    # But the new code includes decorators, so we can replace from start to end.
-    # However, the new code we provided includes the decorator and the function definition.
-    # So we can replace lines[start:end] with new_function_code.
-    # But we need to ensure the new function code is indented correctly?
-    # We'll split the new code into lines and preserve indentation? The new code already has correct indentation.
     new_lines = new_function_code.splitlines(keepends=True)
-    # Ensure the new code ends with a newline
     if new_lines and not new_lines[-1].endswith('\n'):
         new_lines[-1] += '\n'
-    # Replace
     lines[start:end] = new_lines
     new_content = ''.join(lines)
     with open(file_path, 'w', encoding='utf-8') as f:
@@ -446,26 +459,82 @@ def replace_function(file_path, function_name, new_function_code):
     return True
 
 
+def ensure_middleware_return(file_path):
+    """Ensure that the StaffTenantMiddleware.__call__ method ends with return self.get_response(request)."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    # Find the __call__ method
+    method_start = None
+    for i, line in enumerate(lines):
+        if re.match(r'^\s*def\s+__call__\s*\(self,\s*request\):', line):
+            method_start = i
+            break
+    if method_start is None:
+        logger.error("Could not find __call__ method in middleware")
+        return False
+
+    # Find the end of the method: next line at same indentation level as class or next method
+    # We'll find the next line that starts with a non-space (or a class/def) after the method.
+    # But we need to consider that the class might have other methods.
+    # We'll find the end by scanning for a line with indentation level 0 that is not a comment or blank.
+    # Actually, the method is indented inside the class. The class ends when we hit a line with no indentation.
+    # But there may be other methods. We'll find the end by searching for a line that starts with 'def ' at the same indentation as class (0) or 'class '.
+    # However, the file may have other top-level code. We'll simply find the next line that starts with 'def ' at column 0 (or 'class ').
+    # That indicates the next method or class. If none, end of file.
+    method_end = len(lines)
+    for j in range(method_start + 1, len(lines)):
+        if re.match(r'^(class|def)\s+', lines[j]):
+            method_end = j
+            break
+
+    # Now we need to check if the last non-empty line before method_end contains a return statement that returns self.get_response(request)
+    # We'll search backwards from method_end-1 to find the first non-empty line.
+    last_line_index = None
+    for k in range(method_end - 1, method_start, -1):
+        if lines[k].strip():
+            last_line_index = k
+            break
+
+    if last_line_index is None:
+        logger.error("Method has no content?")
+        return False
+
+    # Check if the last line already contains 'return self.get_response(request)'
+    if re.search(r'return\s+self\.get_response\s*\(', lines[last_line_index]):
+        logger.info("Middleware already has return self.get_response(request)")
+        return True
+
+    # If not, we need to insert a new line after the last line that returns self.get_response(request)
+    # But we must preserve indentation. The method body is indented by one level (4 spaces?).
+    # We'll insert the return with the same indentation as the method body.
+    # We'll get the indentation from the first line of the method body (after the def line).
+    # We'll use the indentation of the line right after def.
+    indent = ''
+    if method_start + 1 < len(lines):
+        match = re.match(r'^(\s+)', lines[method_start + 1])
+        if match:
+            indent = match.group(1)
+
+    # We'll insert at the position after the last line, but before the method_end.
+    insert_pos = last_line_index + 1
+    # But we need to insert after any trailing whitespace lines? We'll insert at last_line_index+1.
+    # We'll add a newline with proper indentation.
+    new_line = f"{indent}return self.get_response(request)\n"
+    lines.insert(insert_pos, new_line)
+
+    # Write back
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+    logger.info("Added missing return self.get_response(request) to middleware __call__")
+    return True
+
+
 def patch_middleware(file_path, patch_code):
-    """Insert logging code in the middleware's __call__ method.
-    We will search for the block where staff_passkey_required is computed and replace it.
-    """
+    """Insert logging code in the middleware's __call__ method."""
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    # We'll find the line: "request.staff_passkey_required = False" and replace from there
-    # up to the next line that is not indented (end of try block).
-    # But easier: we can replace the entire try block with our patch.
-    # We'll search for the pattern:
-    # request.staff_passkey_required = False
-    # try:
-    #     ... (some lines)
-    # except Exception as exc:
-    #     ...
-    # We'll replace from "request.staff_passkey_required = False" up to the line after the except block.
-    # We'll use a regex to capture the block.
-
-    # Find the line with request.staff_passkey_required = False
     lines = content.splitlines(keepends=True)
     start = None
     for i, line in enumerate(lines):
@@ -476,20 +545,12 @@ def patch_middleware(file_path, patch_code):
         logger.error("Could not find request.staff_passkey_required = False in middleware")
         return False
 
-    # Find the end of the try block: find the line after the except block where indentation returns to 0.
-    # We'll find the next line that starts with a non-space character after the except block.
-    # We'll assume the block ends at the line after the except block's body.
-    # We'll find the end by scanning for a line that starts with a non-space character and is not a comment.
     end = len(lines)
     for j in range(start + 1, len(lines)):
         if lines[j].strip() and not lines[j].startswith(' ') and not lines[j].startswith('\t'):
-            # Found a line with no indentation (top-level)
             end = j
             break
 
-    # Build the new block: we'll keep the line "request.staff_passkey_required = False" and then the patch code.
-    # But the patch code already includes that line? Actually our patch starts with that line and the try.
-    # We'll replace from start to end with our patch code (which includes the assignment and the try block).
     new_block = patch_code
     if not new_block.endswith('\n'):
         new_block += '\n'
@@ -535,22 +596,71 @@ def main():
         logger.info(f"Would replace staff_webauthn_authentication_options in {staff_portal_path}")
         logger.info(f"Would replace staff_webauthn_authentication_verify in {staff_portal_path}")
         logger.info(f"Would replace staff_webauthn_registration_verify in {staff_portal_path}")
+        logger.info(f"Would replace staff_profile in {staff_portal_path}")
         logger.info(f"Would patch middleware in {middleware_path}")
+        logger.info(f"Would ensure middleware has return in {middleware_path}")
         return
 
-    # Backup? Not required per instruction, but we'll warn.
     logger.info("Applying patches...")
 
     # Replace functions in staff_portal.py
     replace_function(staff_portal_path, "staff_webauthn_authentication_options", NEW_AUTH_OPTIONS)
     replace_function(staff_portal_path, "staff_webauthn_authentication_verify", NEW_AUTH_VERIFY)
     replace_function(staff_portal_path, "staff_webauthn_registration_verify", NEW_REG_VERIFY)
+    replace_function(staff_portal_path, "staff_profile", NEW_PROFILE_VIEW)
 
-    # Patch middleware
+    # Patch middleware: replace the staff_passkey_required block with logging
+    # We have a patch code for that.
+    # But we also need to ensure the final return exists.
     patch_middleware(middleware_path, MIDDLEWARE_PATCH)
+
+    # Ensure the middleware has a final return
+    ensure_middleware_return(middleware_path)
 
     logger.info("All patches applied successfully.")
 
+
+# The middleware patch code (same as before)
+MIDDLEWARE_PATCH = """
+        # Determine if passkey is required for the fully authenticated identity.
+        request.staff_passkey_required = False
+        try:
+            effective_staff_id = request.session.get('staff_id') or pending_staff_id
+            effective_schema_name = request.session.get('staff_schema_name') or pending_schema_name
+            logger.info("Middleware: effective_staff_id=%s effective_schema=%s pending_passkey=%s", effective_staff_id, effective_schema_name, is_pending_passkey)
+            if effective_staff_id and effective_schema_name:
+                with schema_context('public'):
+                    credential = StaffCredential.objects.filter(
+                        staff_id=effective_staff_id,
+                        schema_name=effective_schema_name,
+                    ).first()
+                logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
+                if credential and credential.has_passkey:
+                    request.staff_passkey_required = False
+                else:
+                    # No passkey or credential missing
+                    request.staff_passkey_required = True
+            else:
+                request.staff_passkey_required = False
+
+            allowed_paths = [
+                '/portal/staff/profile/',
+                '/portal/staff/verify-passkey/',
+                '/portal/staff/security/webauthn/register/options/',
+                '/portal/staff/security/webauthn/register/verify/',
+                '/portal/staff/security/webauthn/auth/options/',
+                '/portal/staff/security/webauthn/auth/verify/',
+                '/portal/staff/logout/',
+                '/portal/staff/login/',
+            ]
+            logger.info("Middleware: staff_passkey_required=%s, path=%s", request.staff_passkey_required, request.path_info)
+            if request.staff_passkey_required and request.path_info not in allowed_paths:
+                logger.info("Middleware: redirecting to profile because passkey required")
+                return redirect('staff_profile_page')
+        except Exception as exc:
+            logger.exception('Middleware error: %s', exc)
+            request.staff_passkey_required = False
+"""
 
 if __name__ == "__main__":
     main()

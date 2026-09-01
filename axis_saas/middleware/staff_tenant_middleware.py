@@ -99,6 +99,14 @@ class StaffTenantMiddleware:
         # If only pending, we allow the profile and verify pages.
 
         # Determine if passkey is required for the fully authenticated identity.
+
+        # Determine if passkey is required for the fully authenticated identity.
+
+        # Determine if passkey is required for the fully authenticated identity.
+
+        # Determine if passkey is required for the fully authenticated identity.
+
+        # Determine if passkey is required for the fully authenticated identity.
         request.staff_passkey_required = False
         try:
             effective_staff_id = request.session.get('staff_id') or pending_staff_id
@@ -136,3 +144,4 @@ class StaffTenantMiddleware:
         except Exception as exc:
             logger.exception('Middleware error: %s', exc)
             request.staff_passkey_required = False
+        return self.get_response(request)
