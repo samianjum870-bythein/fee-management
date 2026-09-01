@@ -143,6 +143,36 @@ def staff_logout(request):
     return redirect('staff_login')
 
 
+def _resolve_staff_passkey_identity(request):
+    pending_staff_id = request.session.get('pending_staff_id')
+    pending_schema_name = request.session.get('pending_schema_name')
+    pending_username = request.session.get('pending_username')
+    staff_id = request.session.get('staff_id')
+    staff_schema_name = request.session.get('staff_schema_name')
+    staff_username = request.session.get('staff_username')
+
+    if request.session.get('staff_pending_passkey'):
+        resolved_staff_id = pending_staff_id or staff_id
+        resolved_schema_name = pending_schema_name or staff_schema_name
+        resolved_username = pending_username or staff_username
+    else:
+        resolved_staff_id = staff_id or pending_staff_id
+        resolved_schema_name = staff_schema_name or pending_schema_name
+        resolved_username = staff_username or pending_username
+
+    return {
+        'pending_staff_id': pending_staff_id,
+        'pending_schema_name': pending_schema_name,
+        'staff_id': staff_id,
+        'staff_schema_name': staff_schema_name,
+        'pending_username': pending_username,
+        'staff_username': staff_username,
+        'resolved_staff_id': resolved_staff_id,
+        'resolved_schema_name': resolved_schema_name,
+        'resolved_username': resolved_username,
+    }
+
+
 def require_staff_login(view_func):
     def wrapped(request, *args, **kwargs):
         staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
@@ -510,26 +540,22 @@ def staff_webauthn_authentication_options(request):
                 data = {}
 
         provided_username = (data.get('username') or request.POST.get('username') or '').strip()
-        pending_staff_id = request.session.get('pending_staff_id')
-        pending_schema_name = request.session.get('pending_schema_name')
-        staff_id = request.session.get('staff_id')
-        staff_schema_name = request.session.get('staff_schema_name')
-        resolved_staff_id = pending_staff_id or staff_id
-        resolved_schema_name = pending_schema_name or staff_schema_name
+        identity = _resolve_staff_passkey_identity(request)
+        pending_staff_id = identity['pending_staff_id']
+        pending_schema_name = identity['pending_schema_name']
+        staff_id = identity['staff_id']
+        staff_schema_name = identity['staff_schema_name']
+        resolved_staff_id = identity['resolved_staff_id']
+        resolved_schema_name = identity['resolved_schema_name']
+        resolved_username = identity['resolved_username'] or provided_username
 
-        # If this is a pending passkey verification, prefer the provided username
-        # instead of a stale resolved identity so we match the actual registered
-        # passkey for the password-login flow.
         if request.session.get('staff_pending_passkey'):
-            resolved_staff_id = pending_staff_id or staff_id
-            resolved_schema_name = pending_schema_name or staff_schema_name
             logger.info('AUTH OPTIONS - Pending passkey verification, using resolved identity for lookup')
 
-        resolved_username = request.session.get('pending_username') or request.session.get('staff_username') or provided_username
-
         logger.info(
-            'AUTH OPTIONS - pending_staff_id=%s pending_schema=%s staff_id=%s staff_schema=%s provided_username=%s resolved_username=%s',
-            pending_staff_id, pending_schema_name, staff_id, staff_schema_name, provided_username, resolved_username
+            'AUTH OPTIONS - pending_staff_id=%s pending_schema=%s staff_id=%s staff_schema=%s provided_username=%s resolved_username=%s resolved_identity=%s/%s',
+            pending_staff_id, pending_schema_name, staff_id, staff_schema_name, provided_username, resolved_username,
+            resolved_staff_id, resolved_schema_name,
         )
         logger.info('AUTH OPTIONS - session keys: %s', sorted(request.session.keys()))
 

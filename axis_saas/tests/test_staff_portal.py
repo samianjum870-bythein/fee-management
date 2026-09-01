@@ -1,10 +1,11 @@
+import base64
 from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django_tenants.utils import schema_context
 
 from axis_saas.middleware.staff_tenant_middleware import StaffTenantMiddleware
-from axis_saas.models import SchoolClient, Staff, StaffCredential
+from axis_saas.models import SchoolClient, Staff, StaffCredential, WebAuthnCredential
 
 
 class StaffMiddlewarePasskeyAccessTests(SimpleTestCase):
@@ -126,6 +127,12 @@ class StaffPortalTests(TestCase):
             cred = StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name)
             cred.set_password('StrongPass@123')
             cred.save(update_fields=['password'])
+            WebAuthnCredential.objects.create(
+                staff_credential=cred,
+                credential_id=base64.urlsafe_b64encode(b'passkey-credential').decode().rstrip('='),
+                public_key='test-public-key',
+                is_active=True,
+            )
 
         response = self.client.post(
             '/portal/staff/security/webauthn/auth/options/',
@@ -137,3 +144,43 @@ class StaffPortalTests(TestCase):
         payload = response.json()
         self.assertIn('challenge', payload)
         self.assertIn('allowCredentials', payload)
+
+    def test_webauthn_authentication_options_uses_pending_identity_for_verify_flow(self):
+        with schema_context(self.tenant.schema_name):
+            staff = Staff.objects.create(
+                first_name='Sara',
+                last_name='Iqbal',
+                email='sara@example.com',
+                job_title='English Teacher',
+                department='teaching',
+                phone='03003334445',
+                role='teacher',
+            )
+            cred = StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name)
+            cred.set_password('StrongPass@123')
+            cred.save(update_fields=['password'])
+            WebAuthnCredential.objects.create(
+                staff_credential=cred,
+                credential_id=base64.urlsafe_b64encode(b'pending-passkey').decode().rstrip('='),
+                public_key='pending-public-key',
+                is_active=True,
+            )
+
+        session = self.client.session
+        session['pending_staff_id'] = staff.id
+        session['pending_schema_name'] = self.tenant.schema_name
+        session['pending_username'] = cred.username
+        session['staff_pending_passkey'] = True
+        session.save()
+
+        response = self.client.post(
+            '/portal/staff/security/webauthn/auth/options/',
+            data={},
+            content_type='application/json',
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn('challenge', payload)
+        self.assertEqual(self.client.session['staff_webauthn_login_staff_id'], staff.id)
+        self.assertEqual(self.client.session['staff_webauthn_login_schema_name'], self.tenant.schema_name)
