@@ -491,8 +491,8 @@ def staff_webauthn_authentication_options(request):
         pending_schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
         username = (data.get('username') or request.POST.get('username') or '').strip()
 
-        # Fallback to session values so the password-login verification flow uses the
-        # same account-bound logic as the direct passkey login flow.
+        # If the user already passed the password step, we already know the staff
+        # account from session. Do not force a username for that flow.
         if not username:
             username = request.session.get('staff_webauthn_login_username') or request.session.get('staff_username') or request.session.get('pending_username') or ''
         username = username.strip()
@@ -502,20 +502,39 @@ def staff_webauthn_authentication_options(request):
                 return JsonResponse({'error': 'This passkey does not belong to the signed-in account.'}, status=403)
             username = pending_username
 
-        if not username:
-            return JsonResponse({'error': 'Username is required for passkey login.'}, status=400)
-
+        passkeys = []
         with schema_context('public'):
-            # Empty allowCredentials enables discoverable, username-less passkeys.
-            # If a username is supplied, narrow the challenge to that account.
-            if username:
+            # If a session-bound account exists, prefer that exact account rather than
+            # requiring the browser to send a username. This keeps the password-login
+            # verification flow identical to the direct passkey login flow.
+            if pending_staff_id and pending_schema_name:
+                credential = StaffCredential.objects.filter(
+                    staff_id=pending_staff_id,
+                    schema_name=pending_schema_name,
+                    is_active=True,
+                ).first()
+                if credential is None:
+                    return JsonResponse({'error': 'Account not found.'}, status=404)
+                username = credential.username
+                passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
+                valid_passkeys = []
+                for item in passkeys:
+                    try:
+                        base64url_to_bytes(item.credential_id)
+                        valid_passkeys.append(item)
+                    except Exception:
+                        logger.warning('Skipping malformed WebAuthn credential id for staff credential %s', credential.pk)
+                passkeys = valid_passkeys
+                if not passkeys:
+                    return JsonResponse({'error': 'No valid passkeys registered for this account.'}, status=403)
+                request.session['staff_webauthn_login_username'] = credential.username
+                request.session['staff_webauthn_login_staff_id'] = credential.staff_id
+                request.session['staff_webauthn_login_schema_name'] = credential.schema_name
+                request.session.modified = True
+            elif username:
                 credential = StaffCredential.objects.filter(username=username, is_active=True).first()
                 if credential is None:
                     return JsonResponse({'error': 'Account not found.'}, status=404)
-                if pending_staff_id and str(credential.staff_id) != str(pending_staff_id):
-                    return JsonResponse({'error': 'This passkey does not belong to the signed-in account.'}, status=403)
-                if pending_schema_name and credential.schema_name != pending_schema_name:
-                    return JsonResponse({'error': 'This passkey belongs to a different tenant.'}, status=403)
                 passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
                 valid_passkeys = []
                 for item in passkeys:
@@ -532,6 +551,9 @@ def staff_webauthn_authentication_options(request):
                 request.session['staff_webauthn_login_schema_name'] = credential.schema_name
                 request.session.modified = True
             else:
+                # Discoverable passkey login: no username is required, and challenge is
+                # created without allowCredentials when the browser is already using a
+                # platform authenticator tied to the device.
                 passkeys = []
                 request.session.pop('staff_webauthn_login_username', None)
                 request.session.pop('staff_webauthn_login_staff_id', None)
