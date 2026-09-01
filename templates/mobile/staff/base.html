@@ -283,13 +283,6 @@
                 <div class="alert">{{ message }}</div>
             {% endfor %}
         {% endif %}
-        {% if False %}
-            <div class="alert security-alert" role="alert">
-                <strong>Action required: register a passkey</strong>
-                <div>Secure your staff account with a native biometric passkey before continuing to the portal.</div>
-                <a href="{% url 'staff_profile_page' %}">Set up passkey protection now</a>
-            </div>
-        {% endif %}
         {% block body %}{% endblock %}
     </div>
 

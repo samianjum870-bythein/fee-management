@@ -17,11 +17,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
-from webauthn import generate_authentication_options, generate_registration_options, verify_authentication_response, verify_registration_response
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
-from webauthn.helpers.structs import AttestationConveyancePreference, AuthenticatorAttachment, AuthenticatorSelectionCriteria, PublicKeyCredentialDescriptor, ResidentKeyRequirement, UserVerificationRequirement
 
-from axis_saas.models import Notification, SchoolClass, Staff, StaffCredential, Student, StudentAttendance, WebAuthnCredential
+from axis_saas.models import Notification, SchoolClass, Staff, StaffCredential, Student, StudentAttendance
 from django.views.decorators.csrf import csrf_exempt
 
 logger = logging.getLogger(__name__)
@@ -59,7 +56,6 @@ def staff_login(request):
                     cache.set(ip_key, attempts + 1, 60)
                     return render(request, 'mobile/staff/login.html', {'error': 'Your staff account is inactive or missing.'})
 
-                has_passkey = bool(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).exists())
                 cache.delete(ip_key)
                 cache.delete(f'{ip_key}_blocked_until')
                 credential.reset_failed_attempts()
@@ -69,15 +65,12 @@ def staff_login(request):
                 request.session.flush()
                 request.session['school_admin_authenticated'] = False
                 request.session['school_admin_schema'] = ''
-                # Keep the identity pending until WebAuthn authentication succeeds.
-                request.session['pending_staff_id'] = staff.pk
-                request.session['pending_schema_name'] = credential.schema_name
-                request.session['pending_username'] = credential.username
+                request.session['staff_id'] = staff.pk
+                request.session['staff_schema_name'] = credential.schema_name
                 request.session['staff_username'] = credential.username
                 request.session['staff_role'] = staff.role
                 request.session['staff_name'] = staff.full_name
                 request.session['staff_session_token'] = uuid.uuid4().hex
-                request.session['staff_pending_passkey'] = has_passkey
                 request.session.set_expiry(1800)
                 request.session.modified = True
                 session_keys = cache.get(f'staff_session_keys:{credential.schema_name}:{staff.pk}', [])
@@ -89,9 +82,7 @@ def staff_login(request):
                 cache.set(f'staff_session_keys:{credential.schema_name}:{staff.pk}', list(dict.fromkeys(session_keys)), 1800)
                 cache.set(f'staff_online:{credential.schema_name}:{staff.pk}', request.session.session_key, 1800)
                 cache.set(f'staff_session_token:{credential.schema_name}:{staff.pk}', request.session['staff_session_token'], 1800)
-                if has_passkey:
-                    return redirect('staff_verify_passkey')
-                return redirect('staff_profile_page')
+                return redirect('staff_dashboard')
 
         cache.set(ip_key, attempts + 1, 60)
         if credential:
@@ -99,28 +90,6 @@ def staff_login(request):
         return render(request, 'mobile/staff/login.html', {'error': 'Invalid username or password.'})
 
     return render(request, 'mobile/staff/login.html')
-
-
-@require_http_methods(['GET'])
-def staff_verify_passkey(request):
-    if not request.session.get('staff_pending_passkey'):
-        if request.session.get('staff_id') and request.session.get('staff_schema_name'):
-            return redirect('staff_dashboard')
-        return redirect('staff_login')
-
-    # Prefer the authenticated identity, but keep the pending one as fallback for
-    # the password-login flow before the passkey has been fully verified.
-    staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
-    schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-    username = request.session.get('staff_username') or request.session.get('pending_username') or ''
-    logger.info('Rendering passkey verification for pending staff_id=%s username=%s schema=%s', staff_id, username, schema_name)
-    if not staff_id or not schema_name:
-        return redirect('staff_login')
-    return render(request, 'mobile/staff/verify_passkey.html', {
-        'staff_id': staff_id,
-        'schema_name': schema_name,
-        'username': username,
-    })
 
 
 def staff_logout(request):
@@ -143,48 +112,12 @@ def staff_logout(request):
     return redirect('staff_login')
 
 
-def _resolve_staff_passkey_identity(request):
-    pending_staff_id = request.session.get('pending_staff_id')
-    pending_schema_name = request.session.get('pending_schema_name')
-    pending_username = request.session.get('pending_username')
-    staff_id = request.session.get('staff_id')
-    staff_schema_name = request.session.get('staff_schema_name')
-    staff_username = request.session.get('staff_username')
-
-    if request.session.get('staff_pending_passkey'):
-        resolved_staff_id = pending_staff_id or staff_id
-        resolved_schema_name = pending_schema_name or staff_schema_name
-        resolved_username = pending_username or staff_username
-    else:
-        resolved_staff_id = staff_id or pending_staff_id
-        resolved_schema_name = staff_schema_name or pending_schema_name
-        resolved_username = staff_username or pending_username
-
-    return {
-        'pending_staff_id': pending_staff_id,
-        'pending_schema_name': pending_schema_name,
-        'staff_id': staff_id,
-        'staff_schema_name': staff_schema_name,
-        'pending_username': pending_username,
-        'staff_username': staff_username,
-        'resolved_staff_id': resolved_staff_id,
-        'resolved_schema_name': resolved_schema_name,
-        'resolved_username': resolved_username,
-    }
-
-
 def require_staff_login(view_func):
     def wrapped(request, *args, **kwargs):
-        staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
-        schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-        pending_paths = {
-            '/portal/staff/profile/',
-            '/portal/staff/security/webauthn/register/options/',
-            '/portal/staff/security/webauthn/register/verify/',
-        }
-        if (not staff_id or not schema_name) or (
-            request.session.get('staff_id') is None and request.path_info not in pending_paths
-        ):
+        staff_id = request.session.get('staff_id')
+        schema_name = request.session.get('staff_schema_name')
+
+        if not staff_id or not schema_name:
             return redirect('staff_login')
 
         if not settings.DEBUG:
@@ -192,31 +125,11 @@ def require_staff_login(view_func):
             cached_token = cache.get(f'staff_session_token:{schema_name}:{staff_id}') if schema_name and staff_id else None
             token_invalid = not session_token or cached_token in ['logged_out'] or cached_token != session_token
         else:
-            # In development, skip token validation
-            session_token = None
-            cached_token = None
             token_invalid = False
-        is_webauthn_auth = request.path_info in [
-            '/portal/staff/security/webauthn/auth/options/',
-            '/portal/staff/security/webauthn/auth/verify/',
-        ]
-        is_pending_webauthn = request.session.get('staff_pending_webauthn') is True
 
-        if token_invalid and not (is_webauthn_auth and is_pending_webauthn):
+        if token_invalid:
             request.session.flush()
             return redirect('staff_login')
-        onboarding_paths = {
-            '/portal/staff/profile/',
-            '/portal/staff/security/webauthn/register/options/',
-            '/portal/staff/security/webauthn/register/verify/',
-            '/portal/staff/security/webauthn/auth/options/',
-            '/portal/staff/security/webauthn/auth/verify/',
-            '/portal/staff/logout/',
-        }
-        if request.path_info not in onboarding_paths:
-            # Passkeys are optional and should not block access to the staff portal.
-            # The login and WebAuthn flows handle passkey verification when a user has one.
-            pass
         return view_func(request, *args, **kwargs)
     return wrapped
 
@@ -331,10 +244,8 @@ def staff_attendance_mark(request, class_id, attendance_date):
 @require_http_methods(['GET'])
 def staff_profile(request):
     try:
-        # Registration is allowed after password verification, so resolve either
-        # the fully authenticated identity or the pending identity.
-        schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-        staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
+        schema_name = request.session.get('staff_schema_name')
+        staff_id = request.session.get('staff_id')
         logger.info('PROFILE - schema_name=%s staff_id=%s', schema_name, staff_id)
         if not schema_name or not staff_id:
             logger.warning('PROFILE - missing schema or staff_id, flushing session')
@@ -352,20 +263,12 @@ def staff_profile(request):
 
         with schema_context('public'):
             credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
-            passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True).order_by('-last_used', '-created_at')) if credential else []
-        logger.info('PROFILE - passkeys count=%d, pending_passkey=%s', len(passkeys), request.session.get('staff_pending_passkey'))
-        if request.session.get('staff_pending_passkey') and passkeys:
-            logger.info('PROFILE - redirecting to verify-passkey')
-            return redirect('staff_verify_passkey')
         if credential is not None:
             credential.raw_password = None
         try:
             response = render(request, 'mobile/staff/profile.html', {
                 'staff': staff,
                 'credential': credential,
-                'passkeys': passkeys,
-                'has_passkey': bool(passkeys),
-                'staff_passkey_required': getattr(request, 'staff_passkey_required', False),
             })
             logger.info('PROFILE - render successful, returning response')
             return response
@@ -375,403 +278,6 @@ def staff_profile(request):
     except Exception as e:
         logger.exception('PROFILE - unexpected error: %s', e)
         return redirect('staff_login')
-def _staff_compute_rp_id(request):
-    configured_rp_id = getattr(settings, 'WEBAUTHN_RP_ID', '').strip().lower()
-    if configured_rp_id:
-        return configured_rp_id
-    host = request.get_host().split(':')[0]
-    return host if host and host not in ['', 'localhost', '127.0.0.1'] else 'localhost'
-
-
-def _staff_compute_origin(request):
-    configured_origin = getattr(settings, 'WEBAUTHN_ORIGIN', '').strip().rstrip('/')
-    if configured_origin:
-        return configured_origin
-    return request.build_absolute_uri('/').rstrip('/')
-
-
-def _staff_expected_origins(request):
-    configured_origins = getattr(settings, 'WEBAUTHN_ALLOWED_ORIGINS', [])
-    if isinstance(configured_origins, str):
-        configured_origins = [origin.strip().rstrip('/') for origin in configured_origins.split(',') if origin.strip()]
-    else:
-        configured_origins = [str(origin).strip().rstrip('/') for origin in configured_origins if str(origin).strip()]
-
-    if getattr(settings, 'WEBAUTHN_ORIGIN', '').strip():
-        configured_origins = [origin for origin in configured_origins if origin != getattr(settings, 'WEBAUTHN_ORIGIN', '').strip().rstrip('/')]
-        configured_origins.insert(0, getattr(settings, 'WEBAUTHN_ORIGIN', '').strip().rstrip('/'))
-
-    origin = _staff_compute_origin(request)
-    if origin not in configured_origins:
-        configured_origins.insert(0, origin)
-    return configured_origins
-
-
-@require_http_methods(['POST'])
-def staff_webauthn_registration_options(request):
-    # During onboarding only the pending identity is available.
-    schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
-    staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
-    logger.info('Registration options requested for staff_id=%s schema=%s', staff_id, schema_name)
-    if not schema_name or not staff_id:
-        return JsonResponse({'error': 'Authentication required.'}, status=401)
-
-    with schema_context('public'):
-        credential = StaffCredential.objects.filter(staff_id=staff_id, schema_name=schema_name).first()
-        if not credential:
-            return JsonResponse({'error': 'Staff credential not found.'}, status=404)
-        user_id = f"{credential.staff_id}:{credential.schema_name}".encode('utf-8')
-        challenge = secrets.token_bytes(32)
-        request.session['staff_webauthn_registration_challenge'] = bytes_to_base64url(challenge)
-        registration_options = generate_registration_options(
-            rp_id=_staff_compute_rp_id(request),
-            rp_name=getattr(settings, 'WEBAUTHN_RP_NAME', 'AXIS School Portal'),
-            user_name=credential.username,
-            user_id=user_id,
-            user_display_name=credential.username,
-            challenge=challenge,
-            timeout=60000,
-            authenticator_selection=AuthenticatorSelectionCriteria(
-                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
-                user_verification=UserVerificationRequirement.REQUIRED,
-                resident_key=ResidentKeyRequirement.PREFERRED,
-                require_resident_key=False,
-            ),
-            attestation=AttestationConveyancePreference.NONE,
-        )
-        return JsonResponse(json.loads(options_to_json(registration_options)))
-
-
-
-@require_http_methods(['POST'])
-def staff_webauthn_registration_verify(request):
-    # Bind the new credential to the identity that passed the password step.
-    schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
-    staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
-    expected_challenge = request.session.get('staff_webauthn_registration_challenge')
-    logger.info(
-        'REG VERIFY - session keys=%s staff_id=%s schema=%s pending_passkey=%s',
-        sorted(request.session.keys()), staff_id, schema_name,
-        request.session.get('staff_pending_passkey'),
-    )
-    if not schema_name or not staff_id or not expected_challenge:
-        logger.warning('REG VERIFY - missing session data: schema=%s, staff_id=%s, challenge=%s', schema_name, staff_id, expected_challenge)
-        return JsonResponse({'success': False, 'message': 'Registration session expired.'}, status=400)
-
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except json.JSONDecodeError:
-        logger.warning('REG VERIFY - invalid JSON')
-        return JsonResponse({'success': False, 'message': 'Invalid registration payload.'}, status=400)
-
-    with schema_context('public'):
-        credential = StaffCredential.objects.filter(staff_id=staff_id, schema_name=schema_name).first()
-        logger.info('REG VERIFY - credential found=%s for staff_id=%s schema=%s', bool(credential), staff_id, schema_name)
-        if credential is None:
-            return JsonResponse({'success': False, 'message': 'Credential not found.'}, status=404)
-
-        try:
-            verification = verify_registration_response(
-                credential=payload,
-                expected_challenge=base64url_to_bytes(expected_challenge),
-                expected_rp_id=_staff_compute_rp_id(request),
-                expected_origin=_staff_expected_origins(request),
-                require_user_verification=True,
-            )
-        except Exception as e:
-            logger.error(f"WebAuthn registration verification failed: {e}")
-            return JsonResponse({'success': False, 'message': f'Verification error: {str(e)}'}, status=400)
-
-        logger.info(f"WebAuthn registration verification succeeded for credential_id={bytes_to_base64url(verification.credential_id)}")
-
-        try:
-            with transaction.atomic():
-                obj, created = WebAuthnCredential.objects.update_or_create(
-                    credential_id=bytes_to_base64url(verification.credential_id),
-                    defaults={
-                        'staff_credential': credential,
-                        'public_key': bytes_to_base64url(verification.credential_public_key),
-                        'sign_count': verification.sign_count,
-                        'device_name': payload.get('deviceName', 'Unknown Device'),
-                        'is_active': True,
-                    },
-                )
-            if not created and obj.is_active is False:
-                obj.is_active = True
-                obj.save(update_fields=['is_active'])
-            logger.info('REG VERIFY - credential saved id=%s created=%s active=%s', obj.pk, created, obj.is_active)
-        except Exception as e:
-            logger.error(f"Failed to save WebAuthn credential: {e}")
-            return JsonResponse({'success': False, 'message': f'Database error: {str(e)}'}, status=500)
-
-        # Promote session
-        request.session['staff_id'] = int(staff_id)
-        request.session['staff_schema_name'] = schema_name
-        request.session['staff_username'] = credential.username
-        request.session['staff_pending_passkey'] = False
-        request.session.pop('pending_staff_id', None)
-        request.session.pop('pending_schema_name', None)
-        request.session.pop('pending_username', None)
-        request.session['staff_session_token'] = uuid.uuid4().hex
-        request.session.set_expiry(1800)
-        request.session.modified = True
-
-        cache.set(f'staff_session_token:{schema_name}:{staff_id}', request.session['staff_session_token'], 1800)
-        session_keys = cache.get(f'staff_session_keys:{schema_name}:{staff_id}', [])
-        if isinstance(session_keys, str):
-            session_keys = [session_keys]
-        session_keys = [k for k in list(session_keys) if k]
-        if request.session.session_key:
-            session_keys.append(request.session.session_key)
-        cache.set(f'staff_session_keys:{schema_name}:{staff_id}', list(dict.fromkeys(session_keys)), 1800)
-        cache.set(f'staff_online:{schema_name}:{staff_id}', request.session.session_key, 1800)
-
-        request.session.pop('staff_webauthn_registration_challenge', None)
-        request.session.modified = True
-        logger.info('REG VERIFY - success, session promoted')
-        return JsonResponse({'success': True, 'message': 'Passkey registered successfully.'})
-def staff_webauthn_authentication_options(request):
-    data = {}
-    try:
-        if request.content_type and 'application/json' in request.content_type:
-            try:
-                data = json.loads(request.body.decode('utf-8') or '{}')
-            except json.JSONDecodeError:
-                data = {}
-
-        provided_username = (data.get('username') or request.POST.get('username') or '').strip()
-        identity = _resolve_staff_passkey_identity(request)
-        pending_staff_id = identity['pending_staff_id']
-        pending_schema_name = identity['pending_schema_name']
-        staff_id = identity['staff_id']
-        staff_schema_name = identity['staff_schema_name']
-        resolved_staff_id = identity['resolved_staff_id']
-        resolved_schema_name = identity['resolved_schema_name']
-        resolved_username = identity['resolved_username'] or provided_username
-
-        if request.session.get('staff_pending_passkey'):
-            logger.info('AUTH OPTIONS - Pending passkey verification, using resolved identity for lookup')
-
-        logger.info(
-            'AUTH OPTIONS - pending_staff_id=%s pending_schema=%s staff_id=%s staff_schema=%s provided_username=%s resolved_username=%s resolved_identity=%s/%s',
-            pending_staff_id, pending_schema_name, staff_id, staff_schema_name, provided_username, resolved_username,
-            resolved_staff_id, resolved_schema_name,
-        )
-        logger.info('AUTH OPTIONS - session keys: %s', sorted(request.session.keys()))
-
-        passkeys = []
-
-        if resolved_staff_id and resolved_schema_name:
-            logger.info('AUTH OPTIONS - Using resolved identity: staff_id=%s schema=%s', resolved_staff_id, resolved_schema_name)
-            with schema_context('public'):
-                credential = StaffCredential.objects.filter(
-                    staff_id=resolved_staff_id,
-                    schema_name=resolved_schema_name,
-                    is_active=True,
-                ).first()
-                if credential is None:
-                    logger.warning('AUTH OPTIONS - No StaffCredential found for resolved staff_id=%s schema=%s', resolved_staff_id, resolved_schema_name)
-                    return JsonResponse({'error': 'Account not found.'}, status=404)
-                passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
-                valid_passkeys = []
-                for item in passkeys:
-                    try:
-                        base64url_to_bytes(item.credential_id)
-                        valid_passkeys.append(item)
-                    except Exception:
-                        logger.warning('Skipping malformed WebAuthn credential id for staff credential %s', credential.pk)
-                passkeys = valid_passkeys
-                if not passkeys:
-                    logger.warning('AUTH OPTIONS - No valid passkeys for resolved staff_id=%s', resolved_staff_id)
-                    return JsonResponse({'error': 'No valid passkeys registered for this account.'}, status=403)
-                request.session['staff_webauthn_login_username'] = credential.username
-                request.session['staff_webauthn_login_staff_id'] = credential.staff_id
-                request.session['staff_webauthn_login_schema_name'] = credential.schema_name
-                request.session.modified = True
-                logger.info('AUTH OPTIONS - Found credential for resolved identity, username=%s, passkeys=%d', credential.username, len(passkeys))
-        elif provided_username:
-            logger.info('AUTH OPTIONS - Using username fallback: %s', provided_username)
-            with schema_context('public'):
-                credential = StaffCredential.objects.filter(username=provided_username, is_active=True).first()
-                if credential is None:
-                    logger.warning('AUTH OPTIONS - No StaffCredential found for username=%s', provided_username)
-                    return JsonResponse({'error': 'Account not found.'}, status=404)
-                passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
-                valid_passkeys = []
-                for item in passkeys:
-                    try:
-                        base64url_to_bytes(item.credential_id)
-                        valid_passkeys.append(item)
-                    except Exception:
-                        logger.warning('Skipping malformed WebAuthn credential id for staff credential %s', credential.pk)
-                passkeys = valid_passkeys
-                if not passkeys:
-                    logger.warning('AUTH OPTIONS - No valid passkeys for username=%s', provided_username)
-                    return JsonResponse({'error': 'No valid passkeys registered for this account.'}, status=403)
-                request.session['staff_webauthn_login_username'] = credential.username
-                request.session['staff_webauthn_login_staff_id'] = credential.staff_id
-                request.session['staff_webauthn_login_schema_name'] = credential.schema_name
-                request.session.modified = True
-                logger.info('AUTH OPTIONS - Found credential by username, username=%s, passkeys=%d', credential.username, len(passkeys))
-        else:
-            logger.info('AUTH OPTIONS - No resolved identity or username, attempting discoverable login')
-            passkeys = []
-            request.session.pop('staff_webauthn_login_username', None)
-            request.session.pop('staff_webauthn_login_staff_id', None)
-            request.session.pop('staff_webauthn_login_schema_name', None)
-            request.session.modified = True
-
-        challenge = secrets.token_bytes(32)
-        request.session['staff_webauthn_auth_challenge'] = bytes_to_base64url(challenge)
-        allow_credentials = [
-            PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id), type='public-key')
-            for item in passkeys
-        ] or None
-        rp_id = _staff_compute_rp_id(request)
-        origin = _staff_compute_origin(request)
-        logger.info('AUTH OPTIONS - rp_id=%s origin=%s allow_credentials=%s', rp_id, origin, len(allow_credentials or []))
-        try:
-            options = generate_authentication_options(
-                rp_id=rp_id,
-                challenge=challenge,
-                timeout=60000,
-                allow_credentials=allow_credentials,
-                user_verification=UserVerificationRequirement.REQUIRED,
-            )
-        except Exception as exc:
-            logger.exception('generate_authentication_options failed: rp_id=%s origin=%s request_host=%s error=%s', rp_id, origin, request.get_host(), exc)
-            return JsonResponse({'error': 'This passkey challenge could not be prepared for your account. Please try again or sign in with your password again.'}, status=400)
-        return JsonResponse(json.loads(options_to_json(options)))
-    except Exception as exc:
-        logger.exception('Staff WebAuthn authentication options failed: %s', exc)
-        request.session.pop('staff_webauthn_auth_challenge', None)
-        request.session.pop('staff_webauthn_login_username', None)
-        request.session.pop('staff_webauthn_login_staff_id', None)
-        request.session.pop('staff_webauthn_login_schema_name', None)
-        request.session.modified = True
-        return JsonResponse({'error': 'This passkey challenge could not be prepared for your account. Please try again or sign in with your password again.'}, status=400)
-@require_http_methods(['POST'])
-def staff_webauthn_authentication_verify(request):
-    logger.info('AUTH VERIFY - session keys before: %s', sorted(request.session.keys()))
-    expected_challenge = request.session.get('staff_webauthn_auth_challenge')
-    login_username = request.session.get('staff_webauthn_login_username') or request.session.get('pending_username') or request.session.get('staff_username')
-    login_staff_id = request.session.get('staff_webauthn_login_staff_id') or request.session.get('pending_staff_id') or request.session.get('staff_id')
-    login_schema_name = request.session.get('staff_webauthn_login_schema_name') or request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
-
-    if not expected_challenge:
-        logger.warning('AUTH VERIFY - No expected challenge in session')
-        return JsonResponse({'success': False, 'message': 'Passkey challenge expired. Please sign in again.'}, status=400)
-
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except json.JSONDecodeError:
-        logger.warning('AUTH VERIFY - Invalid JSON payload')
-        return JsonResponse({'success': False, 'message': 'Invalid passkey payload.'}, status=400)
-
-    credential_id = payload.get('id')
-    if not credential_id:
-        logger.warning('AUTH VERIFY - Missing credential id')
-        return JsonResponse({'success': False, 'message': 'Passkey identifier missing.'}, status=400)
-
-    try:
-        with schema_context('public'):
-            webauthn_credential = WebAuthnCredential.objects.filter(credential_id=credential_id, is_active=True).select_related('staff_credential').first()
-            logger.info('AUTH VERIFY - credential found=%s, expected_staff=%s, expected_schema=%s', bool(webauthn_credential), login_staff_id, login_schema_name)
-            if webauthn_credential is None:
-                return JsonResponse({'success': False, 'message': 'Passkey not recognized.'}, status=404)
-            if login_username and webauthn_credential.staff_credential.username != login_username:
-                logger.warning('AUTH VERIFY - username mismatch: provided=%s, credential=%s', login_username, webauthn_credential.staff_credential.username)
-                return JsonResponse({'success': False, 'message': 'This passkey does not belong to the provided username.'}, status=403)
-            if login_staff_id and str(webauthn_credential.staff_credential.staff_id) != str(login_staff_id):
-                logger.warning('AUTH VERIFY - staff_id mismatch: provided=%s, credential=%s', login_staff_id, webauthn_credential.staff_credential.staff_id)
-                return JsonResponse({'success': False, 'message': 'This passkey is not registered for the selected account.'}, status=403)
-            if login_schema_name and webauthn_credential.staff_credential.schema_name != login_schema_name:
-                logger.warning('AUTH VERIFY - schema mismatch: provided=%s, credential=%s', login_schema_name, webauthn_credential.staff_credential.schema_name)
-                return JsonResponse({'success': False, 'message': 'This passkey belongs to a different tenant.'}, status=403)
-            try:
-                verification = verify_authentication_response(
-                    credential=payload,
-                    expected_challenge=base64url_to_bytes(expected_challenge),
-                    expected_rp_id=_staff_compute_rp_id(request),
-                    expected_origin=_staff_expected_origins(request),
-                    credential_public_key=base64url_to_bytes(webauthn_credential.public_key),
-                    credential_current_sign_count=webauthn_credential.sign_count,
-                    require_user_verification=True,
-                )
-            except Exception as exc:
-                logger.warning('WebAuthn authentication verification failed: %s', exc)
-                return JsonResponse({'success': False, 'message': 'Passkey verification failed. Please try again.'}, status=400)
-            webauthn_credential.sign_count = verification.new_sign_count
-            webauthn_credential.last_used = timezone.now()
-            webauthn_credential.save(update_fields=['sign_count', 'last_used'])
-
-            target_staff_id = int(webauthn_credential.staff_credential.staff_id)
-            target_schema_name = webauthn_credential.staff_credential.schema_name
-
-            # Promote session: set full identity and clear pending flags
-            request.session['staff_id'] = target_staff_id
-            request.session['staff_schema_name'] = target_schema_name
-            request.session['staff_username'] = webauthn_credential.staff_credential.username
-            request.session['staff_pending_webauthn'] = False
-            request.session['staff_pending_passkey'] = False
-            request.session.pop('pending_staff_id', None)
-            request.session.pop('pending_schema_name', None)
-            request.session.pop('pending_username', None)
-            request.session['staff_session_token'] = uuid.uuid4().hex
-            request.session.set_expiry(1800)
-            request.session.modified = True
-
-            with schema_context(target_schema_name):
-                staff = Staff.objects.filter(pk=target_staff_id).first()
-                if staff:
-                    request.session['staff_role'] = staff.role
-                    request.session['staff_name'] = staff.full_name
-
-            token = request.session['staff_session_token']
-            cache.set(f'staff_session_token:{target_schema_name}:{target_staff_id}', token, 1800)
-            session_keys = cache.get(f'staff_session_keys:{target_schema_name}:{target_staff_id}', [])
-            if isinstance(session_keys, str):
-                session_keys = [session_keys]
-            session_keys = [k for k in list(session_keys) if k]
-            if request.session.session_key:
-                session_keys.append(request.session.session_key)
-            cache.set(f'staff_session_keys:{target_schema_name}:{target_staff_id}', list(dict.fromkeys(session_keys)), 1800)
-            cache.set(f'staff_online:{target_schema_name}:{target_staff_id}', request.session.session_key, 1800)
-
-        request.session.pop('staff_webauthn_auth_challenge', None)
-        request.session.pop('staff_webauthn_login_username', None)
-        request.session.pop('staff_webauthn_login_staff_id', None)
-        request.session.pop('staff_webauthn_login_schema_name', None)
-        request.session.modified = True
-        logger.info('AUTH VERIFY - success, redirecting to dashboard')
-        return JsonResponse({'success': True, 'message': 'Passkey verified successfully.', 'redirect': '/portal/staff/dashboard/'})
-    except Exception as exc:
-        logger.exception('Staff WebAuthn authentication verification crashed: %s', exc)
-        request.session.pop('staff_webauthn_auth_challenge', None)
-        request.session.pop('staff_webauthn_login_username', None)
-        request.session.pop('staff_webauthn_login_staff_id', None)
-        request.session.pop('staff_webauthn_login_schema_name', None)
-        request.session.modified = True
-        return JsonResponse({'success': False, 'message': 'This passkey could not be verified for your account. Please try again.'}, status=400)
-def staff_webauthn_remove_credential(request, credential_id):
-    schema_name = request.session.get('staff_schema_name')
-    staff_id = request.session.get('staff_id')
-    if not schema_name or not staff_id:
-        return JsonResponse({'success': False, 'message': 'Authentication required.'}, status=401)
-
-    with schema_context('public'):
-        passkey = WebAuthnCredential.objects.filter(
-            pk=credential_id,
-            staff_credential__staff_id=staff_id,
-            staff_credential__schema_name=schema_name,
-            is_active=True,
-        ).first()
-        if passkey is None:
-            return JsonResponse({'success': False, 'message': 'Passkey not found.'}, status=404)
-        passkey.is_active = False
-        passkey.save(update_fields=['is_active'])
-
-    return JsonResponse({'success': True, 'message': 'Passkey removed successfully.'})
 
 
 @require_staff_login

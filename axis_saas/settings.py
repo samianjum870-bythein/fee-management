@@ -33,29 +33,6 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') if os.environ.get
 if DEBUG:
     ALLOWED_HOSTS += ['127.0.0.1', 'localhost']
 
-railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '').strip()
-if railway_domain:
-    default_webauthn_origin = f'https://{railway_domain}'
-    default_rp_id = railway_domain
-else:
-    # Avoid forcing localhost for production requests in environments where the
-    # WebAuthn variables are not explicitly set. The request host is a safer
-    # fallback, and the request-level helper will still override to localhost
-    # only for local development when the host is actually local.
-    default_webauthn_origin = ''
-    default_rp_id = ''
-
-WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID', default_rp_id)
-WEBAUTHN_ORIGIN = os.environ.get('WEBAUTHN_ORIGIN', default_webauthn_origin)
-WEBAUTHN_RP_NAME = os.environ.get('WEBAUTHN_RP_NAME', 'AXIS School Portal')
-WEBAUTHN_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.environ.get('WEBAUTHN_ALLOWED_ORIGINS', WEBAUTHN_ORIGIN).split(',')
-    if origin.strip()
-]
-if WEBAUTHN_ORIGIN not in WEBAUTHN_ALLOWED_ORIGINS:
-    WEBAUTHN_ALLOWED_ORIGINS.insert(0, WEBAUTHN_ORIGIN)
-
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',

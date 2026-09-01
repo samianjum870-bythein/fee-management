@@ -505,10 +505,6 @@ class StaffCredential(models.Model):
         super().__init__(*args, **kwargs)
         self.raw_password = None
 
-    @property
-    def has_passkey(self):
-        return self.webauthn_credentials.filter(is_active=True).exists()
-
     def check_password(self, raw_password):
         return check_password(raw_password, self.password)
 
@@ -532,24 +528,6 @@ class StaffCredential(models.Model):
 
     def __str__(self):
         return f"{self.username} ({self.schema_name})"
-
-
-class WebAuthnCredential(models.Model):
-    """Bound WebAuthn credential for a staff member in a specific tenant schema."""
-    staff_credential = models.ForeignKey(StaffCredential, on_delete=models.CASCADE, related_name='webauthn_credentials')
-    credential_id = models.TextField(unique=True)
-    public_key = models.TextField()
-    sign_count = models.IntegerField(default=0)
-    device_name = models.CharField(max_length=200, default='Unknown Device')
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_used = models.DateTimeField(null=True, blank=True)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"WebAuthn {self.device_name} ({self.staff_credential.username})"
 
 
 # ------------------- Staff Model -------------------
@@ -673,15 +651,6 @@ class Staff(models.Model):
                 self._generated_username = credential.username
         except Exception:
             pass
-
-    def has_passkeys(self):
-        from django_tenants.utils import schema_context
-        with schema_context('public'):
-            return WebAuthnCredential.objects.filter(
-                staff_credential__staff_id=self.pk,
-                staff_credential__schema_name=getattr(__import__('django.db').db.connection, 'schema_name', 'public'),
-                is_active=True,
-            ).exists()
 
     @property
     def is_online(self):

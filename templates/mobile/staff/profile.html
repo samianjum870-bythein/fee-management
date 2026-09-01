@@ -2,19 +2,6 @@
 {% load static %}
 {% block title %}My Profile{% endblock %}
 {% block body %}
-{% if not has_passkey %}
-<div class="card">
-    <h3>Passkey Security</h3>
-    <div class="alert security-alert">
-        <strong>Required before portal access</strong>
-        <div>Register a native WebAuthn passkey using your device’s biometric or security-key support. This is the production-grade protection used for modern staff portals.</div>
-    </div>
-    <div class="stack" style="margin-top:8px;">
-        <button type="button" class="btn-primary" id="register-passkey-btn">Register Passkey</button>
-        <div id="passkey-status" class="subtle" style="font-size:12px;">No passkey active yet.</div>
-    </div>
-</div>
-{% else %}
 <div class="card">
     <h2 style="margin:0 0 6px;">{{ staff.full_name }}</h2>
     <div class="subtle">{{ staff.job_title }} · {{ staff.get_role_display }}</div>
@@ -34,31 +21,11 @@
         </div>
         <div>
             <div class="subtle" style="font-size:12px; margin-bottom:4px;">Password</div>
-            <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; color:var(--muted);">Hidden for security. Use the secure reset flow through the school admin profile.</div>
+            <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; color:var(--muted);">Hidden for security. Use the change-password form below.</div>
         </div>
     </div>
 </div>
 {% endif %}
-<div class="card">
-    <h3>Passkey Security</h3>
-    <div class="stack" style="margin-top:8px;">
-        <button type="button" class="btn-primary" id="register-passkey-btn" disabled style="opacity:0.6;">Registered</button>
-    </div>
-    {% if passkeys %}
-    <div style="margin-top: 14px; display:grid; gap:8px;">
-        <div class="subtle" style="font-size:12px; font-weight:700;">Your registered passkeys</div>
-        {% for passkey in passkeys %}
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:#f8fafc;">
-            <div>
-                <div style="font-weight:700;">{{ passkey.device_name }}</div>
-                <div class="subtle" style="font-size:11px;">Created {{ passkey.created_at|date:'d M Y' }}</div>
-            </div>
-            <button type="button" class="remove-passkey-btn" data-passkey-id="{{ passkey.pk }}" style="border:1px solid rgba(239,68,68,.3); background: rgba(239,68,68,.06); color:#b91c1c; border-radius:10px; padding:8px 10px; font-weight:700;">Remove</button>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-</div>
 <div class="card">
     <h3>Change Password</h3>
     <form method="post" action="{% url 'staff_change_password' %}" class="stack">
@@ -69,215 +36,7 @@
         <input type="password" name="new_password" placeholder="New password" required>
         <input type="password" name="confirm_password" placeholder="Confirm new password" required>
         <input type="hidden" name="verify_type" value="self_reset">
-        <input type="hidden" name="biometric_verified" value="1">
         <button type="submit" class="btn-primary">Update</button>
     </form>
 </div>
-{% endif %}
-<script>
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return '';
-    }
-
-    function base64UrlToUint8Array(value) {
-        if (!value) {
-            throw new Error('Missing WebAuthn value.');
-        }
-        const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-        const pad = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
-        const binary = atob(normalized + pad);
-        return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    }
-
-    function uint8ArrayToBase64Url(value) {
-        let binary = '';
-        value.forEach((byte) => {
-            binary += String.fromCharCode(byte);
-        });
-        return btoa(binary)
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/g, '');
-    }
-
-    function formatWebAuthnError(error) {
-        const name = error && error.name ? error.name : 'Error';
-        const message = error && error.message ? error.message : 'Passkey registration could not be completed.';
-
-        if (name === 'NotAllowedError') {
-            return 'Biometric verification was cancelled or blocked by the browser.';
-        }
-        if (name === 'SecurityError') {
-            return 'Invalid origin or insecure context. Use HTTPS or localhost.';
-        }
-        if (name === 'InvalidStateError') {
-            return 'This passkey is already registered or the browser state is invalid.';
-        }
-        if (name === 'NotSupportedError') {
-            return 'This device does not support platform biometric passkeys.';
-        }
-        return message;
-    }
-
-    function displayPasskeyStatus(message, isError = false) {
-        const statusEl = document.getElementById('passkey-status');
-        if (!statusEl) return;
-        statusEl.textContent = message;
-        statusEl.style.color = isError ? '#b91c1c' : '#475569';
-    }
-
-    async function ensureWebAuthnSupport() {
-        if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) {
-            throw new Error('This browser does not support native WebAuthn passkeys. Use Chrome, Edge, Firefox, or Safari with a compatible device.');
-        }
-        if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-            throw new Error('Passkeys require a secure context. Use HTTPS or localhost.');
-        }
-    }
-
-    async function registerPasskey() {
-        const button = document.getElementById('register-passkey-btn');
-        if (!button) return;
-
-        try {
-            await ensureWebAuthnSupport();
-        } catch (error) {
-            displayPasskeyStatus(formatWebAuthnError(error), true);
-            button.textContent = 'Register Passkey';
-            button.disabled = false;
-            return;
-        }
-
-        button.disabled = true;
-        button.textContent = 'Registering…';
-        displayPasskeyStatus('Preparing secure passkey registration…');
-
-        try {
-            let csrfToken = getCookie('csrftoken');
-            const response = await fetch('{% url "staff_webauthn_registration_options" %}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken,
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({})
-            });
-
-            if (!response.ok) {
-                let serverMessage = 'Unable to prepare passkey registration.';
-                try {
-                    const errorPayload = await response.json();
-                    serverMessage = errorPayload.error || errorPayload.message || serverMessage;
-                } catch (error) {
-                    const text = await response.text().catch(() => '');
-                    if (text) serverMessage = text;
-                }
-                throw new Error(`Server rejected passkey registration (${response.status}): ${serverMessage}`);
-            }
-
-            const options = await response.json();
-            const publicKey = {
-                challenge: base64UrlToUint8Array(options.challenge),
-                rp: options.rp,
-                user: {
-                    ...options.user,
-                    id: base64UrlToUint8Array(options.user.id)
-                },
-                pubKeyCredParams: options.pubKeyCredParams,
-                authenticatorSelection: options.authenticatorSelection || {
-                    userVerification: 'preferred',
-                    residentKey: 'preferred'
-                },
-                timeout: options.timeout,
-                attestation: options.attestation || 'none',
-                excludeCredentials: (options.excludeCredentials || []).map((item) => ({
-                    ...item,
-                    id: base64UrlToUint8Array(item.id)
-                }))
-            };
-
-            const credential = await navigator.credentials.create({ publicKey });
-            const payload = {
-                id: credential.id,
-                rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
-                type: credential.type,
-                response: {
-                    clientDataJSON: uint8ArrayToBase64Url(new Uint8Array(credential.response.clientDataJSON)),
-                    attestationObject: uint8ArrayToBase64Url(new Uint8Array(credential.response.attestationObject)),
-                    transports: credential.response.getTransports ? credential.response.getTransports() : [],
-                },
-                clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
-                deviceName: 'Browser Passkey'
-            };
-
-            const verifyResponse = await fetch('{% url "staff_webauthn_registration_verify" %}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken,
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            const verifyData = await verifyResponse.json();
-            if (!verifyResponse.ok || verifyData.success === false) {
-                throw new Error(verifyData.message || 'Passkey registration failed.');
-            }
-
-            displayPasskeyStatus('Passkey registered successfully.');
-            setTimeout(function() { window.location.reload(); }, 1500);
-            button.textContent = 'Registered';
-        } catch (error) {
-            displayPasskeyStatus(formatWebAuthnError(error), true);
-            button.textContent = 'Register Passkey';
-        } finally {
-            button.disabled = false;
-        }
-    }
-
-    document.getElementById('register-passkey-btn')?.addEventListener('click', registerPasskey);
-
-    document.querySelectorAll('.remove-passkey-btn').forEach(function(button) {
-        button.addEventListener('click', async function () {
-            const passkeyId = button.dataset.passkeyId;
-            if (!passkeyId) return;
-
-            const csrfToken = getCookie('csrftoken');
-            const response = await fetch(`/portal/staff/security/webauthn/remove/${passkeyId}/`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken,
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({})
-            });
-
-            const data = await response.json().catch(() => ({ success: false, message: 'Unable to remove passkey.' }));
-            displayPasskeyStatus(data.message || 'Passkey removed.', !data.success);
-
-            if (data.success) {
-                button.closest('div[style*="display:flex"]').remove();
-                setTimeout(function() {
-                    window.location.href = '/portal/staff/profile/';
-                }, 600);
-            }
-        });
-    });
-
-    document.querySelectorAll('.toggle-eye').forEach(function(button) {
-        button.addEventListener('click', function () {
-            const target = document.getElementById(button.dataset.target);
-            if (!target) return;
-            const isPassword = target.type === 'password';
-            target.type = isPassword ? 'text' : 'password';
-            button.textContent = isPassword ? 'Hide' : 'Show';
-        });
-    });
-</script>
 {% endblock %}
