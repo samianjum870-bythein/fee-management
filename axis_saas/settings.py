@@ -38,8 +38,12 @@ if railway_domain:
     default_webauthn_origin = f'https://{railway_domain}'
     default_rp_id = railway_domain
 else:
-    default_webauthn_origin = 'http://localhost:8000'
-    default_rp_id = 'localhost'
+    # Avoid forcing localhost for production requests in environments where the
+    # WebAuthn variables are not explicitly set. The request host is a safer
+    # fallback, and the request-level helper will still override to localhost
+    # only for local development when the host is actually local.
+    default_webauthn_origin = ''
+    default_rp_id = ''
 
 WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID', default_rp_id)
 WEBAUTHN_ORIGIN = os.environ.get('WEBAUTHN_ORIGIN', default_webauthn_origin)

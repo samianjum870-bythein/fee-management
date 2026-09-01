@@ -591,16 +591,19 @@ def staff_webauthn_authentication_options(request):
             PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id), type='public-key')
             for item in passkeys
         ] or None
+        rp_id = _staff_compute_rp_id(request)
+        origin = _staff_compute_origin(request)
+        logger.info('AUTH OPTIONS - rp_id=%s origin=%s allow_credentials=%s', rp_id, origin, len(allow_credentials or []))
         try:
             options = generate_authentication_options(
-                rp_id=_staff_compute_rp_id(request),
+                rp_id=rp_id,
                 challenge=challenge,
                 timeout=60000,
                 allow_credentials=allow_credentials,
                 user_verification=UserVerificationRequirement.REQUIRED,
             )
         except Exception as exc:
-            logger.exception('generate_authentication_options failed: %s', exc)
+            logger.exception('generate_authentication_options failed: rp_id=%s origin=%s request_host=%s error=%s', rp_id, origin, request.get_host(), exc)
             return JsonResponse({'error': 'This passkey challenge could not be prepared for your account. Please try again or sign in with your password again.'}, status=400)
         return JsonResponse(json.loads(options_to_json(options)))
     except Exception as exc:
