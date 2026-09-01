@@ -94,20 +94,30 @@ class StaffTenantMiddleware:
             except Staff.DoesNotExist:
                 request.staff = Staff(pk=staff_id, full_name='Developer', status='active')
 
+        # Determine if passkey is required for the fully authenticated identity.
+        # If the user has a staff_id (fully authenticated), check their passkey status.
+        # If only pending, we allow the profile and verify pages.
         request.staff_passkey_required = False
         try:
-            # Always prefer the fully authenticated session identity. If that identity
-            # is missing, the pending identity is the only fallback during password-login.
+            # Use fully authenticated identity if available; otherwise fallback to pending.
             effective_staff_id = request.session.get('staff_id') or pending_staff_id
             effective_schema_name = request.session.get('staff_schema_name') or pending_schema_name
-            with schema_context('public'):
-                credential = StaffCredential.objects.filter(
-                    staff_id=effective_staff_id,
-                    schema_name=effective_schema_name,
-                ).first()
-            logger.info("Middleware: staff_id=%s schema=%s pending=%s", effective_staff_id, effective_schema_name, is_pending_passkey)
-            logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
-            request.staff_passkey_required = credential is None or not credential.has_passkey
+            if effective_staff_id and effective_schema_name:
+                with schema_context('public'):
+                    credential = StaffCredential.objects.filter(
+                        staff_id=effective_staff_id,
+                        schema_name=effective_schema_name,
+                    ).first()
+                logger.info("Middleware: effective_staff_id=%s effective_schema=%s pending=%s", effective_staff_id, effective_schema_name, is_pending_passkey)
+                logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
+                if credential and credential.has_passkey:
+                    request.staff_passkey_required = False
+                else:
+                    # No passkey or credential missing
+                    request.staff_passkey_required = True
+            else:
+                # No effective identity; don't enforce passkey
+                request.staff_passkey_required = False
 
             allowed_paths = [
                 '/portal/staff/profile/',
