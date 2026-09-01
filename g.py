@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-axis_patcher.py - Apply fixes to Staff Passkey second-factor flow.
+axis_patcher.py - Fix Staff Passkey second-factor and persistence issues.
 
-This script modifies:
+This script applies changes to:
 - axis_saas/views/staff_portal.py
 - axis_saas/middleware/staff_tenant_middleware.py
 
 It removes the pending_* session keys and introduces a staff_2fa_pending flag,
-ensuring the password + passkey flow works correctly.
+ensuring the password + passkey flow works correctly and users with existing
+passkeys are not redirected to the profile page.
 
 Usage:
     python axis_patcher.py [--dry-run] [--verbose] [--target-dir PATH]
@@ -35,7 +36,7 @@ logger.addHandler(console)
 # New code blocks
 # -----------------------------------------------------------------------------
 
-# ---- staff_login replacement ----
+# ---- staff_login replacement (full session, staff_2fa_pending) ----
 STAFF_LOGIN_NEW = """@csrf_exempt
 def staff_login(request):
     if request.method == 'POST':
@@ -94,8 +95,8 @@ def staff_login(request):
 
                 if has_passkey:
                     return redirect('staff_verify_passkey')
-                # No passkey, go directly to dashboard (profile will show registration banner)
-                return redirect('staff_dashboard')
+                # No passkey, go directly to profile to register (or dashboard if desired)
+                return redirect('staff_profile_page')
 
         cache.set(ip_key, attempts + 1, 60)
         if credential:
@@ -105,7 +106,7 @@ def staff_login(request):
     return render(request, 'mobile/staff/login.html')
 """
 
-# ---- staff_verify_passkey replacement ----
+# ---- staff_verify_passkey replacement (use full session) ----
 STAFF_VERIFY_PASSKEY_NEW = """@require_http_methods(['GET'])
 def staff_verify_passkey(request):
     # Always use the session identity (no pending keys)
@@ -511,11 +512,7 @@ REQUIRE_STAFF_LOGIN_NEW = """def require_staff_login(view_func):
     return wrapped
 """
 
-# ---- Middleware: update __call__ ----
-# We need to replace the middleware's __call__ method or the entire class.
-# We'll replace the entire class with a modified version that uses staff_2fa_pending.
-# We'll look for the class definition and replace.
-
+# ---- Middleware: replace entire class with new version using staff_2fa_pending ----
 MIDDLEWARE_NEW = """class StaffTenantMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -680,15 +677,7 @@ def patch_staff_portal(target_dir: Path, dry_run: bool, verbose: bool):
         logger.error(f"staff_portal.py not found at {file_path}")
         return
 
-    # We will replace specific functions using regex that matches the def line and the entire body up to next def or end.
-    # Since functions may have nested defs, we'll use a pattern that matches from def line to the next line that starts with 'def ' at the same indentation level (0) or end of file.
-
-    # Define patterns: we'll use a more robust approach: replace the entire function by matching from the def line to the next top-level def or end.
-    # We'll write helper to generate pattern.
-
     def make_func_pattern(func_name: str) -> str:
-        # Match from 'def func_name(...):' until the next line that starts with 'def ' at column 0 or end of file.
-        # We'll use re.DOTALL to match across lines.
         return rf'^def {func_name}\s*\([^)]*\)\s*:.*?(?=^def\s|\Z)'
 
     replacements = [
@@ -714,7 +703,6 @@ def patch_middleware(target_dir: Path, dry_run: bool, verbose: bool):
         logger.error(f"staff_tenant_middleware.py not found at {file_path}")
         return
 
-    # Replace the entire class definition.
     pattern = r'^class StaffTenantMiddleware\s*:.*?(?=^class\s|\Z)'
     if not find_and_replace(file_path, pattern, MIDDLEWARE_NEW, dry_run, verbose):
         logger.error(f"Failed to replace StaffTenantMiddleware in {file_path}")
