@@ -152,7 +152,13 @@ def get_staff_profile_context(request, schema_name, staff_id):
     with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff.id, schema_name=schema_name).first()
     if credential is not None:
-        credential.raw_password = getattr(credential, 'raw_password', None)
+        is_school_admin_context = bool(request.session.get('school_admin_authenticated')) and request.session.get('school_admin_schema') == schema_name
+        if is_school_admin_context:
+            credential.visible_password = credential.visible_password or getattr(credential, 'raw_password', None)
+            credential.raw_password = credential.visible_password or getattr(credential, 'raw_password', None)
+        else:
+            credential.visible_password = None
+            credential.raw_password = None
     return {
         'tenant': tenant,
         'classes': classes,

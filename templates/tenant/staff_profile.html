@@ -51,13 +51,15 @@
             <div class="info-label">Username</div>
             <div class="info-value">{{ credential.username|default:"—" }}</div>
         </div>
+        {% if request.session.school_admin_authenticated %}
         <div>
             <div class="info-label">Password</div>
             <div class="password-row" style="margin-top:0.4rem; display:flex; gap:0.5rem; align-items:center;">
-                <input id="adminStaffPassword" type="text" value="{{ credential.raw_password|default:'********' }}" readonly style="flex:1;">
+                <input id="adminStaffPassword" type="text" value="{{ credential.visible_password|default:credential.raw_password|default:'********' }}" readonly style="flex:1;">
                 <button type="button" class="btn-secondary toggle-password" data-target="adminStaffPassword">Hide</button>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 {% else %}
