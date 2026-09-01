@@ -1,9 +1,13 @@
+import logging
+
 from django.dispatch import receiver
 from django_tenants.signals import post_schema_sync
 from django_tenants.utils import schema_context
 from django.contrib.auth import get_user_model
 from axis_saas.models import SchoolClient
 from django.db.models.signals import post_save
+
+logger = logging.getLogger(__name__)
 
 @receiver(post_schema_sync)
 def provision_secure_tenant_admin(sender, tenant, **kwargs):
@@ -21,7 +25,7 @@ def provision_secure_tenant_admin(sender, tenant, **kwargs):
 
     raw_pw = getattr(tenant, '_raw_password', None)
     if not raw_pw:
-        print(f"⚠️ Raw password not available for {tenant.schema_name}, cannot provision superuser.")
+        logger.warning('Raw password not available for %s; cannot provision superuser.', tenant.schema_name)
         return
 
     with schema_context(tenant.schema_name):
@@ -31,7 +35,7 @@ def provision_secure_tenant_admin(sender, tenant, **kwargs):
                 email=u_email,
                 password=raw_pw
             )
-            print(f"🚀 [DYNAMIC SYNC] Operational superuser '{u_name}' provisioned into tenant schema '{tenant.schema_name}' successfully.")
+            logger.info("Operational superuser '%s' provisioned into tenant schema '%s'.", u_name, tenant.schema_name)
 @receiver(post_save, sender=SchoolClient)
 def sync_tenant_admin_password(sender, instance, created, **kwargs):
     if instance.schema_name == 'public' or created:
@@ -46,9 +50,9 @@ def sync_tenant_admin_password(sender, instance, created, **kwargs):
             if user:
                 user.set_password(raw_pw)
                 user.save()
-                print(f"🔄 [AXIS AUTH] Password safely synchronized for '{u_name}' in schema '{instance.schema_name}'.")
+                logger.info("Password synchronized for '%s' in schema '%s'.", u_name, instance.schema_name)
     elif u_name and not raw_pw:
-        print(f"⚠️ Raw password not available for {instance.schema_name}, cannot sync password.")
+        logger.warning('Raw password not available for %s; cannot sync password.', instance.schema_name)
 
 # ========== CACHE INVALIDATION SIGNALS ==========
 from django.db.models.signals import post_save, post_delete

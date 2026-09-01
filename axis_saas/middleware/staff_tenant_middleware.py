@@ -41,10 +41,9 @@ class StaffTenantMiddleware:
             cached_token = None
 
         session_token = request.session.get('staff_session_token')
+        token_invalid = False
         if not settings.DEBUG:
             token_invalid = not session_token or cached_token in ['logged_out'] or cached_token != session_token
-        else:
-            token_invalid = False
 
         if token_invalid:
             request.session.flush()

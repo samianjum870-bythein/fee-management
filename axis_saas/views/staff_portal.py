@@ -328,7 +328,7 @@ def staff_change_password(request):
             messages.error(request, 'Password must contain at least 12 chars, one uppercase, one digit, and one symbol.')
             return redirect('staff_profile_page')
         credential.set_password(new_password)
-        credential.save(update_fields=['password', 'visible_password'])
+        credential.save(update_fields=['password'])
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
             return JsonResponse({'success': True, 'message': 'Password updated successfully.'})
         messages.success(request, 'Password updated successfully.')

@@ -322,7 +322,6 @@ class StaffCredential(models.Model):
     """Authentication record for staff across all public-school tenants."""
     username = models.CharField(max_length=150, unique=True)
     password = models.CharField(max_length=128)
-    visible_password = models.CharField(max_length=128, blank=True, null=True)
     staff_id = models.PositiveIntegerField()
     schema_name = models.CharField(max_length=63)
     is_active = models.BooleanField(default=True)
@@ -356,7 +355,6 @@ class StaffCredential(models.Model):
 
     def set_password(self, raw_password):
         self.raw_password = raw_password
-        self.visible_password = raw_password
         self.password = make_password(raw_password)
 
     def __str__(self):
@@ -445,11 +443,10 @@ class Staff(models.Model):
                 credential.is_active = True
                 credential.save()
                 credential.raw_password = raw_password
-                credential.visible_password = raw_password
                 self._generated_password = raw_password
                 self._generated_username = username
             else:
-                credential.raw_password = getattr(self, '_generated_password', None) or credential.visible_password
+                credential.raw_password = getattr(self, '_generated_password', None)
                 if credential.raw_password is None:
                     credential.raw_password = None
             return credential

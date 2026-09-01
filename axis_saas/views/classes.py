@@ -2,6 +2,8 @@
 AXIS views – class & subject management.
 """
 
+import logging
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib import messages
@@ -96,12 +98,8 @@ def get_class_management_context(request, schema_name):
         total_assignments = assignments.count()
         unassigned_subjects = Subject.objects.filter(is_active=True).exclude(id__in=assignments.values_list('subject_id', flat=True)).count()
 
-        # Debug prints
-        print(f"[DEBUG] Active classes for {schema_name}: {total_classes}")
-        print(f"[DEBUG] All classes for {schema_name}: {total_all_classes}")
-        print(f"[DEBUG] Active subjects: {total_subjects}")
-        print(f"[DEBUG] All subjects: {total_all_subjects}")
-        print(f"[DEBUG] Assignments: {total_assignments}")
+        logger = logging.getLogger(__name__)
+        logger.info('Class summary for schema=%s totals: classes=%s all_classes=%s subjects=%s all_subjects=%s assignments=%s', schema_name, total_classes, total_all_classes, total_subjects, total_all_subjects, total_assignments)
 
         # Convert querysets to lists for debug display
         debug_all_classes = list(all_classes.values('id', 'name', 'section', 'is_active'))

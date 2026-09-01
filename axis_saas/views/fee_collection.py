@@ -2,6 +2,7 @@
 AXIS views – fee_collection module.
 """
 
+import logging
 import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
@@ -357,7 +358,8 @@ def manual_generate_single_api(request):
     custom_amount = request.POST.get('custom_amount') or request.GET.get('custom_amount')
     if not student_id:
         return JsonResponse({'error': 'Student ID required'}, status=400)
-    print(f'[DEBUG] manual_generate_single_api called for student {student_id}, custom_amount={custom_amount}')
+    logger = logging.getLogger(__name__)
+    logger.info('manual_generate_single_api called for student=%s custom_amount=%s', student_id, custom_amount)
     try:
         tenant = SchoolClient.objects.get(schema_name=schema_name)
     except SchoolClient.DoesNotExist:
@@ -404,9 +406,9 @@ def manual_generate_single_api(request):
             existing_record.due_date_offset = settings.due_date_offset
             existing_record.late_fee_per_day = settings.late_fee_penalty
             existing_record.save()
-            print(f'[DEBUG] Updated fee for {student.name} to ₹{final_amount} (base: {base_fee}, extras: {total_extra})')
+            logger.info('Updated fee for %s to ₹%s (base: %s, extras: %s)', student.name, final_amount, base_fee, total_extra)
             return JsonResponse({'message': f'Fee amount updated for {student.name} for {month}/{year} to ₹{final_amount} (including extras).'})
         else:
             FeeRecord.objects.create(student=student, month=month, year=year, amount=final_amount, due_date=due_date, status='pending', extra_charges=extra_charges, due_date_offset=settings.due_date_offset, late_fee_per_day=settings.late_fee_penalty)
-            print(f'[DEBUG] Created fee for {student.name} with amount ₹{final_amount} (base: {base_fee}, extras: {total_extra})')
+            logger.info('Created fee for %s with amount ₹%s (base: %s, extras: %s)', student.name, final_amount, base_fee, total_extra)
             return JsonResponse({'message': f'Fee record created for {student.name} for {month}/{year} with amount ₹{final_amount} (including extras).'})

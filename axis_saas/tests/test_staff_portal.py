@@ -62,3 +62,6 @@ class StaffPortalTests(TestCase):
         self.assertEqual(self.client.session.get('staff_id'), staff.id)
         self.assertEqual(self.client.session.get('staff_schema_name'), self.tenant.schema_name)
         self.assertNotIn('staff_pending_passkey', self.client.session)
+
+    def test_staff_credential_does_not_store_visible_password(self):
+        self.assertFalse(StaffCredential._meta.has_field('visible_password'))

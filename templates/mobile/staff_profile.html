@@ -126,7 +126,7 @@
     <div class="info-card"><div class="label">Status</div><div class="value"><span class="status-badge status-{{ staff.status }}">{{ staff.get_status_display }}</span></div></div>
     {% if credential %}
     <div class="info-card" style="grid-column: 1 / -1;"><div class="label">Portal Username</div><div class="value">{{ credential.username }}</div></div>
-    <div class="info-card" style="grid-column: 1 / -1;"><div class="label">Generated Password</div><div class="value">{{ credential.raw_password|default:"Stored securely" }}</div></div>
+    <div class="info-card" style="grid-column: 1 / -1;"><div class="label">Password Hash</div><div class="value">{{ credential.password|default:"Stored securely" }}</div></div>
     {% endif %}
     <div class="info-card" style="grid-column: 1 / -1;"><div class="label">Address</div><div class="value">{{ staff.address|default:"—" }}</div></div>
     <div class="info-card" style="grid-column: 1 / -1;"><div class="label">Notes</div><div class="value">{{ staff.notes|default:"—" }}</div></div>

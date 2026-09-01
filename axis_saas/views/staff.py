@@ -3,6 +3,7 @@
 AXIS views – staff module.
 """
 
+import logging
 import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
@@ -34,7 +35,8 @@ from .helpers import (
 @require_school_feature('staff_management')
 def staff_list(request, schema_name):
     """List all staff members."""
-    print(f"[DEBUG] staff_list called for schema: {schema_name}")
+    logger = logging.getLogger(__name__)
+    logger.info('staff_list called for schema=%s', schema_name)
     if is_mobile_user_agent(request):
         return redirect('mobile_staff_list', schema_name=schema_name)
 
@@ -46,7 +48,8 @@ def staff_list(request, schema_name):
 @require_school_feature('staff_management')
 def mobile_staff_list(request, schema_name):
     """Mobile version of staff list."""
-    print(f"[DEBUG] mobile_staff_list called for schema: {schema_name}")
+    logger = logging.getLogger(__name__)
+    logger.info('mobile_staff_list called for schema=%s', schema_name)
     context = get_staff_list_context(request, schema_name)
     return render(request, 'mobile/staff_list.html', context)
 
@@ -149,8 +152,7 @@ def get_staff_profile_context(request, schema_name, staff_id):
     with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff.id, schema_name=schema_name).first()
     if credential is not None:
-        credential.visible_password = credential.visible_password or getattr(credential, 'raw_password', None)
-        credential.raw_password = credential.visible_password or getattr(credential, 'raw_password', None)
+        credential.raw_password = getattr(credential, 'raw_password', None)
     return {
         'tenant': tenant,
         'classes': classes,
@@ -226,7 +228,7 @@ def staff_reset_password(request, schema_name, staff_id):
             messages.error(request, 'Password must contain at least 12 chars, one uppercase, one digit, and one symbol.')
             return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)
         credential.set_password(new_password)
-        credential.save(update_fields=['password', 'visible_password'])
+        credential.save(update_fields=['password'])
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
             return JsonResponse({'success': True, 'message': 'Password reset successfully.'})
         messages.success(request, 'Password reset successfully.')

@@ -2,6 +2,7 @@
 AXIS views – students module.
 """
 
+import logging
 import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
@@ -178,7 +179,8 @@ def student_payments_api(request, schema_name, student_id):
 
 @require_tenant_type(['school'])
 def student_current_fee_status_api(request, schema_name, student_id):
-    print(f'[DEBUG] student_current_fee_status_api called for student {student_id}, schema {schema_name}')
+    logger = logging.getLogger(__name__)
+    logger.info('student_current_fee_status_api called for student=%s schema=%s', student_id, schema_name)
     "API: Get current month's fee record status for a student."
     from django.http import JsonResponse
     from django.utils import timezone

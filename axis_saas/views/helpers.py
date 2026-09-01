@@ -1,8 +1,11 @@
 
 # ========== REDIS CACHE HELPERS ==========
+import logging
 from django.core.cache import cache
 import hashlib
 import json
+
+logger = logging.getLogger(__name__)
 
 def get_tenant_cache_key(schema_name, prefix, *args):
     """Generate a unique cache key for a tenant."""
@@ -321,7 +324,8 @@ def get_student_list_context(request, schema_name):
     pending_only = request.GET.get('pending_only') == '1'
     page_number = request.GET.get('page', 1)
 
-    print(f"[DEBUG] get_student_list_context: schema={schema_name}, class_id={class_id}")
+    logger = logging.getLogger(__name__)
+    logger.info('get_student_list_context: schema=%s class_id=%s', schema_name, class_id)
 
     with schema_context(schema_name):
         students = Student.objects.all()

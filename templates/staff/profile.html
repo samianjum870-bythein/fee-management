@@ -15,8 +15,8 @@
   <h3>Portal Access</h3>
   <p><strong>Username:</strong> {{ credential.username }}</p>
   <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
-    <input id="staffPasswordField" type="password" value="{{ credential.raw_password|default:'********' }}" readonly>
-    <button type="button" class="btn btn-secondary" data-target="staffPasswordField" onclick="var input=document.getElementById(this.dataset.target); var isPwd=input.type==='password'; input.type=isPwd?'text':'password'; this.textContent=isPwd?'Hide':'Show';">Show</button>
+    <input id="staffPasswordField" type="text" value="{{ credential.password|default:'********' }}" readonly>
+    <span class="muted">Hashed</span>
   </div>
 </div>
 {% endif %}

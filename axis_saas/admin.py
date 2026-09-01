@@ -1,9 +1,23 @@
+import os
+
+from django.conf import settings
 from django.contrib import admin
 from django_tenants.admin import TenantAdminMixin
 from django import forms
 from django.utils.safestring import mark_safe
 from django.core.exceptions import ValidationError
 from .models import SchoolClient, SCHOOL_FEATURE_CHOICES
+
+
+def get_public_base_url():
+    base_url = (
+        os.environ.get('PUBLIC_URL')
+        or os.environ.get('APP_URL')
+        or os.environ.get('SITE_URL')
+        or getattr(settings, 'PUBLIC_URL', '')
+        or 'http://localhost:8000'
+    ).rstrip('/')
+    return base_url
 
 
 class TenantOnlyAdminMixin:
@@ -159,7 +173,7 @@ class SchoolClientAdmin(TenantAdminMixin, admin.ModelAdmin):
 
     def school_admin_portal_url(self, obj):
         if obj.pk and obj.schema_name != 'public':
-            target_url = f"http://localhost:8000/portal/{obj.schema_name}/"
+            target_url = f"{get_public_base_url()}/portal/{obj.schema_name}/"
             return mark_safe(f'<a href="{target_url}" target="_blank" style="background: #10b981; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">🚀 Open {obj.name} School Portal</a>')
         return "Link will be generated automatically after you click Save below."
     
@@ -167,7 +181,7 @@ class SchoolClientAdmin(TenantAdminMixin, admin.ModelAdmin):
     
     def get_admin_url_link(self, obj):
         if obj.schema_name != 'public':
-            target_url = f"http://localhost:8000/portal/{obj.schema_name}/"
+            target_url = f"{get_public_base_url()}/portal/{obj.schema_name}/"
             return mark_safe(f'<a href="{target_url}" target="_blank" style="color: #38bdf8; font-weight: bold;">Open School Portal</a>')
         return "MASTER NODE"
     get_admin_url_link.short_description = "Quick Portal Link"

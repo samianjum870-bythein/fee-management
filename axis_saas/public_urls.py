@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import admin
 from django.urls import path, re_path, include
 from django.conf import settings as django_settings
@@ -47,7 +49,8 @@ def ensure_schoolclient(schema_name):
                 }
             )
             if created:
-                print(f"✅ Auto-created SchoolClient for '{schema_name}'")
+                logger = logging.getLogger(__name__)
+                logger.info("Auto-created SchoolClient for '%s'", schema_name)
             return tenant
         else:
             return None

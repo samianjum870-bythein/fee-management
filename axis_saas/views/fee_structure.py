@@ -2,6 +2,7 @@
 AXIS views – fee_structure module.
 """
 
+import logging
 import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
@@ -56,9 +57,8 @@ def fee_structure(request, schema_name):
             max_fee = max(fees)
         else:
             avg_fee = min_fee = max_fee = 0
-        print(f'[DEBUG] Tenant {schema_name}: found {len(structures)} fee structure(s)')
-        for fs in structures:
-            print(f'  - {fs.grade}: ₹{fs.monthly_fee}')
+        logger = logging.getLogger(__name__)
+        logger.info('Tenant %s fee structures loaded: %s', schema_name, len(structures))
         form = FeeStructureForm()
         if edit_grade:
             try:
