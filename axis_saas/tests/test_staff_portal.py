@@ -1,7 +1,55 @@
-from django.test import TestCase
+from unittest.mock import MagicMock, patch
+
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django_tenants.utils import schema_context
 
+from axis_saas.middleware.staff_tenant_middleware import StaffTenantMiddleware
 from axis_saas.models import SchoolClient, Staff, StaffCredential
+
+
+class StaffMiddlewarePasskeyAccessTests(SimpleTestCase):
+    def test_missing_passkey_does_not_block_dashboard_access(self):
+        factory = RequestFactory()
+        request = factory.get('/portal/staff/dashboard/')
+        request.path_info = '/portal/staff/dashboard/'
+        request.session = MagicMock()
+        request.session.get.side_effect = lambda key, default=None: {
+            'staff_id': 7,
+            'staff_schema_name': 'tenant_demo',
+            'staff_session_token': 'abc123',
+            'pending_staff_id': None,
+            'pending_schema_name': None,
+            'staff_pending_passkey': False,
+        }.get(key, default)
+        request.session.flush = MagicMock()
+
+        dummy_tenant = MagicMock()
+        dummy_tenant.schema_name = 'tenant_demo'
+
+        dummy_staff = MagicMock()
+        dummy_staff.pk = 7
+        dummy_staff.status = 'active'
+
+        dummy_credential = MagicMock()
+        dummy_credential.has_passkey = False
+
+        response = object()
+        middleware = StaffTenantMiddleware(lambda req: response)
+
+        with patch('axis_saas.middleware.staff_tenant_middleware.get_tenant_model') as mock_tenant_model, \
+             patch('axis_saas.middleware.staff_tenant_middleware.connection.set_tenant') as mock_set_tenant, \
+             patch('axis_saas.middleware.staff_tenant_middleware.Staff.objects.filter') as mock_staff_filter, \
+             patch('axis_saas.middleware.staff_tenant_middleware.StaffCredential.objects.filter') as mock_credential_filter, \
+             patch('django.core.cache.cache.get', return_value='abc123'):
+            mock_tenant_model.objects.get.return_value = dummy_tenant
+            mock_staff_filter.return_value.first.return_value = dummy_staff
+            mock_credential_filter.return_value.first.return_value = dummy_credential
+
+            result = middleware(request)
+
+        self.assertIs(result, response)
+        self.assertTrue(request.staff_passkey_required)
+        mock_set_tenant.assert_called_once_with(dummy_tenant)
 
 
 class StaffPortalTests(TestCase):
