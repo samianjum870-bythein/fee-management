@@ -107,8 +107,9 @@ class StaffTenantMiddleware:
                         staff_id=effective_staff_id,
                         schema_name=effective_schema_name,
                     ).first()
-                logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
-                request.staff_passkey_required = not (credential and credential.has_passkey)
+                    has_passkey = bool(credential and credential.webauthn_credentials.filter(is_active=True).exists())
+                logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, has_passkey)
+                request.staff_passkey_required = not has_passkey
             else:
                 request.staff_passkey_required = False
 
