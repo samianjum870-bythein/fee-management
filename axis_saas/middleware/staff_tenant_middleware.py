@@ -97,18 +97,19 @@ class StaffTenantMiddleware:
         # Determine if passkey is required for the fully authenticated identity.
         # If the user has a staff_id (fully authenticated), check their passkey status.
         # If only pending, we allow the profile and verify pages.
+
+        # Determine if passkey is required for the fully authenticated identity.
         request.staff_passkey_required = False
         try:
-            # Use fully authenticated identity if available; otherwise fallback to pending.
             effective_staff_id = request.session.get('staff_id') or pending_staff_id
             effective_schema_name = request.session.get('staff_schema_name') or pending_schema_name
+            logger.info("Middleware: effective_staff_id=%s effective_schema=%s pending_passkey=%s", effective_staff_id, effective_schema_name, is_pending_passkey)
             if effective_staff_id and effective_schema_name:
                 with schema_context('public'):
                     credential = StaffCredential.objects.filter(
                         staff_id=effective_staff_id,
                         schema_name=effective_schema_name,
                     ).first()
-                logger.info("Middleware: effective_staff_id=%s effective_schema=%s pending=%s", effective_staff_id, effective_schema_name, is_pending_passkey)
                 logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
                 if credential and credential.has_passkey:
                     request.staff_passkey_required = False
@@ -116,7 +117,6 @@ class StaffTenantMiddleware:
                     # No passkey or credential missing
                     request.staff_passkey_required = True
             else:
-                # No effective identity; don't enforce passkey
                 request.staff_passkey_required = False
 
             allowed_paths = [
@@ -129,10 +129,10 @@ class StaffTenantMiddleware:
                 '/portal/staff/logout/',
                 '/portal/staff/login/',
             ]
+            logger.info("Middleware: staff_passkey_required=%s, path=%s", request.staff_passkey_required, request.path_info)
             if request.staff_passkey_required and request.path_info not in allowed_paths:
+                logger.info("Middleware: redirecting to profile because passkey required")
                 return redirect('staff_profile_page')
         except Exception as exc:
             logger.exception('Middleware error: %s', exc)
             request.staff_passkey_required = False
-
-        return self.get_response(request)
