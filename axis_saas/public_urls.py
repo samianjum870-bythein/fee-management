@@ -9,7 +9,7 @@ from django_tenants.utils import schema_context
 
 from .models import SchoolClient
 
-from .views import mobile_fee_structure, gym_generate_subscription, gym_cancel_subscription, gym_update_subscription, gym_edit_attendance, add_student, add_student_mobile, dashboard, debug_payments_api, defaulters, edit_student, family_payment, fee_collection, mobile_fee_collection, fee_receipt, mobile_fee_receipt, fee_settings, fee_status_api, fee_structure, gym_attendance, gym_checkin_api, gym_checkout_api, gym_customer_add, gym_customer_edit, gym_customer_list, gym_customer_profile, gym_dashboard, gym_payment, gym_receipt, gym_reports, gym_settings, manual_generate_api, manual_generate_single_api, reports, settings, student_fee_records_api, student_list, student_payments_api, student_current_fee_status_api, student_profile, student_search_api, gym_revenue_stats_api, gym_attendance_stats_api, gym_customers_list_api, gym_customer_detail_api, gym_subscription_status_api, gym_attendance_data_api, gym_eligible_customers_api, gym_search_customer_api, gym_export_attendance_api, stock_management, product_detail, mobile_stock_management, mobile_product_detail, add_category, delete_category, add_product, delete_product, sell_separately, mobile_sell_separately, mobile_dashboard, mobile_more, mobile_student_list, mobile_student_profile, mobile_defaulters, mobile_reports, mobile_fee_settings, mobile_settings, vouchers_list, mobile_vouchers_list, dismiss_notification, notifications_list_api, mark_notification_read_api, mark_all_notifications_read_api, global_search_api, product_list_api, student_list_api, receipt_list_api, fee_collection_list_api, sync_offline_student_api, class_management, mobile_class_management, add_class, edit_class, delete_class, add_subject, edit_subject, delete_subject, assign_subject, edit_assignment, delete_assignment
+from .views import mobile_fee_structure, add_student, add_student_mobile, dashboard, debug_payments_api, defaulters, edit_student, family_payment, fee_collection, mobile_fee_collection, fee_receipt, mobile_fee_receipt, fee_settings, fee_status_api, fee_structure, manual_generate_api, manual_generate_single_api, reports, settings, student_fee_records_api, student_list, student_payments_api, student_current_fee_status_api, student_profile, student_search_api, stock_management, product_detail, mobile_stock_management, mobile_product_detail, add_category, delete_category, add_product, delete_product, sell_separately, mobile_sell_separately, mobile_dashboard, mobile_more, mobile_student_list, mobile_student_profile, mobile_defaulters, mobile_reports, mobile_fee_settings, mobile_settings, vouchers_list, mobile_vouchers_list, dismiss_notification, notifications_list_api, mark_notification_read_api, mark_all_notifications_read_api, global_search_api, product_list_api, student_list_api, receipt_list_api, fee_collection_list_api, sync_offline_student_api, class_management, mobile_class_management, add_class, edit_class, delete_class, add_subject, edit_subject, delete_subject, assign_subject, edit_assignment, delete_assignment
 from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
 from .views.staff_portal import staff_login, staff_logout
 from .views.classes import class_strength_api
@@ -103,10 +103,7 @@ def school_login(request, schema_name):
             request.session.pop('staff_role', None)
             request.session.pop('staff_name', None)
             request.session.save()
-            if tenant.tenant_type == 'gym':
-                return redirect('gym_dashboard', schema_name=tenant.schema_name)
-            else:
-                return redirect(get_school_default_route(tenant), schema_name=tenant.schema_name)
+            return redirect(get_school_default_route(tenant), schema_name=tenant.schema_name)
         return render(request, 'tenant/login.html', {'tenant': tenant, 'error': 'Invalid credentials'})
     return render(request, 'tenant/login.html', {'tenant': tenant})
 
@@ -152,29 +149,10 @@ edit_student_view = portal_wrapper(login_required_for_schema(edit_student))
 student_fee_records_api_view = portal_wrapper(login_required_for_schema(student_fee_records_api))
 student_payments_api_view = portal_wrapper(login_required_for_schema(student_payments_api))
 student_current_fee_status_api_view = portal_wrapper(login_required_for_schema(student_current_fee_status_api))
-gym_dashboard_view = portal_wrapper(login_required_for_schema(gym_dashboard))
-gym_customer_list_view = portal_wrapper(login_required_for_schema(gym_customer_list))
-gym_customer_add_view = portal_wrapper(login_required_for_schema(gym_customer_add))
-gym_customer_edit_view = portal_wrapper(login_required_for_schema(gym_customer_edit))
-gym_customer_profile_view = portal_wrapper(login_required_for_schema(gym_customer_profile))
-gym_attendance_view = portal_wrapper(login_required_for_schema(gym_attendance))
-gym_payment_view = portal_wrapper(login_required_for_schema(gym_payment))
-gym_reports_view = portal_wrapper(login_required_for_schema(gym_reports))
-gym_settings_view = portal_wrapper(login_required_for_schema(gym_settings))
 mobile_defaulters_view = portal_wrapper(login_required_for_schema(mobile_defaulters))
 mobile_reports_view = portal_wrapper(login_required_for_schema(mobile_reports))
 mobile_fee_settings_view = portal_wrapper(login_required_for_schema(mobile_fee_settings))
 mobile_settings_view = portal_wrapper(login_required_for_schema(mobile_settings))
-
-
-
-def api_gym_edit_attendance(request, attendance_id):
-    """Wrapper for gym_edit_attendance that reads schema_name from session."""
-    schema_name = request.session.get("school_admin_schema")
-    if not schema_name:
-        return JsonResponse({"error": "Unauthorized or no tenant"}, status=401)
-    return gym_edit_attendance(request, schema_name, attendance_id)
-
 
 
 def tenant_root_redirect(request, schema_name):
@@ -182,10 +160,7 @@ def tenant_root_redirect(request, schema_name):
     tenant = ensure_schoolclient(schema_name)
     if tenant is None:
         raise Http404("Tenant not found")
-    if tenant.tenant_type == 'gym':
-        return redirect('gym_dashboard', schema_name=schema_name)
-    else:
-        return redirect(get_school_default_route(tenant), schema_name=schema_name)
+    return redirect(get_school_default_route(tenant), schema_name=schema_name)
 
 
 urlpatterns = [
@@ -196,12 +171,6 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/students/', portal_wrapper(login_required_for_schema(student_list_api)), name='student_list_api'),
     path('portal/<slug:schema_name>/api/products/', portal_wrapper(login_required_for_schema(product_list_api)), name='product_list_api'),
     path('portal/<slug:schema_name>/api/student/<int:student_id>/current-fee-status/', student_current_fee_status_api_view, name='student_current_fee_status'),
-    # ===== GYM ROUTES (FIXED ORDER) =====
-    path('portal/<slug:schema_name>/gym/customers/<int:customer_id>/generate-subscription/', portal_wrapper(login_required_for_schema(gym_generate_subscription)), name='gym_generate_subscription'),
-    path('portal/<slug:schema_name>/gym/subscriptions/<int:subscription_id>/cancel/', portal_wrapper(login_required_for_schema(gym_cancel_subscription)), name='gym_cancel_subscription'),
-    path('portal/<slug:schema_name>/gym/subscriptions/<int:subscription_id>/update/', portal_wrapper(login_required_for_schema(gym_update_subscription)), name='gym_update_subscription'),
-    path('portal/<slug:schema_name>/gym/attendance/<int:attendance_id>/edit/', portal_wrapper(login_required_for_schema(gym_edit_attendance)), name='gym_edit_attendance'),
-    # Gym subscription & cancellation routes
     path('api/debug-payments/', debug_payments_api, name='debug_payments_api'),
     path('', saas_homepage),
     path('admin/', admin.site.urls),
@@ -265,40 +234,6 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/student/<int:student_id>/fee-records/', student_fee_records_api_view, name='student_fee_records_api'),
     path('portal/<slug:schema_name>/api/student/<int:student_id>/payments/', student_payments_api_view, name='student_payments_api'),
     
-    # Gym API
-    path('api/gym/checkin/', gym_checkin_api, name='gym_checkin_api'),
-    path('api/gym/checkout/', gym_checkout_api, name='gym_checkout_api'),
-    path('portal/<slug:schema_name>/gym/receipt/<int:receipt_id>/', gym_receipt, name='gym_receipt'),
-
-    # Gym routes
-    path('portal/<slug:schema_name>/gym-dashboard/', gym_dashboard_view, name='gym_dashboard'),
-    path('portal/<slug:schema_name>/gym/customers/', gym_customer_list_view, name='gym_customer_list'),
-    path('portal/<slug:schema_name>/gym/customers/add/', gym_customer_add_view, name='gym_customer_add'),
-    path('portal/<slug:schema_name>/gym/customers/edit/<int:customer_id>/', gym_customer_edit_view, name='gym_customer_edit'),
-    path('portal/<slug:schema_name>/gym/customers/<int:customer_id>/', gym_customer_profile_view, name='gym_customer_profile'),
-    path('portal/<slug:schema_name>/gym/attendance/', gym_attendance_view, name='gym_attendance'),
-    path('portal/<slug:schema_name>/gym/payments/', gym_payment_view, name='gym_payment'),
-    path('portal/<slug:schema_name>/gym/payments/<int:customer_id>/', gym_payment_view, name='gym_payment'),
-    path('portal/<slug:schema_name>/gym/reports/', gym_reports_view, name='gym_reports'),
-    
-    # Gym Reports API endpoints
-    path('api/gym/revenue-stats/<slug:schema_name>/', gym_revenue_stats_api, name='gym_revenue_stats_api'),
-    path('api/gym/attendance-stats/<slug:schema_name>/', gym_attendance_stats_api, name='gym_attendance_stats_api'),
-    path('api/gym/customers-list/<slug:schema_name>/', gym_customers_list_api, name='gym_customers_list_api'),
-    path('api/gym/customer-detail/<slug:schema_name>/<int:customer_id>/', gym_customer_detail_api, name='gym_customer_detail_api'),
-    path('api/gym/subscription-status/<slug:schema_name>/', gym_subscription_status_api, name='gym_subscription_status_api'),
-    
-    path('portal/<slug:schema_name>/gym/settings/', gym_settings_view, name='gym_settings'),
-
-    path('api/gym/attendance-data/<slug:schema_name>/', gym_attendance_data_api, name='gym_attendance_data_api'),
-
-    path('api/gym/eligible-customers/<slug:schema_name>/', gym_eligible_customers_api, name='gym_eligible_customers_api'),
-
-    path('api/gym/search-customer/<slug:schema_name>/', gym_search_customer_api, name='gym_search_customer_api'),
-
-    path('api/gym/export-attendance/<slug:schema_name>/', gym_export_attendance_api, name='gym_export_attendance_api'),
-
-    path('api/gym/attendance/<int:attendance_id>/edit/', api_gym_edit_attendance, name='gym_edit_attendance_api'),
     path('portal/<slug:schema_name>/', tenant_root_redirect, name='tenant_root'),
 
     # ===== STOCK MANAGEMENT ROUTES =====

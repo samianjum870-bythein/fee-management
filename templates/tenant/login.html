@@ -212,35 +212,21 @@
         }
     </style>
 </head>
-<body class="{% if tenant.tenant_type == 'gym' %}gym-theme{% endif %}">
+<body>
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
 
     <div class="login-container">
         <div class="login-card">
-            <!-- Dynamic icon based on tenant type -->
-            <div class="tenant-icon {% if tenant.tenant_type == 'gym' %}gym{% endif %}">
-                {% if tenant.tenant_type == 'gym' %}
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M6 4L8 6M6 20L8 18M18 4L16 6M18 20L16 18M4 6L6 8M4 18L6 16M20 6L18 8M20 18L18 16M12 8L10 10M12 8L14 10M12 8V12M8 12H12M12 16H16M12 16V12"/>
-                        <circle cx="12" cy="12" r="2"/>
-                    </svg>
-                {% else %}
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                        <path d="M12 14l9-5-9-5-9 5 9 5z" />
-                        <path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
-                    </svg>
-                {% endif %}
+            <div class="tenant-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M12 14l9-5-9-5-9 5 9 5z" />
+                    <path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                </svg>
             </div>
             <h2>{{ tenant.name }}</h2>
             <div class="sub-wrapper">
-                <div class="sub">
-                    {% if tenant.tenant_type == 'gym' %}
-                        Fitness Management Portal
-                    {% else %}
-                        School Management Portal
-                    {% endif %}
-                </div>
+                <div class="sub">School Management Portal</div>
             </div>
 
             {% if error %}
@@ -275,11 +261,7 @@
                         <path d="M15 3h6v6M9 15L21 3"/>
                         <path d="M5 5h6v6H5zM19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/>
                     </svg>
-                    {% if tenant.tenant_type == 'gym' %}
-                        Access Dashboard
-                    {% else %}
-                        Sign in
-                    {% endif %}
+                    Sign in
                 </button>
             </form>
             <div class="footer-note">

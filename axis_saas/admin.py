@@ -349,38 +349,8 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
 @admin.register(SchoolFeeSettings)
 class SchoolFeeSettingsAdmin(admin.ModelAdmin):
     list_display = ('fee_generation_day', 'due_date_offset', 'late_fee_penalty', 'updated_at')
-# Gym models registration
-from .models import GymCustomer, GymSubscription, GymPayment, GymAttendance, GymSettings
-from .models import ProductCategory, Product
-
-@admin.register(GymCustomer)
-class GymCustomerAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ('name', 'phone', 'status', 'membership_end', 'monthly_fee')
-    list_filter = ('status',)
-    search_fields = ('name', 'phone', 'email')
-    readonly_fields = ('created_on',)
-
-@admin.register(GymSubscription)
-class GymSubscriptionAdmin(admin.ModelAdmin):
-    list_display = ('customer', 'month', 'year', 'amount', 'paid_amount', 'status')
-    list_filter = ('status', 'month', 'year')
-    search_fields = ('customer__name',)
-
-@admin.register(GymPayment)
-class GymPaymentAdmin(admin.ModelAdmin):
-    list_display = ('receipt_number', 'customer', 'amount', 'payment_date', 'payment_mode')
-    list_filter = ('payment_mode', 'payment_date')
-
-@admin.register(GymAttendance)
-class GymAttendanceAdmin(admin.ModelAdmin):
-    list_display = ('customer', 'date', 'check_in', 'check_out')
-    list_filter = ('date',)
-
-@admin.register(GymSettings)
-class GymSettingsAdmin(admin.ModelAdmin):
-    list_display = ('default_monthly_fee', 'subscription_generation_day', 'due_date_offset')
-
 # Stock Management admin
+from .models import ProductCategory, Product
 @admin.register(ProductCategory)
 class ProductCategoryAdmin(admin.ModelAdmin):
     list_display = ('name', 'description')

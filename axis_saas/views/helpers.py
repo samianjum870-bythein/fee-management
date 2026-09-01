@@ -244,16 +244,14 @@ def student_list_api(request, schema_name):
         return JsonResponse(data, safe=False)
 
 def receipt_list_api(request, schema_name):
-    """API: Return list of all receipt URLs (fee + gym) for pre‑caching."""
+    """API: Return list of all receipt URLs for pre-caching."""
     from django.http import JsonResponse
-    from ..models import PaymentTransaction, GymPayment
+    from ..models import PaymentTransaction
     from django_tenants.utils import schema_context
     with schema_context(schema_name):
         data = []
         for p in PaymentTransaction.objects.all().only('id'):
             data.append({'desktop_url': f'/portal/{schema_name}/fee/receipt/{p.id}/', 'mobile_url': f'/portal/{schema_name}/fee/receipt/mobile/{p.id}/'})
-        for p in GymPayment.objects.all().only('id'):
-            data.append({'desktop_url': f'/portal/{schema_name}/gym/receipt/{p.id}/', 'mobile_url': f'/portal/{schema_name}/gym/receipt/{p.id}/'})
         return JsonResponse(data, safe=False)
 
 def fee_collection_list_api(request, schema_name):

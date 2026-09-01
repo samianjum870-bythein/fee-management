@@ -12,7 +12,6 @@ from .fee_collection import *
 from .reports import *
 from .fee_structure import *
 from .fee_settings import *
-from .gym import *
 from .stock import *
 from .vouchers import *
 from .fee_logs import *
