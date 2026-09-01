@@ -38,6 +38,7 @@ class Command(BaseCommand):
                 extra_charges = settings.default_extra_charges or []
                 total_extra = sum(Decimal(str(ch.get('amount', 0))) for ch in extra_charges)
 
+                fee_records_to_create = []
                 for student in students:
                     if FeeRecord.objects.filter(student=student, month=month, year=year).exists():
                         skipped_existing += 1
@@ -48,21 +49,25 @@ class Command(BaseCommand):
                         base_fee = fee_structs.get(student.grade, 0)
 
                     if base_fee > 0:
-                        total_fee = base_fee + total_extra
-                        FeeRecord.objects.create(
-                            student=student,
-                            month=month,
-                            year=year,
-                            amount=base_fee,          # base only – extras stored separately
-                            due_date=due_date,
-                            status='pending',
-                            extra_charges=extra_charges,
-                            due_date_offset=settings.due_date_offset,
-                            late_fee_per_day=settings.late_fee_penalty
+                        fee_records_to_create.append(
+                            FeeRecord(
+                                student=student,
+                                month=month,
+                                year=year,
+                                amount=base_fee,
+                                due_date=due_date,
+                                status='pending',
+                                extra_charges=extra_charges,
+                                due_date_offset=settings.due_date_offset,
+                                late_fee_per_day=settings.late_fee_penalty,
+                            )
                         )
                         created += 1
                     else:
                         skipped_no_fee += 1
+
+                if fee_records_to_create:
+                    FeeRecord.objects.bulk_create(fee_records_to_create)
 
                 if created > 0 or skipped_existing > 0 or skipped_no_fee > 0:
                     ManualGenerationLog.objects.create(

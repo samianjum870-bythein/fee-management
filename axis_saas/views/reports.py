@@ -58,10 +58,11 @@ def defaulters(request, schema_name, force_mobile=False):
             students_qs = students_qs.filter(grade=grade)
         if section:
             students_qs = students_qs.filter(section=section)
+        students_qs = get_student_pending_queryset(students_qs).prefetch_related('fee_records')
         result = []
         show_only_pending = request.GET.get('pending_only') == '1'
         for student in students_qs:
-            overall_pending = get_overall_pending(student)
+            overall_pending = student.pending_amount
             if show_only_pending and overall_pending <= 0:
                 continue
             if overall_pending <= 0:
@@ -164,21 +165,17 @@ def reports(request, schema_name, force_mobile=False):
         grades = Student.objects.values_list('grade', flat=True).distinct().order_by('grade')
         grades = list(grades)
         for grade in grades:
-            students = Student.objects.filter(grade=grade)
-            pending = sum((get_overall_pending(s) for s in students))
+            pending = get_student_pending_queryset(Student.objects.filter(grade=grade)).aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
             if pending > 0:
                 class_pending.append({'grade': grade, 'pending': float(pending)})
         class_pending.sort(key=lambda x: x['pending'], reverse=True)
         top_defaulters = []
-        for student in Student.objects.all():
-            pending = get_overall_pending(student)
-            if pending > 0:
-                top_defaulters.append({'student': student, 'pending': float(pending)})
-        top_defaulters = sorted(top_defaulters, key=lambda x: x['pending'], reverse=True)[:5]
+        for student in get_student_pending_queryset(Student.objects.all()).filter(pending_amount__gt=0).order_by('-pending_amount')[:5]:
+            top_defaulters.append({'student': student, 'pending': float(student.pending_amount)})
         defaulters_list = Student.objects.filter(fee_records__status__in=['pending', 'partial', 'overdue']).distinct()
         defaulters_data = []
-        for student in defaulters_list:
-            pending = get_overall_pending(student)
+        for student in get_student_pending_queryset(defaulters_list).prefetch_related('fee_records'):
+            pending = student.pending_amount
             oldest_due = student.fee_records.filter(status__in=['pending', 'partial', 'overdue']).order_by('due_date').first()
             days_overdue = (timezone.localdate() - oldest_due.due_date).days if oldest_due and oldest_due.due_date < timezone.localdate() else 0
             defaulters_data.append({'student': student, 'pending_amount': pending, 'days_overdue': days_overdue})

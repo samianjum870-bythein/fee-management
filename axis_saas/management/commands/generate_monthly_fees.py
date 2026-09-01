@@ -30,19 +30,29 @@ class Command(BaseCommand):
                     due_date = today + timedelta(days=settings.due_date_offset)
                     created_records = 0
                     
+                    records_to_create = []
                     for student in students:
                         base_fee = student.custom_fee if student.custom_fee > 0 else 0
                         if base_fee == 0:
                             fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
                             if fee_struct:
                                 base_fee = fee_struct.monthly_fee
-                        
+
                         if base_fee > 0:
-                            FeeRecord.objects.create(
-                                student=student, month=month, year=year,
-                                amount=base_fee, due_date=due_date, status='pending'
+                            records_to_create.append(
+                                FeeRecord(
+                                    student=student,
+                                    month=month,
+                                    year=year,
+                                    amount=base_fee,
+                                    due_date=due_date,
+                                    status='pending',
+                                )
                             )
                             created_records += 1
+
+                    if records_to_create:
+                        FeeRecord.objects.bulk_create(records_to_create)
                     
                     generated_count += created_records
                     self.stdout.write(f"Generated {created_records} fee records for {tenant.schema_name}")

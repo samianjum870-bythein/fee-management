@@ -171,6 +171,11 @@ class FeeRecord(models.Model):
     class Meta:
         unique_together = ['student', 'month', 'year']
         ordering = ['-year', '-month']
+        indexes = [
+            models.Index(fields=['student', 'month', 'year']),
+            models.Index(fields=['status', 'due_date']),
+            models.Index(fields=['year', 'month']),
+        ]
 
     @property
     def remaining(self):
@@ -224,6 +229,12 @@ class PaymentTransaction(models.Model):
     remarks = models.TextField(blank=True, null=True)
     extra_charges = models.JSONField(default=list, blank=True, null=True)
     created_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['student', 'payment_date']),
+            models.Index(fields=['payment_date']),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.receipt_number:

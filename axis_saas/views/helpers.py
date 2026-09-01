@@ -39,8 +39,8 @@ import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.contrib import messages
-from django.db.models import Sum, Q, Exists, OuterRef, Max
-from django.db.models.functions import TruncMonth, TruncDay
+from django.db.models import Sum, Q, Exists, OuterRef, Max, DecimalField, ExpressionWrapper, F, Value
+from django.db.models.functions import TruncMonth, TruncDay, Coalesce
 from django.db.models import Count
 from django.core.paginator import Paginator
 from django.db import connection
@@ -119,6 +119,33 @@ def get_overall_pending(student):
         total_items_cost += sum((item['line_total'] for item in items))
     return total_fee + total_items_cost - total_paid
 
+
+def get_student_pending_queryset(students_qs):
+    """Annotate each student with SQL-level fee totals and pending balance."""
+    fee_total = FeeRecord.objects.filter(student=OuterRef('pk')).values('student').annotate(total=Sum('amount')).values('total')
+    payment_total = PaymentTransaction.objects.filter(student=OuterRef('pk')).values('student').annotate(total=Sum('amount')).values('total')
+    return students_qs.annotate(
+        total_fee=Coalesce(Subquery(fee_total), Value(Decimal('0'), output_field=DecimalField())),
+        total_paid=Coalesce(Subquery(payment_total), Value(Decimal('0'), output_field=DecimalField())),
+    ).annotate(
+        pending_amount=ExpressionWrapper(F('total_fee') - F('total_paid'), output_field=DecimalField())
+    )
+
+
+def aggregate_pending_totals():
+    """Aggregate fee and payment totals for the full tenant in one database query."""
+    total_fee = FeeRecord.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    total_paid = PaymentTransaction.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    return {
+        'total_fee': total_fee,
+        'total_paid': total_paid,
+        'total_pending': total_fee - total_paid,
+    }
+
+
+# Import left at module scope for the Subquery helper above.
+from django.db.models import Subquery
+
 def local_time_str(dt):
     """Convert aware datetime to local timezone and return formatted time string."""
     if not dt:
@@ -172,9 +199,8 @@ def _compute_dashboard_context(tenant, schema_name):
             today_collection = PaymentTransaction.objects.filter(payment_date=today).aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
             month_collection = PaymentTransaction.objects.filter(payment_date__gte=first_day_month).aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
             total_revenue = PaymentTransaction.objects.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
-            total_pending = Decimal('0')
-            for student in Student.objects.all():
-                total_pending += get_overall_pending(student)
+            student_totals = get_student_pending_queryset(Student.objects.all())
+            total_pending = student_totals.aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
             defaulters_count = Student.objects.filter(fee_records__status__in=['pending', 'partial', 'overdue']).distinct().count()
             total_students = Student.objects.count()
             low_stock_count = Product.objects.filter(quantity__lt=10).count()
@@ -182,12 +208,9 @@ def _compute_dashboard_context(tenant, schema_name):
             collection_rate = float(total_revenue) / float(total_billed) * 100 if total_billed > 0 else 0
             recent_payments = list(PaymentTransaction.objects.select_related('student').order_by('-payment_date')[:5])
             top_defaulters = []
-            for student in Student.objects.all():
-                pending = get_overall_pending(student)
-                if pending > 0:
-                    fee_pending = sum(fr.remaining_total for fr in student.fee_records.filter(status__in=['pending', 'partial', 'overdue']))
-                    top_defaulters.append({'student': student, 'pending': pending, 'fee_pending': fee_pending})
-            top_defaulters = sorted(top_defaulters, key=lambda x: x['pending'], reverse=True)[:5]
+            for student in student_totals.filter(pending_amount__gt=0).order_by('-pending_amount')[:5]:
+                fee_pending = sum(fr.remaining_total for fr in student.fee_records.filter(status__in=['pending', 'partial', 'overdue']))
+                top_defaulters.append({'student': student, 'pending': student.pending_amount, 'fee_pending': fee_pending})
             months_labels = []
             months_amounts = []
             for i in range(5, -1, -1):
@@ -330,11 +353,9 @@ def get_student_list_context(request, schema_name):
     with schema_context(schema_name):
         students = Student.objects.all()
         if class_id:
-            # Use school_class_id if field exists
             try:
                 students = students.filter(school_class_id=class_id)
             except:
-                # Fallback to grade/section if school_class not available
                 pass
         if query:
             students = students.filter(
@@ -348,18 +369,12 @@ def get_student_list_context(request, schema_name):
             students = students.filter(section=section)
         if status:
             students = students.filter(status=status)
-        students = students.order_by('-enrolled_on')
-
-        student_list = []
-        for s in students:
-            s.pending_amount = get_overall_pending(s)
-            student_list.append(s)
-
+        students = get_student_pending_queryset(students).order_by('-enrolled_on')
         if pending_only:
-            student_list = [s for s in student_list if s.pending_amount > 0]
+            students = students.filter(pending_amount__gt=0)
 
-        total_pending_all = sum(s.pending_amount for s in student_list)
-        paginator = Paginator(student_list, 20)
+        total_pending_all = students.aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
+        paginator = Paginator(list(students), 20)
         page_obj = paginator.get_page(page_number)
 
         # Get distinct grades, sections, and active classes for filters

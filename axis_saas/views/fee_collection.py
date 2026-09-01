@@ -176,16 +176,17 @@ def fee_collection(request, schema_name, student_id=None, force_mobile=False):
             students_qs = students_qs.filter(grade=grade_filter)
         if section_filter:
             students_qs = students_qs.filter(section=section_filter)
+        students_qs = get_student_pending_queryset(students_qs).prefetch_related('fee_records')
         pending_students = []
         for s in students_qs:
-            pending = get_overall_pending(s)
+            pending = s.pending_amount
             if pending > 0:
                 s.pending_total = pending
                 pending_students.append(s)
         pending_students.sort(key=lambda x: x.pending_total, reverse=True)
         paginator = Paginator(pending_students, 20)
         pending_page = paginator.get_page(page_number)
-        total_pending_all = sum((get_overall_pending(s) for s in Student.objects.all()))
+        total_pending_all = get_student_pending_queryset(Student.objects.all()).aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
         total_payments_count = PaymentTransaction.objects.count()
         today = date.today()
         today_collection = PaymentTransaction.objects.filter(payment_date=today).aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
@@ -320,6 +321,7 @@ def manual_generate_api(request):
         created = 0
         skipped_existing = 0
         skipped_no_fee = 0
+        fee_records_to_create = []
         for student in students:
             existing = FeeRecord.objects.filter(student=student, month=month, year=year).first()
             if existing:
@@ -334,11 +336,22 @@ def manual_generate_api(request):
             else:
                 base_fee = student.custom_fee if student.custom_fee > 0 else 0
             if base_fee > 0:
-                total_fee = base_fee
-                fee_record = FeeRecord.objects.create(student=student, month=month, year=year, amount=total_fee, due_date=due_date, status='pending', extra_charges=extra_charges)
+                fee_records_to_create.append(
+                    FeeRecord(
+                        student=student,
+                        month=month,
+                        year=year,
+                        amount=base_fee,
+                        due_date=due_date,
+                        status='pending',
+                        extra_charges=extra_charges,
+                    )
+                )
                 created += 1
             else:
                 skipped_no_fee += 1
+        if fee_records_to_create:
+            FeeRecord.objects.bulk_create(fee_records_to_create)
         ManualGenerationLog.objects.create(month=month, year=year, created_count=created, skipped_existing=skipped_existing, skipped_no_fee=skipped_no_fee, triggered_by=request.session.get('school_admin_username', 'admin'), log_type='manual')
         create_fee_generation_notification(schema_name, month, year, created, request.session.get('school_admin_username', 'admin'), mobile=is_mobile_user_agent(request))
         message = f'Generated {created} fee records for {month}/{year}.'

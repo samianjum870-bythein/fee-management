@@ -4,6 +4,7 @@ from axis_saas.models import SchoolClient, GymCustomer, GymSubscription
 from datetime import date
 from calendar import monthrange
 
+
 class Command(BaseCommand):
     help = 'Generate subscriptions for customers whose membership_start day is today'
 
@@ -12,16 +13,15 @@ class Command(BaseCommand):
         day = today.day
         tenants = SchoolClient.objects.filter(is_active=True, tenant_type='gym').exclude(schema_name='public')
         total_generated = 0
+
         for tenant in tenants:
             with schema_context(tenant.schema_name):
-                # Active customers whose membership start day matches today and membership not expired
                 customers = GymCustomer.objects.filter(
                     status='active',
                     membership_start__day=day
                 ).exclude(membership_end__lt=today)
                 generated = 0
                 for cust in customers:
-                    # Check if subscription already exists for current month
                     if cust.subscriptions.filter(month=today.month, year=today.year).exists():
                         continue
                     due_day = cust.membership_start.day
@@ -35,12 +35,7 @@ class Command(BaseCommand):
                 total_generated += generated
                 if generated:
                     self.stdout.write(f"{tenant.schema_name}: generated {generated} subscriptions")
-        self.stdout.write(self.style.SUCCESS(f"Total subscriptions generated: {total_generated}"))
 
-    self.stdout.write(self.style.WARNING("⚠️ Auto-generation is DISABLED by administrator. Subscriptions will NOT be created automatically."))
-    self.stdout.write("   Please create subscriptions manually from customer profile.")
-    return
-    self.stdout.write(self.style.WARNING("⚠️ Auto subscription generation has been DISABLED by administrator."))
-    self.stdout.write("   Subscriptions will NOT be created automatically.")
-    self.stdout.write("   Please generate subscriptions manually from the customer profile.")
-    return
+        self.stdout.write(self.style.SUCCESS(f"Total subscriptions generated: {total_generated}"))
+        self.stdout.write(self.style.WARNING("⚠️ Auto-generation is DISABLED by administrator. Subscriptions will NOT be created automatically."))
+        self.stdout.write("   Please create subscriptions manually from customer profile.")
