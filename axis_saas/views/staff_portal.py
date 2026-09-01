@@ -509,31 +509,35 @@ def staff_webauthn_authentication_options(request):
             except json.JSONDecodeError:
                 data = {}
 
-        pending_username = request.session.get('pending_username') or request.session.get('staff_username') or ''
-        pending_staff_id = request.session.get('pending_staff_id') or request.session.get('staff_id')
-        pending_schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
-        username = (data.get('username') or request.POST.get('username') or '').strip()
+        provided_username = (data.get('username') or request.POST.get('username') or '').strip()
+        pending_staff_id = request.session.get('pending_staff_id')
+        pending_schema_name = request.session.get('pending_schema_name')
+        staff_id = request.session.get('staff_id')
+        staff_schema_name = request.session.get('staff_schema_name')
+        resolved_staff_id = pending_staff_id or staff_id
+        resolved_schema_name = pending_schema_name or staff_schema_name
+        resolved_username = request.session.get('pending_username') or request.session.get('staff_username') or provided_username
 
         logger.info(
-            'AUTH OPTIONS - pending_staff_id=%s pending_schema=%s pending_username=%s username=%s',
-            pending_staff_id, pending_schema_name, pending_username, username
+            'AUTH OPTIONS - pending_staff_id=%s pending_schema=%s staff_id=%s staff_schema=%s provided_username=%s resolved_username=%s',
+            pending_staff_id, pending_schema_name, staff_id, staff_schema_name, provided_username, resolved_username
         )
         logger.info('AUTH OPTIONS - session keys: %s', sorted(request.session.keys()))
 
-        # If we have a pending identity, we must use it (second-factor flow)
-        if pending_staff_id and pending_schema_name:
-            logger.info('AUTH OPTIONS - Using pending identity: staff_id=%s schema=%s', pending_staff_id, pending_schema_name)
+        passkeys = []
+
+        if resolved_staff_id and resolved_schema_name:
+            logger.info('AUTH OPTIONS - Using resolved identity: staff_id=%s schema=%s', resolved_staff_id, resolved_schema_name)
             with schema_context('public'):
                 credential = StaffCredential.objects.filter(
-                    staff_id=pending_staff_id,
-                    schema_name=pending_schema_name,
+                    staff_id=resolved_staff_id,
+                    schema_name=resolved_schema_name,
                     is_active=True,
                 ).first()
                 if credential is None:
-                    logger.warning('AUTH OPTIONS - No StaffCredential found for pending_staff_id=%s schema=%s', pending_staff_id, pending_schema_name)
+                    logger.warning('AUTH OPTIONS - No StaffCredential found for resolved staff_id=%s schema=%s', resolved_staff_id, resolved_schema_name)
                     return JsonResponse({'error': 'Account not found.'}, status=404)
                 passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
-                # filter out malformed credentials
                 valid_passkeys = []
                 for item in passkeys:
                     try:
@@ -543,21 +547,19 @@ def staff_webauthn_authentication_options(request):
                         logger.warning('Skipping malformed WebAuthn credential id for staff credential %s', credential.pk)
                 passkeys = valid_passkeys
                 if not passkeys:
-                    logger.warning('AUTH OPTIONS - No valid passkeys for pending_staff_id=%s', pending_staff_id)
+                    logger.warning('AUTH OPTIONS - No valid passkeys for resolved staff_id=%s', resolved_staff_id)
                     return JsonResponse({'error': 'No valid passkeys registered for this account.'}, status=403)
-                username = credential.username
                 request.session['staff_webauthn_login_username'] = credential.username
                 request.session['staff_webauthn_login_staff_id'] = credential.staff_id
                 request.session['staff_webauthn_login_schema_name'] = credential.schema_name
                 request.session.modified = True
-                logger.info('AUTH OPTIONS - Found credential for pending identity, username=%s, passkeys=%d', credential.username, len(passkeys))
-        elif username:
-            # Passwordless login with username
-            logger.info('AUTH OPTIONS - Using username: %s', username)
+                logger.info('AUTH OPTIONS - Found credential for resolved identity, username=%s, passkeys=%d', credential.username, len(passkeys))
+        elif provided_username:
+            logger.info('AUTH OPTIONS - Using username fallback: %s', provided_username)
             with schema_context('public'):
-                credential = StaffCredential.objects.filter(username=username, is_active=True).first()
+                credential = StaffCredential.objects.filter(username=provided_username, is_active=True).first()
                 if credential is None:
-                    logger.warning('AUTH OPTIONS - No StaffCredential found for username=%s', username)
+                    logger.warning('AUTH OPTIONS - No StaffCredential found for username=%s', provided_username)
                     return JsonResponse({'error': 'Account not found.'}, status=404)
                 passkeys = list(WebAuthnCredential.objects.filter(staff_credential=credential, is_active=True))
                 valid_passkeys = []
@@ -569,7 +571,7 @@ def staff_webauthn_authentication_options(request):
                         logger.warning('Skipping malformed WebAuthn credential id for staff credential %s', credential.pk)
                 passkeys = valid_passkeys
                 if not passkeys:
-                    logger.warning('AUTH OPTIONS - No valid passkeys for username=%s', username)
+                    logger.warning('AUTH OPTIONS - No valid passkeys for username=%s', provided_username)
                     return JsonResponse({'error': 'No valid passkeys registered for this account.'}, status=403)
                 request.session['staff_webauthn_login_username'] = credential.username
                 request.session['staff_webauthn_login_staff_id'] = credential.staff_id
@@ -577,8 +579,7 @@ def staff_webauthn_authentication_options(request):
                 request.session.modified = True
                 logger.info('AUTH OPTIONS - Found credential by username, username=%s, passkeys=%d', credential.username, len(passkeys))
         else:
-            # Discoverable passkey login: no username is required
-            logger.info('AUTH OPTIONS - No pending identity or username, attempting discoverable login')
+            logger.info('AUTH OPTIONS - No resolved identity or username, attempting discoverable login')
             passkeys = []
             request.session.pop('staff_webauthn_login_username', None)
             request.session.pop('staff_webauthn_login_staff_id', None)
