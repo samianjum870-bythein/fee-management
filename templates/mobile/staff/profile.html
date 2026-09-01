@@ -263,7 +263,9 @@
 
             if (data.success) {
                 button.closest('div[style*="display:flex"]').remove();
-                setTimeout(function() { window.location.reload(); }, 600);
+                setTimeout(function() {
+                    window.location.href = '/portal/staff/profile/';
+                }, 600);
             }
         });
     });

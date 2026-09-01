@@ -94,9 +94,8 @@ class StaffTenantMiddleware:
             except Staff.DoesNotExist:
                 request.staff = Staff(pk=staff_id, full_name='Developer', status='active')
 
-        # Passkeys are optional for staff access. We only mark the profile page as
-        # requiring attention when no passkey is active so the user can still use
-        # the portal normally while being prompted to register one.
+        # Passkeys are required for staff portal access. If a user has no active
+        # passkey, they are forced back to the profile page until they register one.
         request.staff_passkey_required = False
         try:
             effective_staff_id = request.session.get('staff_id') or pending_staff_id
@@ -109,11 +108,24 @@ class StaffTenantMiddleware:
                         schema_name=effective_schema_name,
                     ).first()
                 logger.info("Middleware: credential exists=%s has_passkey=%s", credential is not None, bool(credential and credential.has_passkey))
-                request.staff_passkey_required = bool(credential is not None and not credential.has_passkey)
+                request.staff_passkey_required = not (credential and credential.has_passkey)
             else:
                 request.staff_passkey_required = False
 
+            allowed_paths = [
+                '/portal/staff/profile/',
+                '/portal/staff/verify-passkey/',
+                '/portal/staff/security/webauthn/register/options/',
+                '/portal/staff/security/webauthn/register/verify/',
+                '/portal/staff/security/webauthn/auth/options/',
+                '/portal/staff/security/webauthn/auth/verify/',
+                '/portal/staff/logout/',
+                '/portal/staff/login/',
+            ]
             logger.info("Middleware: staff_passkey_required=%s, path=%s", request.staff_passkey_required, request.path_info)
+            if request.staff_passkey_required and request.path_info not in allowed_paths:
+                logger.info("Middleware: redirecting to profile because passkey required")
+                return redirect('staff_profile_page')
         except Exception as exc:
             logger.exception('Middleware error: %s', exc)
             request.staff_passkey_required = False
