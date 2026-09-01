@@ -2,6 +2,19 @@
 {% load static %}
 {% block title %}My Profile{% endblock %}
 {% block body %}
+{% if not has_passkey %}
+<div class="card">
+    <h3>Passkey Security</h3>
+    <div class="alert security-alert">
+        <strong>Required before portal access</strong>
+        <div>Register a native WebAuthn passkey using your device’s biometric or security-key support. This is the production-grade protection used for modern staff portals.</div>
+    </div>
+    <div class="stack" style="margin-top:8px;">
+        <button type="button" class="btn-primary" id="register-passkey-btn">Register Passkey</button>
+        <div id="passkey-status" class="subtle" style="font-size:12px;">No passkey active yet.</div>
+    </div>
+</div>
+{% else %}
 <div class="card">
     <h2 style="margin:0 0 6px;">{{ staff.full_name }}</h2>
     <div class="subtle">{{ staff.job_title }} · {{ staff.get_role_display }}</div>
@@ -28,15 +41,8 @@
 {% endif %}
 <div class="card">
     <h3>Passkey Security</h3>
-    {% if not has_passkey %}
-        <div class="alert security-alert">
-            <strong>Required before portal access</strong>
-            <div>Register a native WebAuthn passkey using your device’s biometric or security-key support. This is the production-grade protection used for modern staff portals.</div>
-        </div>
-    {% endif %}
     <div class="stack" style="margin-top:8px;">
-        <button type="button" class="btn-primary" id="register-passkey-btn" {% if has_passkey %}disabled style="opacity:0.6;"{% endif %}>{% if has_passkey %}Registered{% else %}Register Passkey{% endif %}</button>
-        {% if not has_passkey %}<div id="passkey-status" class="subtle" style="font-size:12px;">No passkey active yet.</div>{% endif %}
+        <button type="button" class="btn-primary" id="register-passkey-btn" disabled style="opacity:0.6;">Registered</button>
     </div>
     {% if passkeys %}
     <div style="margin-top: 14px; display:grid; gap:8px;">
@@ -67,6 +73,7 @@
         <button type="submit" class="btn-primary">Update</button>
     </form>
 </div>
+{% endif %}
 <script>
     function getCookie(name) {
         const value = `; ${document.cookie}`;
