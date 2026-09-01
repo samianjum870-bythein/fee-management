@@ -107,9 +107,12 @@ def staff_verify_passkey(request):
         if request.session.get('staff_id') and request.session.get('staff_schema_name'):
             return redirect('staff_dashboard')
         return redirect('staff_login')
+
+    # Prefer the authenticated identity, but keep the pending one as fallback for
+    # the password-login flow before the passkey has been fully verified.
     staff_id = request.session.get('staff_id') or request.session.get('pending_staff_id')
     schema_name = request.session.get('staff_schema_name') or request.session.get('pending_schema_name')
-    username = request.session.get('pending_username') or request.session.get('staff_username', '')
+    username = request.session.get('staff_username') or request.session.get('pending_username') or ''
     logger.info('Rendering passkey verification for pending staff_id=%s username=%s schema=%s', staff_id, username, schema_name)
     if not staff_id or not schema_name:
         return redirect('staff_login')
@@ -488,13 +491,19 @@ def staff_webauthn_authentication_options(request):
         pending_schema_name = request.session.get('pending_schema_name') or request.session.get('staff_schema_name')
         username = (data.get('username') or request.POST.get('username') or '').strip()
 
+        # Fallback to session values so the password-login verification flow uses the
+        # same account-bound logic as the direct passkey login flow.
+        if not username:
+            username = request.session.get('staff_webauthn_login_username') or request.session.get('staff_username') or request.session.get('pending_username') or ''
+        username = username.strip()
+
         if pending_username:
             if username and username != pending_username:
                 return JsonResponse({'error': 'This passkey does not belong to the signed-in account.'}, status=403)
             username = pending_username
 
         if not username:
-            username = pending_username
+            return JsonResponse({'error': 'Username is required for passkey login.'}, status=400)
 
         with schema_context('public'):
             # Empty allowCredentials enables discoverable, username-less passkeys.
@@ -640,6 +649,7 @@ def staff_webauthn_authentication_verify(request):
         request.session.pop('staff_webauthn_login_username', None)
         request.session.pop('staff_webauthn_login_staff_id', None)
         request.session.pop('staff_webauthn_login_schema_name', None)
+        request.session['staff_pending_passkey'] = False
         request.session.pop('pending_username', None)
         request.session.pop('pending_staff_id', None)
         request.session.pop('pending_schema_name', None)
