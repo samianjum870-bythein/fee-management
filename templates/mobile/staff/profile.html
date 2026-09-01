@@ -28,10 +28,12 @@
 {% endif %}
 <div class="card">
     <h3>Passkey Security</h3>
-    {% if staff_passkey_required %}<div class="alert security-alert">
-        <strong>Required before portal access</strong>
-        <div>Register a native WebAuthn passkey using your device’s biometric or security-key support. This is the production-grade protection used for modern staff portals.</div>{% endif %}
-    </div>
+    {% if not has_passkey %}
+        <div class="alert security-alert">
+            <strong>Required before portal access</strong>
+            <div>Register a native WebAuthn passkey using your device’s biometric or security-key support. This is the production-grade protection used for modern staff portals.</div>
+        </div>
+    {% endif %}
     <div class="stack" style="margin-top:8px;">
         <button type="button" class="btn-primary" id="register-passkey-btn" {% if has_passkey %}disabled style="opacity:0.6;"{% endif %}>{% if has_passkey %}Registered{% else %}Register Passkey{% endif %}</button>
         {% if not has_passkey %}<div id="passkey-status" class="subtle" style="font-size:12px;">No passkey active yet.</div>{% endif %}
@@ -254,6 +256,7 @@
 
             if (data.success) {
                 button.closest('div[style*="display:flex"]').remove();
+                setTimeout(function() { window.location.reload(); }, 600);
             }
         });
     });
