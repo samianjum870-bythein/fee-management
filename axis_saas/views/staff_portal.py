@@ -516,7 +516,7 @@ def staff_webauthn_authentication_options(request):
         staff_schema_name = request.session.get('staff_schema_name')
         resolved_staff_id = pending_staff_id or staff_id
         resolved_schema_name = pending_schema_name or staff_schema_name
-        resolved_username = request.session.get('pending_username') or request.session.get('staff_username') or provided_username
+    # If this is a pending passkey verification, use the provided username instead of resolved identity.    if request.session.get('staff_pending_passkey'):    resolved_staff_id = None    resolved_schema_name = None    logger.info('AUTH OPTIONS - Pending passkey verification, forcing username-based lookup')        resolved_username = request.session.get('pending_username') or request.session.get('staff_username') or provided_username
 
         logger.info(
             'AUTH OPTIONS - pending_staff_id=%s pending_schema=%s staff_id=%s staff_schema=%s provided_username=%s resolved_username=%s',
