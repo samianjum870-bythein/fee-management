@@ -61,18 +61,24 @@ def stock_management(request, schema_name, force_mobile=False):
         total_sales_value = Decimal('0.00')
         product_sales = defaultdict(lambda: {'units': 0, 'value': Decimal('0.00'), 'last_sale': None, 'id': None})
         product_id_cache = {}
-        for sale in SaleItem.objects.select_related('payment__student', 'product').order_by('-created_at')[:100]:
-            total_units_sold += sale.quantity
-            total_sales_value += sale.line_total
-            item_sales.append({'payment': sale.payment, 'item': {'name': sale.name, 'quantity': sale.quantity, 'line_total': sale.line_total}, 'student': sale.payment.student})
-            name = sale.name.strip().lower()
-            entry = product_sales[name]
-            entry['units'] += sale.quantity
-            entry['value'] += sale.line_total
-            if entry['last_sale'] is None or sale.payment.payment_date > entry['last_sale']:
-                entry['last_sale'] = sale.payment.payment_date
-            if sale.product_id is not None and entry['id'] is None:
-                entry['id'] = sale.product_id
+        try:
+            recent_sales = SaleItem.objects.select_related('payment__student', 'product').order_by('-created_at')[:100]
+            for sale in recent_sales:
+                total_units_sold += sale.quantity
+                total_sales_value += sale.line_total
+                item_sales.append({'payment': sale.payment, 'item': {'name': sale.name, 'quantity': sale.quantity, 'line_total': sale.line_total}, 'student': sale.payment.student})
+                name = sale.name.strip().lower()
+                entry = product_sales[name]
+                entry['units'] += sale.quantity
+                entry['value'] += sale.line_total
+                if entry['last_sale'] is None or sale.payment.payment_date > entry['last_sale']:
+                    entry['last_sale'] = sale.payment.payment_date
+                if sale.product_id is not None and entry['id'] is None:
+                    entry['id'] = sale.product_id
+        except Exception:
+            recent_sales = []
+            item_sales = []
+            product_sales = defaultdict(lambda: {'units': 0, 'value': Decimal('0.00'), 'last_sale': None, 'id': None})
         top_items = []
         for name, values in product_sales.items():
             top_items.append({'name': name.title(), 'units': values['units'], 'value': values['value'], 'last_sale': values['last_sale'], 'id': values['id']})

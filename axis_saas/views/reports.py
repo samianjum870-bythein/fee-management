@@ -63,17 +63,8 @@ def defaulters(request, schema_name, force_mobile=False):
             students_qs = students_qs.filter(section=section)
 
         students_qs = get_student_pending_queryset(students_qs)
-        if show_only_pending := request.GET.get('pending_only') == '1':
-            students_qs = students_qs.filter(pending_amount__gt=0)
-        else:
-            students_qs = students_qs.filter(pending_amount__gt=0)
+        students_qs = students_qs.filter(pending_amount__gt=0)
 
-        students_qs = students_qs.annotate(
-            fee_pending=Coalesce(
-                Sum('fee_records__remaining_total', distinct=True),
-                Value(Decimal('0')),
-            )
-        )
         if cutoff:
             students_qs = students_qs.filter(fee_records__due_date__lt=cutoff)
         students_qs = students_qs.distinct()
