@@ -2,6 +2,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('staffLoginForm');
     const profileButton = document.getElementById('enableBiometricBtn');
 
+    function getCsrfToken() {
+        return (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
+    }
+
+    async function readJsonResponse(response) {
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `Request failed (${response.status})`);
+        }
+        return data;
+    }
+
     function base64UrlToUint8Array(value) {
         if (!value) return new Uint8Array();
         const padded = value + '='.repeat((4 - (value.length % 4)) % 4);
@@ -31,6 +43,8 @@ document.addEventListener('DOMContentLoaded', function () {
             const password = (passwordInput || {}).value || '';
             if (!username || !password) return;
 
+            event.preventDefault();
+
             const loginButton = loginForm.querySelector('button[type="submit"]');
             if (loginButton) loginButton.disabled = true;
 
@@ -39,7 +53,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '',
+                        'X-CSRFToken': getCsrfToken(),
                         'X-Requested-With': 'XMLHttpRequest',
                     },
                     body: JSON.stringify({ username, password }),
@@ -58,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     allowCredentials: (prepareData.options.allowCredentials || []).map((item) => ({
                         id: base64UrlToUint8Array(item.id),
                         type: item.type,
-                        transports: item.transports || ['internal'],
+                            ...(item.transports ? { transports: item.transports } : {}),
                     })),
                     userVerification: prepareData.options.userVerification || 'preferred',
                 };
@@ -82,7 +96,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '',
+                        'X-CSRFToken': getCsrfToken(),
                         'X-Requested-With': 'XMLHttpRequest',
                     },
                     body: JSON.stringify(payload),
@@ -106,6 +120,18 @@ document.addEventListener('DOMContentLoaded', function () {
         profileButton.addEventListener('click', async function () {
             if (profileButton.disabled) return;
 
+            if (!window.isSecureContext) {
+                alert('Biometric setup requires HTTPS. Open the secure HTTPS address and try again.');
+                return;
+            }
+            if (!window.PublicKeyCredential || !navigator.credentials) {
+                alert('This browser does not support biometric sign-in. Please update Chrome and try again.');
+                return;
+            }
+
+            const originalButtonText = profileButton.textContent;
+            profileButton.disabled = true;
+
             try {
                 const statusResponse = await fetch('/portal/staff/biometric/status/', {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -123,15 +149,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '',
+                        'X-CSRFToken': getCsrfToken(),
                         'X-Requested-With': 'XMLHttpRequest',
                     },
                     body: JSON.stringify({})
                 });
-                const optionsData = await optionsResponse.json();
-                if (!optionsData.ok) {
-                    alert(optionsData.error || 'Unable to start biometric setup.');
-                    return;
+                const optionsData = await readJsonResponse(optionsResponse);
+                if (!optionsData.ok || !optionsData.options) {
+                    throw new Error(optionsData.error || 'Unable to start biometric setup.');
                 }
 
                 const publicKey = {
@@ -153,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '',
+                            'X-CSRFToken': getCsrfToken(),
                         'X-Requested-With': 'XMLHttpRequest',
                     },
                     body: JSON.stringify({
@@ -169,7 +194,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     })
                 });
 
-                const registerData = await registerResponse.json();
+                const registerData = await readJsonResponse(registerResponse);
                 if (registerData.ok) {
                     profileButton.textContent = 'Biometric Enabled';
                     profileButton.disabled = true;
@@ -188,6 +213,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     alert('Biometric setup failed: ' + (error.message || 'Please try again.'));
                 }
+                profileButton.disabled = false;
+                profileButton.textContent = originalButtonText;
             }
         });
     }
