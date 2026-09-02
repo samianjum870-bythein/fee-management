@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 from webauthn import generate_authentication_options, generate_registration_options, verify_authentication_response, verify_registration_response
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json_dict
 
 from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
 
@@ -68,7 +68,7 @@ def staff_biometric_registration_options(request):
         authenticator_selection=None,
     )
     request.session['staff_biometric_challenge'] = bytes_to_base64url(options.challenge)
-    return JsonResponse({'ok': True, 'options': json.loads(json.dumps(options, default=lambda o: getattr(o, '__dict__', str(o))))})
+    return JsonResponse({'ok': True, 'options': options_to_json_dict(options)})
 
 
 @require_http_methods(['POST'])
@@ -155,7 +155,7 @@ def staff_biometric_prepare_login(request):
         'challenge': bytes_to_base64url(options.challenge),
         'credential_id': biometric.credential_id,
     }
-    return JsonResponse({'ok': True, 'biometric_enabled': True, 'options': json.loads(json.dumps(options, default=lambda o: getattr(o, '__dict__', str(o))))})
+    return JsonResponse({'ok': True, 'biometric_enabled': True, 'options': options_to_json_dict(options)})
 
 
 @require_http_methods(['POST'])

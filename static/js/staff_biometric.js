@@ -180,7 +180,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 alert(registerData.error || 'Unable to enable biometric verification.');
             } catch (error) {
-                alert('This device/browser does not support fingerprint or face authentication, or the popup was cancelled.');
+                console.error('Biometric registration failed:', error);
+                if (!window.isSecureContext) {
+                    alert('Biometric setup requires HTTPS. Open the secure HTTPS address and try again.');
+                } else if (error.name === 'NotAllowedError') {
+                    alert('Biometric prompt was cancelled or permission was denied. Try again and allow the prompt.');
+                } else {
+                    alert('Biometric setup failed: ' + (error.message || 'Please try again.'));
+                }
             }
         });
     }
