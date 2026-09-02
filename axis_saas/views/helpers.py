@@ -374,7 +374,7 @@ def get_student_list_context(request, schema_name):
             students = students.filter(pending_amount__gt=0)
 
         total_pending_all = students.aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
-        paginator = Paginator(list(students), 20)
+        paginator = Paginator(students, 20)
         page_obj = paginator.get_page(page_number)
 
         # Get distinct grades, sections, and active classes for filters

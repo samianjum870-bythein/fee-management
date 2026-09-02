@@ -61,31 +61,43 @@ def defaulters(request, schema_name, force_mobile=False):
             students_qs = students_qs.filter(grade=grade)
         if section:
             students_qs = students_qs.filter(section=section)
-        students_qs = get_student_pending_queryset(students_qs).prefetch_related('fee_records')
-        result = []
-        show_only_pending = request.GET.get('pending_only') == '1'
-        for student in students_qs:
-            overall_pending = student.pending_amount
-            if show_only_pending and overall_pending <= 0:
-                continue
-            if overall_pending <= 0:
-                continue
-            fee_pending = sum((fr.remaining for fr in student.fee_records.filter(status__in=['pending', 'partial', 'overdue'])))
+
+        students_qs = get_student_pending_queryset(students_qs)
+        if show_only_pending := request.GET.get('pending_only') == '1':
+            students_qs = students_qs.filter(pending_amount__gt=0)
+        else:
+            students_qs = students_qs.filter(pending_amount__gt=0)
+
+        students_qs = students_qs.annotate(
+            fee_pending=Coalesce(
+                Sum('fee_records__remaining_total', distinct=True),
+                Value(Decimal('0')),
+            )
+        )
+        if cutoff:
+            students_qs = students_qs.filter(fee_records__due_date__lt=cutoff)
+        students_qs = students_qs.distinct()
+
+        if sort_by == 'pending':
+            students_qs = students_qs.order_by('-pending_amount', 'name')
+        elif sort_by == 'name':
+            students_qs = students_qs.order_by('name')
+        else:
+            students_qs = students_qs.order_by('-pending_amount', 'name')
+
+        page_obj = Paginator(students_qs, 15).get_page(page_number)
+        result = list(page_obj.object_list)
+        total_defaulters = students_qs.count()
+        total_pending_all = students_qs.aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
+        avg_overdue = 0
+        max_overdue = 0
+        for student in result:
             oldest_due = student.fee_records.filter(status__in=['pending', 'partial', 'overdue']).order_by('due_date').first()
             days_overdue = (today - oldest_due.due_date).days if oldest_due and oldest_due.due_date < today else 0
-            result.append({'student': student, 'pending_amount': overall_pending, 'fee_pending': fee_pending, 'days_overdue': days_overdue})
-        if sort_by == 'pending':
-            result.sort(key=lambda x: x['pending_amount'], reverse=True)
-        elif sort_by == 'name':
-            result.sort(key=lambda x: x['student'].name.lower())
-        else:
-            result.sort(key=lambda x: x['days_overdue'], reverse=True)
-        total_defaulters = len(result)
-        total_pending_all = sum((r['pending_amount'] for r in result))
-        avg_overdue = sum((r['days_overdue'] for r in result)) / total_defaulters if total_defaulters > 0 else 0
-        max_overdue = max((r['days_overdue'] for r in result), default=0)
-        paginator = Paginator(result, 15)
-        page_obj = paginator.get_page(page_number)
+            student.days_overdue = days_overdue
+            avg_overdue += days_overdue
+            max_overdue = max(max_overdue, days_overdue)
+        avg_overdue = (avg_overdue / total_defaulters) if total_defaulters else 0
         grades = list(Student.objects.values_list('grade', flat=True).distinct().order_by('grade'))
         sections = list(Student.objects.values_list('section', flat=True).distinct().order_by('section'))
     context = {'tenant': tenant, 'defaulters': page_obj, 'total_defaulters': total_defaulters, 'total_pending_all': total_pending_all, 'avg_overdue': round(avg_overdue, 1), 'max_overdue': max_overdue, 'days': days, 'search_query': q, 'grade_filter': grade, 'section_filter': section, 'sort_by': sort_by, 'grades': grades, 'sections': sections, 'logo_url': tenant.school_logo.url if tenant.school_logo else None}

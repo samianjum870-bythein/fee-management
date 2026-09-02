@@ -14,7 +14,7 @@ def manifest(request, schema_name):
     manifest_data = {
         "name": name,
         "short_name": short_name,
-        "description": f"{name} – School & Gym Management",
+        "description": f"{name} – School Management",
         "start_url": start_url,
         "display": "standalone",
         "background_color": "#f0f4ff",
