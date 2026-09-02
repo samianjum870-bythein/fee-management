@@ -57,11 +57,12 @@ def staff_biometric_status(request):
     if not staff_id or not schema_name:
         return JsonResponse({'enabled': False, 'status': 'not_logged_in'}, status=401)
 
-    enabled = StaffBiometricCredential.objects.filter(
-        staff_id=staff_id,
-        schema_name=schema_name,
-        enabled=True,
-    ).exists()
+    with schema_context('public'):
+        enabled = StaffBiometricCredential.objects.filter(
+            staff_id=staff_id,
+            schema_name=schema_name,
+            enabled=True,
+        ).exists()
     return JsonResponse({'enabled': enabled, 'status': 'ok'})
 
 
@@ -129,12 +130,13 @@ def staff_biometric_register(request):
         require_user_verification=False,
     )
 
-    StaffBiometricCredential.objects.update_or_create(
-        staff_id=staff_id,
-        schema_name=schema_name,
-        credential_id=credential_id,
-        defaults={'public_key': bytes_to_base64url(verified.credential_public_key), 'enabled': True, 'sign_count': verified.sign_count},
-    )
+    with schema_context('public'):
+        StaffBiometricCredential.objects.update_or_create(
+            staff_id=staff_id,
+            schema_name=schema_name,
+            credential_id=credential_id,
+            defaults={'public_key': bytes_to_base64url(verified.credential_public_key), 'enabled': True, 'sign_count': verified.sign_count},
+        )
     request.session.pop('staff_biometric_challenge', None)
     return JsonResponse({'ok': True, 'enabled': True, 'message': 'Biometric enabled successfully.'})
 
@@ -161,7 +163,8 @@ def staff_biometric_prepare_login(request):
     if not staff or staff.status != 'active':
         return JsonResponse({'ok': False, 'error': 'Staff account is inactive or missing.'}, status=403)
 
-    biometric = StaffBiometricCredential.objects.filter(staff_id=staff.pk, schema_name=credential.schema_name, enabled=True).first()
+    with schema_context('public'):
+        biometric = StaffBiometricCredential.objects.filter(staff_id=staff.pk, schema_name=credential.schema_name, enabled=True).first()
     if not biometric:
         return JsonResponse({'ok': True, 'biometric_enabled': False, 'message': 'No biometric credential found.'})
 
@@ -196,12 +199,13 @@ def staff_biometric_complete_login(request):
 
     assertion = payload.get('assertion') or payload
     credential_id = assertion.get('id') or assertion.get('credential_id') or ''
-    biometric = StaffBiometricCredential.objects.filter(
-        staff_id=pending['staff_id'],
-        schema_name=pending['schema_name'],
-        credential_id=credential_id,
-        enabled=True,
-    ).first()
+    with schema_context('public'):
+        biometric = StaffBiometricCredential.objects.filter(
+            staff_id=pending['staff_id'],
+            schema_name=pending['schema_name'],
+            credential_id=credential_id,
+            enabled=True,
+        ).first()
     if not biometric:
         return JsonResponse({'ok': False, 'error': 'This device is not registered for this account.'}, status=403)
 
@@ -226,7 +230,8 @@ def staff_biometric_complete_login(request):
     )
 
     biometric.sign_count = verification.new_sign_count
-    biometric.save(update_fields=['sign_count'])
+    with schema_context('public'):
+        biometric.save(update_fields=['sign_count'])
 
     request.session.flush()
     request.session['staff_id'] = pending['staff_id']
