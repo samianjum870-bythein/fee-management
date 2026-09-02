@@ -37,6 +37,7 @@ class StaffBiometricCredential(models.Model):
         if not self.public_key:
             return b''
         try:
-            return base64.b64decode(self.public_key.encode('ascii'))
+            padded = self.public_key + '=' * (-len(self.public_key) % 4)
+            return base64.urlsafe_b64decode(padded.encode('ascii'))
         except Exception:
             return self.public_key.encode('utf-8')

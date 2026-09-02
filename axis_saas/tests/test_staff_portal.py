@@ -108,5 +108,29 @@ class StaffPortalTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['enabled'])
 
+    def test_staff_biometric_registration_options_are_serialized(self):
+        with schema_context(self.tenant.schema_name):
+            staff = Staff.objects.create(
+                first_name='Hina',
+                last_name='Raza',
+                email='hina@example.com',
+                job_title='Science Teacher',
+                department='teaching',
+                phone='03002224444',
+                role='teacher',
+            )
+
+        credential = StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name)
+        self.client.post(
+            '/portal/staff/login/',
+            {'username': credential.username, 'password': credential.raw_password},
+            follow=True,
+        )
+
+        response = self.client.post('/portal/staff/biometric/registration-options/', '{}', content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertEqual(response.json()['options']['attestation'], 'none')
+
     def test_staff_credential_does_not_store_visible_password(self):
         self.assertFalse(StaffCredential._meta.has_field('visible_password'))

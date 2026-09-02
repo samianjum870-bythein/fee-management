@@ -10,6 +10,12 @@ from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 from webauthn import generate_authentication_options, generate_registration_options, verify_authentication_response, verify_registration_response
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json_dict
+from webauthn.helpers.structs import (
+    AttestationConveyancePreference,
+    PublicKeyCredentialDescriptor,
+    PublicKeyCredentialType,
+    UserVerificationRequirement,
+)
 
 from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
 
@@ -91,7 +97,7 @@ def staff_biometric_registration_options(request):
         user_id=str(staff_id).encode('utf-8'),
         user_display_name=staff.full_name,
         timeout=60000,
-        attestation='none',
+        attestation=AttestationConveyancePreference.NONE,
         authenticator_selection=None,
     )
     serialized_options = options_to_json_dict(options)
@@ -180,8 +186,13 @@ def staff_biometric_prepare_login(request):
         rp_id=_rp_id(request),
         challenge=None,
         timeout=60000,
-        allow_credentials=[{'id': base64url_to_bytes(biometric.credential_id), 'type': 'public-key'}],
-        user_verification='preferred',
+        allow_credentials=[
+            PublicKeyCredentialDescriptor(
+                id=base64url_to_bytes(biometric.credential_id),
+                type=PublicKeyCredentialType.PUBLIC_KEY,
+            )
+        ],
+        user_verification=UserVerificationRequirement.PREFERRED,
     )
     request.session['staff_pending_biometric_login'] = {
         'username': username,
