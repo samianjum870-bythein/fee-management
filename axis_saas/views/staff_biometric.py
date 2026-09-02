@@ -123,6 +123,7 @@ def staff_biometric_register(request):
     registration = payload.get('registration') or payload
     credential = payload.get('credential') or registration
     credential_id = credential.get('id') or credential.get('credential_id') or ''
+    raw_id = credential.get('rawId') or credential.get('rawID') or credential_id
     if not credential_id:
         return JsonResponse({'error': 'Registration response missing credential id.'}, status=400)
 
@@ -130,7 +131,7 @@ def staff_biometric_register(request):
     verified = verify_registration_response(
         credential={
             'id': credential_id,
-            'rawId': base64url_to_bytes(credential.get('rawId', credential_id)),
+            'rawId': base64url_to_bytes(raw_id),
             'response': {
                 'clientDataJSON': base64url_to_bytes(credential.get('response', {}).get('clientDataJSON', '')),
                 'attestationObject': base64url_to_bytes(credential.get('response', {}).get('attestationObject', '')),

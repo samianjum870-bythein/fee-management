@@ -41,6 +41,16 @@ document.addEventListener('DOMContentLoaded', function () {
         return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
+    function credentialRawId(credential) {
+        if (credential && credential.rawId) {
+            return uint8ArrayToBase64Url(new Uint8Array(credential.rawId));
+        }
+        if (credential && credential.id) {
+            return credential.id;
+        }
+        throw new Error('Biometric credential did not include a raw ID. Please try again.');
+    }
+
     if (loginForm && typeof window.PublicKeyCredential !== 'undefined') {
         loginForm.addEventListener('submit', async function (event) {
             const usernameInput = loginForm.querySelector('[name="username"]');
@@ -190,7 +200,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     body: JSON.stringify({
                         registration: {
                             id: credential.id,
-                            rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
+                            rawId: credentialRawId(credential),
                             response: {
                                 clientDataJSON: uint8ArrayToBase64Url(new Uint8Array(credential.response.clientDataJSON)),
                                 attestationObject: uint8ArrayToBase64Url(new Uint8Array(credential.response.attestationObject)),
