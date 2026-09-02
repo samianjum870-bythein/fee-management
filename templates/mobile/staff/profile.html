@@ -1,6 +1,9 @@
 {% extends 'mobile/staff/base.html' %}
 {% load static %}
 {% block title %}My Profile{% endblock %}
+{% block extra_head %}
+<script src="{% static 'js/staff_biometric.js' %}" defer></script>
+{% endblock %}
 {% block body %}
 <div class="card">
     <h2 style="margin:0 0 6px;">{{ staff.full_name }}</h2>
