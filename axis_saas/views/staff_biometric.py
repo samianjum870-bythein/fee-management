@@ -131,10 +131,10 @@ def staff_biometric_register(request):
     verified = verify_registration_response(
         credential={
             'id': credential_id,
-            'rawId': base64url_to_bytes(raw_id),
+            'rawId': raw_id,
             'response': {
-                'clientDataJSON': base64url_to_bytes(credential.get('response', {}).get('clientDataJSON', '')),
-                'attestationObject': base64url_to_bytes(credential.get('response', {}).get('attestationObject', '')),
+                'clientDataJSON': credential.get('response', {}).get('clientDataJSON', ''),
+                'attestationObject': credential.get('response', {}).get('attestationObject', ''),
             },
             'type': 'public-key',
         },
@@ -232,12 +232,12 @@ def staff_biometric_complete_login(request):
     verification = verify_authentication_response(
         credential={
             'id': credential_id,
-            'rawId': base64url_to_bytes(assertion.get('rawId', credential_id)),
+            'rawId': assertion.get('rawId') or assertion.get('rawID') or credential_id,
             'response': {
-                'clientDataJSON': base64url_to_bytes(assertion.get('response', {}).get('clientDataJSON', '')),
-                'authenticatorData': base64url_to_bytes(assertion.get('response', {}).get('authenticatorData', '')),
-                'signature': base64url_to_bytes(assertion.get('response', {}).get('signature', '')),
-                'userHandle': base64url_to_bytes(assertion.get('response', {}).get('userHandle', '')) if assertion.get('response', {}).get('userHandle') else None,
+                'clientDataJSON': assertion.get('response', {}).get('clientDataJSON', ''),
+                'authenticatorData': assertion.get('response', {}).get('authenticatorData', ''),
+                'signature': assertion.get('response', {}).get('signature', ''),
+                'userHandle': assertion.get('response', {}).get('userHandle') or None,
             },
             'type': 'public-key',
         },
