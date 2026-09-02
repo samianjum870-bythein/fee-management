@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from functools import wraps
+from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.conf import settings
@@ -44,15 +45,25 @@ def biometric_json_errors(view):
 
 
 def _rp_id(request):
-    return getattr(settings, 'WEBAUTHN_RP_ID', None) or request.get_host().split(':')[0] or 'localhost'
+    request_host = request.get_host().split(':')[0].rstrip('.').lower()
+    configured_rp_id = (getattr(settings, 'WEBAUTHN_RP_ID', None) or '').rstrip('.').lower()
+    if configured_rp_id and request_host == configured_rp_id:
+        return configured_rp_id
+    if configured_rp_id:
+        logger.warning('Ignoring invalid WebAuthn RP ID %r for request host %r', configured_rp_id, request_host)
+    return request_host or 'localhost'
 
 
 def _origin(request):
+    request_scheme = 'https' if request.is_secure() else 'http'
+    request_origin = f'{request_scheme}://{request.get_host()}'
     configured_origin = getattr(settings, 'WEBAUTHN_ORIGIN', None)
     if configured_origin:
-        return configured_origin.rstrip('/')
-    scheme = 'https' if request.is_secure() else 'http'
-    return f'{scheme}://{request.get_host()}'
+        parsed_origin = urlparse(configured_origin.rstrip('/'))
+        if parsed_origin.scheme in ('http', 'https') and parsed_origin.netloc.lower() == request.get_host().lower():
+            return f'{parsed_origin.scheme}://{parsed_origin.netloc}'
+        logger.warning('Ignoring invalid WebAuthn origin %r for request origin %r', configured_origin, request_origin)
+    return request_origin
 
 
 def _get_staff_from_session(request):
