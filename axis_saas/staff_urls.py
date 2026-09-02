@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from axis_saas.views.staff_portal import (
     staff_api_attendance,
@@ -33,6 +33,7 @@ urlpatterns = [
     path('profile/', staff_profile, name='staff_profile_page'),
     path('profile/change-password/', staff_change_password, name='staff_change_password'),
     path('notifications/', staff_notifications, name='staff_notifications'),
+    path('biometric/', include('axis_saas.biometric_urls')),
     path('more/', staff_more, name='staff_more'),
     path('notifications/<int:notif_id>/mark-read/', staff_mark_notification_read, name='staff_mark_notification_read'),
     path('api/classes/', staff_api_classes, name='staff_api_classes'),

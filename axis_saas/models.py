@@ -8,6 +8,8 @@ from decimal import Decimal
 from datetime import date, timedelta
 from django.contrib.auth.hashers import make_password, check_password
 
+from .biometric_models import StaffBiometricCredential
+
 SCHOOL_FEATURE_CHOICES = [
     ('class_management', 'Class & Subject Management'),
     ('dashboard', 'Dashboard'),

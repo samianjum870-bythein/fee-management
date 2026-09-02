@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django_tenants.utils import schema_context
 
-from axis_saas.models import SchoolClient, Staff, StaffCredential
+from axis_saas.models import SchoolClient, Staff, StaffBiometricCredential, StaffCredential
 
 
 class StaffPortalTests(TestCase):
@@ -62,6 +62,51 @@ class StaffPortalTests(TestCase):
         self.assertEqual(self.client.session.get('staff_id'), staff.id)
         self.assertEqual(self.client.session.get('staff_schema_name'), self.tenant.schema_name)
         self.assertNotIn('staff_pending_passkey', self.client.session)
+
+    def test_staff_profile_exposes_biometric_status(self):
+        with schema_context(self.tenant.schema_name):
+            staff = Staff.objects.create(
+                first_name='Bilal',
+                last_name='Hassan',
+                email='bilal@example.com',
+                job_title='Computer Teacher',
+                department='teaching',
+                phone='03009999888',
+                role='teacher',
+            )
+
+        credential = StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name)
+        self.client.post(
+            '/portal/staff/login/',
+            {'username': credential.username, 'password': credential.raw_password},
+            follow=True,
+        )
+
+        response = self.client.get('/portal/staff/profile/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Biometric')
+
+    def test_staff_biometric_status_endpoint_is_available(self):
+        with schema_context(self.tenant.schema_name):
+            staff = Staff.objects.create(
+                first_name='Nimra',
+                last_name='Awan',
+                email='nimra@example.com',
+                job_title='Biology Teacher',
+                department='teaching',
+                phone='03001113333',
+                role='teacher',
+            )
+
+        self.client.post(
+            '/portal/staff/login/',
+            {'username': StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name).username,
+             'password': StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name).raw_password},
+            follow=True,
+        )
+        response = self.client.get('/portal/staff/biometric/status/')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['enabled'])
 
     def test_staff_credential_does_not_store_visible_password(self):
         self.assertFalse(StaffCredential._meta.has_field('visible_password'))

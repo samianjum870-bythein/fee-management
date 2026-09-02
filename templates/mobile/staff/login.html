@@ -8,7 +8,7 @@
     {% if error %}
         <div class="alert" style="color: #991b1b; background: rgba(220,38,38,.08);">{{ error }}</div>
     {% endif %}
-    <form method="post" style="display: grid; gap: 12px;">
+    <form id="staffLoginForm" method="post" style="display: grid; gap: 12px;">
         {% csrf_token %}
         <div>
             <label for="username" style="display:block; margin-bottom:6px; font-weight:600;">Username</label>
@@ -21,4 +21,8 @@
         <button type="submit" class="btn-primary" style="width:100%; padding: 0.8rem 1rem; border-radius: 0.8rem; font-weight: 600;">Login</button>
     </form>
 </div>
+{% endblock %}
+
+{% block extra_head %}
+<script src="{% static 'js/staff_biometric.js' %}" defer></script>
 {% endblock %}

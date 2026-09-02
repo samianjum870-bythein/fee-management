@@ -18,7 +18,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
-from axis_saas.models import Notification, SchoolClass, Staff, StaffCredential, Student, StudentAttendance
+from axis_saas.models import Notification, SchoolClass, Staff, StaffBiometricCredential, StaffCredential, Student, StudentAttendance
 from django.views.decorators.csrf import csrf_exempt
 
 logger = logging.getLogger(__name__)
@@ -263,12 +263,18 @@ def staff_profile(request):
 
         with schema_context('public'):
             credential = StaffCredential.objects.filter(staff_id=staff.pk, schema_name=schema_name).first()
+            biometric_enabled = StaffBiometricCredential.objects.filter(
+                staff_id=staff.pk,
+                schema_name=schema_name,
+                enabled=True,
+            ).exists()
         if credential is not None:
             credential.raw_password = None
         try:
             response = render(request, 'mobile/staff/profile.html', {
                 'staff': staff,
                 'credential': credential,
+                'biometric_enabled': biometric_enabled,
             })
             logger.info('PROFILE - render successful, returning response')
             return response
