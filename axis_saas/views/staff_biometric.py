@@ -14,8 +14,6 @@ from webauthn import generate_authentication_options, generate_registration_opti
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json_dict
 from webauthn.helpers.structs import (
     AttestationConveyancePreference,
-    PublicKeyCredentialDescriptor,
-    PublicKeyCredentialType,
     UserVerificationRequirement,
 )
 from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidJSONStructure, InvalidRegistrationResponse
@@ -206,12 +204,6 @@ def staff_biometric_prepare_login(request):
         rp_id=_rp_id(request),
         challenge=None,
         timeout=60000,
-        allow_credentials=[
-            PublicKeyCredentialDescriptor(
-                id=base64url_to_bytes(biometric.credential_id),
-                type=PublicKeyCredentialType.PUBLIC_KEY,
-            )
-        ],
         user_verification=UserVerificationRequirement.PREFERRED,
     )
     request.session['staff_pending_biometric_login'] = {

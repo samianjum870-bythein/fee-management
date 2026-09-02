@@ -165,11 +165,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 const statusData = await readJsonResponse(statusResponse);
                 if (statusData && statusData.enabled) {
-                    profileButton.textContent = 'Biometric Enabled';
-                    profileButton.disabled = true;
-                    const statusBadge = document.getElementById('biometricStatus');
-                    if (statusBadge) statusBadge.textContent = 'Enabled';
-                    return;
+                    profileButton.textContent = 'Register This Device';
                 }
 
                 const optionsResponse = await fetch('/portal/staff/biometric/registration-options/', {
