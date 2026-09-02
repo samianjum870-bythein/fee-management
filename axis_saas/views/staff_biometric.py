@@ -22,10 +22,13 @@ def biometric_json_errors(view):
     def wrapped(request, *args, **kwargs):
         try:
             return view(request, *args, **kwargs)
-        except Exception:
+        except Exception as error:
             logger.exception('Biometric request failed: %s %s', request.method, request.path)
             return JsonResponse(
-                {'ok': False, 'error': 'Biometric service failed. Please refresh and try again.'},
+                {
+                    'ok': False,
+                    'error': f'Biometric service failed ({error.__class__.__name__}): {error}',
+                },
                 status=500,
             )
 
@@ -91,8 +94,11 @@ def staff_biometric_registration_options(request):
         attestation='none',
         authenticator_selection=None,
     )
+    serialized_options = options_to_json_dict(options)
+    if not serialized_options.get('challenge') or not serialized_options.get('user', {}).get('id'):
+        return JsonResponse({'ok': False, 'error': 'Biometric options were generated incorrectly.'}, status=500)
     request.session['staff_biometric_challenge'] = bytes_to_base64url(options.challenge)
-    return JsonResponse({'ok': True, 'options': options_to_json_dict(options)})
+    return JsonResponse({'ok': True, 'options': serialized_options})
 
 
 @biometric_json_errors
