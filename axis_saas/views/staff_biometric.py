@@ -4,6 +4,7 @@ import logging
 from functools import wraps
 
 from django.core.cache import cache
+from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -16,6 +17,7 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialType,
     UserVerificationRequirement,
 )
+from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidJSONStructure, InvalidRegistrationResponse
 
 from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
 
@@ -42,11 +44,13 @@ def biometric_json_errors(view):
 
 
 def _rp_id(request):
-    host = request.get_host().split(':')[0]
-    return host or 'localhost'
+    return getattr(settings, 'WEBAUTHN_RP_ID', None) or request.get_host().split(':')[0] or 'localhost'
 
 
 def _origin(request):
+    configured_origin = getattr(settings, 'WEBAUTHN_ORIGIN', None)
+    if configured_origin:
+        return configured_origin.rstrip('/')
     scheme = 'https' if request.is_secure() else 'http'
     return f'{scheme}://{request.get_host()}'
 
@@ -128,21 +132,25 @@ def staff_biometric_register(request):
         return JsonResponse({'error': 'Registration response missing credential id.'}, status=400)
 
     expected_challenge = base64url_to_bytes(challenge) if challenge else None
-    verified = verify_registration_response(
-        credential={
-            'id': credential_id,
-            'rawId': raw_id,
-            'response': {
-                'clientDataJSON': credential.get('response', {}).get('clientDataJSON', ''),
-                'attestationObject': credential.get('response', {}).get('attestationObject', ''),
+    try:
+        verified = verify_registration_response(
+            credential={
+                'id': credential_id,
+                'rawId': raw_id,
+                'response': {
+                    'clientDataJSON': credential.get('response', {}).get('clientDataJSON', ''),
+                    'attestationObject': credential.get('response', {}).get('attestationObject', ''),
+                },
+                'type': 'public-key',
             },
-            'type': 'public-key',
-        },
-        expected_challenge=expected_challenge or b'',
-        expected_rp_id=_rp_id(request),
-        expected_origin=_origin(request),
-        require_user_verification=False,
-    )
+            expected_challenge=expected_challenge or b'',
+            expected_rp_id=_rp_id(request),
+            expected_origin=_origin(request),
+            require_user_verification=False,
+        )
+    except (InvalidJSONStructure, InvalidRegistrationResponse) as error:
+        logger.warning('Staff biometric registration rejected: %s', error)
+        return JsonResponse({'ok': False, 'error': f'Biometric registration rejected: {error}'}, status=400)
 
     with schema_context('public'):
         StaffBiometricCredential.objects.update_or_create(
@@ -229,36 +237,43 @@ def staff_biometric_complete_login(request):
     if not biometric:
         return JsonResponse({'ok': False, 'error': 'This device is not registered for this account.'}, status=403)
 
-    verification = verify_authentication_response(
-        credential={
-            'id': credential_id,
-            'rawId': assertion.get('rawId') or assertion.get('rawID') or credential_id,
-            'response': {
-                'clientDataJSON': assertion.get('response', {}).get('clientDataJSON', ''),
-                'authenticatorData': assertion.get('response', {}).get('authenticatorData', ''),
-                'signature': assertion.get('response', {}).get('signature', ''),
-                'userHandle': assertion.get('response', {}).get('userHandle') or None,
+    try:
+        verification = verify_authentication_response(
+            credential={
+                'id': credential_id,
+                'rawId': assertion.get('rawId') or assertion.get('rawID') or credential_id,
+                'response': {
+                    'clientDataJSON': assertion.get('response', {}).get('clientDataJSON', ''),
+                    'authenticatorData': assertion.get('response', {}).get('authenticatorData', ''),
+                    'signature': assertion.get('response', {}).get('signature', ''),
+                    'userHandle': assertion.get('response', {}).get('userHandle') or None,
+                },
+                'type': 'public-key',
             },
-            'type': 'public-key',
-        },
-        expected_challenge=base64url_to_bytes(pending.get('challenge') or b''),
-        expected_rp_id=_rp_id(request),
-        expected_origin=_origin(request),
-        credential_public_key=biometric.public_key_bytes,
-        credential_current_sign_count=biometric.sign_count,
-        require_user_verification=False,
-    )
+            expected_challenge=base64url_to_bytes(pending.get('challenge') or b''),
+            expected_rp_id=_rp_id(request),
+            expected_origin=_origin(request),
+            credential_public_key=biometric.public_key_bytes,
+            credential_current_sign_count=biometric.sign_count,
+            require_user_verification=False,
+        )
+    except (InvalidJSONStructure, InvalidAuthenticationResponse) as error:
+        logger.warning('Staff biometric authentication rejected: %s', error)
+        return JsonResponse({'ok': False, 'error': f'Biometric authentication rejected: {error}'}, status=400)
 
     biometric.sign_count = verification.new_sign_count
     with schema_context('public'):
         biometric.save(update_fields=['sign_count'])
 
+    with schema_context(pending['schema_name']):
+        staff = Staff.objects.filter(pk=pending['staff_id']).first()
+
     request.session.flush()
     request.session['staff_id'] = pending['staff_id']
     request.session['staff_schema_name'] = pending['schema_name']
     request.session['staff_username'] = pending['username']
-    request.session['staff_role'] = 'teacher'
-    request.session['staff_name'] = Staff.objects.filter(pk=pending['staff_id']).first().full_name if Staff.objects.filter(pk=pending['staff_id']).exists() else pending['username']
+    request.session['staff_role'] = staff.role if staff else 'teacher'
+    request.session['staff_name'] = staff.full_name if staff else pending['username']
     request.session['staff_session_token'] = __import__('uuid').uuid4().hex
     request.session.set_expiry(1800)
     request.session.modified = True
