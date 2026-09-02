@@ -20,7 +20,13 @@ class StaffTenantMiddleware:
         request.tenant = None
         request.staff = None
 
-        if request.path_info in ['/portal/staff/login/', '/portal/staff/logout/']:
+        public_staff_paths = {
+            '/portal/staff/login/',
+            '/portal/staff/logout/',
+            '/portal/staff/biometric/prepare-login/',
+            '/portal/staff/biometric/complete-login/',
+        }
+        if request.path_info in public_staff_paths:
             connection.set_schema_to_public()
             return self.get_response(request)
 
