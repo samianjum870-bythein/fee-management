@@ -1,6 +1,7 @@
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 from django_tenants.utils import schema_context
+from django.conf import settings
 from axis_saas.models import SchoolClient
 from django.apps import apps
 
@@ -8,6 +9,8 @@ class Command(BaseCommand):
     help = 'Sync all tenant schemas: create missing tables and add missing columns'
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError('sync_all_schemas is disabled outside DEBUG mode. Use migrate_schemas for production-safe tenant migration.')
         tenants = SchoolClient.objects.exclude(schema_name='public')
         self.stdout.write(f"Found {tenants.count()} tenant schemas")
         for tenant in tenants:

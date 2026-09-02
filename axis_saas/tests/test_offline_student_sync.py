@@ -2,7 +2,7 @@ from django.test import TestCase
 from django_tenants.utils import schema_context
 
 from axis_saas.models import SchoolClient, Student
-from axis_saas.views_school import create_student_from_payload
+from axis_saas.views.helpers import create_student_from_payload
 
 
 class OfflineStudentSyncTests(TestCase):

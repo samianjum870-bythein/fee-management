@@ -22,7 +22,7 @@ from functools import wraps
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
-from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory
+from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory, SaleItem
 from ..forms import StudentForm, FeeCollectionForm, FeeSettingsForm, FeeStructureForm, FamilyPaymentForm
 from django.http import JsonResponse, HttpResponse
 from django.db import transaction
@@ -141,6 +141,15 @@ def fee_collection(request, schema_name, student_id=None, force_mobile=False):
                     elif amount_received < total_due:
                         messages.info(request, f'Amount received covers pending fee and selected items partially. Remaining balance: ₹{total_due - amount_received:.2f}.')
                     if payment_record:
+                        for product, qty, line_total in item_breakdown:
+                            SaleItem.objects.create(
+                                payment=payment_record,
+                                product=product,
+                                name=product.name,
+                                quantity=qty,
+                                unit_price=product.selling_price,
+                                line_total=line_total,
+                            )
                         messages.success(request, f'Payment recorded successfully. Receipt: {payment_record.receipt_number}')
                         return redirect('fee_receipt', schema_name=schema_name, receipt_id=payment_record.id)
                     messages.success(request, 'Payment recorded.')

@@ -21,7 +21,7 @@ from functools import wraps
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
-from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory
+from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory, SaleItem
 from ..forms import StudentForm, FeeCollectionForm, FeeSettingsForm, FeeStructureForm, FamilyPaymentForm
 from django.http import JsonResponse, HttpResponse
 from django.db import transaction
@@ -61,25 +61,18 @@ def stock_management(request, schema_name, force_mobile=False):
         total_sales_value = Decimal('0.00')
         product_sales = defaultdict(lambda: {'units': 0, 'value': Decimal('0.00'), 'last_sale': None, 'id': None})
         product_id_cache = {}
-        for payment in PaymentTransaction.objects.filter(remarks__icontains='items sold').select_related('student').order_by('-payment_date')[:100]:
-            for item in extract_item_sales_from_remarks(payment.remarks):
-                total_units_sold += item['quantity']
-                total_sales_value += item['line_total']
-                item_sales.append({'payment': payment, 'item': item, 'student': payment.student})
-                name = item['name'].strip().lower()
-                entry = product_sales[name]
-                entry['units'] += item['quantity']
-                entry['value'] += item['line_total']
-                if entry['last_sale'] is None or payment.payment_date > entry['last_sale']:
-                    entry['last_sale'] = payment.payment_date
-                if entry['id'] is None and name not in product_id_cache:
-                    prod = Product.objects.filter(name__iexact=name).first()
-                    if prod:
-                        product_id_cache[name] = prod.id
-                    else:
-                        product_id_cache[name] = None
-                if entry['id'] is None and name in product_id_cache:
-                    entry['id'] = product_id_cache[name]
+        for sale in SaleItem.objects.select_related('payment__student', 'product').order_by('-created_at')[:100]:
+            total_units_sold += sale.quantity
+            total_sales_value += sale.line_total
+            item_sales.append({'payment': sale.payment, 'item': {'name': sale.name, 'quantity': sale.quantity, 'line_total': sale.line_total}, 'student': sale.payment.student})
+            name = sale.name.strip().lower()
+            entry = product_sales[name]
+            entry['units'] += sale.quantity
+            entry['value'] += sale.line_total
+            if entry['last_sale'] is None or sale.payment.payment_date > entry['last_sale']:
+                entry['last_sale'] = sale.payment.payment_date
+            if sale.product_id is not None and entry['id'] is None:
+                entry['id'] = sale.product_id
         top_items = []
         for name, values in product_sales.items():
             top_items.append({'name': name.title(), 'units': values['units'], 'value': values['value'], 'last_sale': values['last_sale'], 'id': values['id']})
@@ -99,17 +92,14 @@ def product_detail(request, schema_name, product_id, force_mobile=False):
         total_sales_value = Decimal('0.00')
         last_sale_date = None
         buyer_info = {}
-        for payment in PaymentTransaction.objects.filter(remarks__icontains='items sold').select_related('student').order_by('-payment_date'):
-            for item in extract_item_sales_from_remarks(payment.remarks):
-                if item['name'].strip().lower() != product.name.strip().lower():
-                    continue
-                total_units_sold += item['quantity']
-                total_sales_value += item['line_total']
-                sales_events.append({'payment': payment, 'item': item, 'student': payment.student})
-                if payment.student:
-                    buyer_info[payment.student.id] = payment.student.name
-                if last_sale_date is None or payment.payment_date > last_sale_date:
-                    last_sale_date = payment.payment_date
+        for sale in SaleItem.objects.filter(product=product).select_related('payment__student').order_by('-created_at'):
+            total_units_sold += sale.quantity
+            total_sales_value += sale.line_total
+            sales_events.append({'payment': sale.payment, 'item': {'name': sale.name, 'quantity': sale.quantity, 'line_total': sale.line_total}, 'student': sale.payment.student})
+            if sale.payment.student:
+                buyer_info[sale.payment.student.id] = sale.payment.student.name
+            if last_sale_date is None or sale.payment.payment_date > last_sale_date:
+                last_sale_date = sale.payment.payment_date
         context = {'tenant': tenant, 'product': product, 'sales_events': sales_events[:50], 'analytics': {'total_units_sold': total_units_sold, 'total_sales_value': total_sales_value, 'stock_value': product.selling_price * product.quantity, 'low_stock': product.quantity < 10, 'last_sale_date': last_sale_date, 'average_sale_value': total_sales_value / total_units_sold if total_units_sold else Decimal('0.00')}, 'recent_buyers': [{'id': sid, 'name': name} for sid, name in buyer_info.items()][:8], 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
         template = 'mobile/product_detail.html' if is_mobile_user_agent(request) or force_mobile else 'tenant/product_detail.html'
     return render(request, template, context)

@@ -28,15 +28,19 @@ from django.http import JsonResponse, HttpResponse
 from django.db import transaction
 from ..models import ManualGenerationLog
 
+from django.views.decorators.cache import cache_page
+
 from .helpers import *
 from django.urls import reverse   # ✅ Added for reverse redirects
 
+@cache_page(60)
 def student_list(request, schema_name):
     if is_mobile_user_agent(request):
         return redirect('mobile_student_list', schema_name=schema_name)
     context = get_student_list_context(request, schema_name)
     return render(request, 'tenant/student_list.html', context)
 
+@cache_page(60)
 @require_tenant_type(['school'])
 @require_school_feature('students')
 def mobile_student_list(request, schema_name):

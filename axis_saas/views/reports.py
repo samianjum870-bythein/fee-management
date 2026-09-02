@@ -6,7 +6,7 @@ import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.contrib import messages
-from django.db.models import Sum, Q, Exists, OuterRef, Max
+from django.db.models import Sum, Q, Exists, OuterRef, Max, F
 from django.db.models.functions import TruncMonth, TruncDay
 from django.db.models import Count
 from django.core.paginator import Paginator
@@ -27,8 +27,11 @@ from django.http import JsonResponse, HttpResponse
 from django.db import transaction
 from ..models import ManualGenerationLog
 
+from django.views.decorators.cache import cache_page
+
 from .helpers import *
 
+@cache_page(60)
 @require_tenant_type(['school'])
 @require_school_feature('defaulters')
 def defaulters(request, schema_name, force_mobile=False):
@@ -89,6 +92,7 @@ def defaulters(request, schema_name, force_mobile=False):
     template = 'mobile/defaulters.html' if force_mobile else 'tenant/defaulters.html'
     return render(request, template, context)
 
+@cache_page(60)
 @require_tenant_type(['school'])
 @require_school_feature('reports')
 def reports(request, schema_name, force_mobile=False):
@@ -140,8 +144,7 @@ def reports(request, schema_name, force_mobile=False):
         payments_page = paginator.get_page(page_num)
         total_collection = payments_qs.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
         payment_count = payments_qs.count()
-        pending_records = FeeRecord.objects.all()
-        total_pending = sum((fr.remaining_total for fr in pending_records))
+        total_pending = FeeRecord.objects.aggregate(total=Sum(F('amount') - F('paid_amount')))['total'] or Decimal('0')
         total_collection_all = PaymentTransaction.objects.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
         total_billed = total_collection_all + total_pending
         collection_rate = float(total_collection_all) / float(total_billed) * 100 if total_billed > 0 else 0

@@ -164,6 +164,7 @@ class FeeRecord(models.Model):
     due_date = models.DateField()
     due_date_offset = models.PositiveSmallIntegerField(default=15, help_text="Days after generation when fee is due")
     late_fee_per_day = models.DecimalField(max_digits=6, decimal_places=2, default=0.00, help_text="Late fee amount applied per day")
+    late_fee_accrued = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Accrued late fee amount for overdue days")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     remarks = models.TextField(blank=True, null=True)
     extra_charges = models.JSONField(default=list, blank=True, null=True)
@@ -246,6 +247,26 @@ class PaymentTransaction(models.Model):
 
     def __str__(self):
         return f"{self.receipt_number} - {self.student.name} - ₹{self.amount}"
+
+# ------------------- Sale Items -------------------
+class SaleItem(models.Model):
+    payment = models.ForeignKey('PaymentTransaction', on_delete=models.CASCADE, related_name='sale_items')
+    product = models.ForeignKey('Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='sale_items')
+    name = models.CharField(max_length=200)
+    quantity = models.PositiveIntegerField(default=0)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    line_total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['payment', 'product']),
+            models.Index(fields=['product', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} x{self.quantity} - {self.line_total}"
+
 
 # ------------------- School Fee Settings -------------------
 class SchoolFeeSettings(models.Model):
