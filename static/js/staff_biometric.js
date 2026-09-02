@@ -7,7 +7,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     async function readJsonResponse(response) {
-        const data = await response.json();
+        const body = await response.text();
+        let data;
+        try {
+            data = JSON.parse(body);
+        } catch (error) {
+            throw new Error(`Server returned an invalid response (${response.status}). Please refresh and try again.`);
+        }
         if (!response.ok) {
             throw new Error(data.error || `Request failed (${response.status})`);
         }
@@ -58,7 +64,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     },
                     body: JSON.stringify({ username, password }),
                 });
-                const prepareData = await prepareResponse.json();
+                const prepareData = await readJsonResponse(prepareResponse);
 
                 if (!prepareData.ok || !prepareData.biometric_enabled) {
                     loginForm.submit();
@@ -102,7 +108,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     body: JSON.stringify(payload),
                 });
 
-                const completeData = await completeResponse.json();
+                const completeData = await readJsonResponse(completeResponse);
                 if (completeData.ok && completeData.redirect) {
                     window.location.href = completeData.redirect;
                     return;
@@ -136,7 +142,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const statusResponse = await fetch('/portal/staff/biometric/status/', {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 });
-                const statusData = await statusResponse.json();
+                const statusData = await readJsonResponse(statusResponse);
                 if (statusData && statusData.enabled) {
                     profileButton.textContent = 'Biometric Enabled';
                     profileButton.disabled = true;

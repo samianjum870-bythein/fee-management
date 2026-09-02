@@ -1,5 +1,7 @@
 import base64
 import json
+import logging
+from functools import wraps
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -10,6 +12,24 @@ from webauthn import generate_authentication_options, generate_registration_opti
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json_dict
 
 from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
+
+
+logger = logging.getLogger(__name__)
+
+
+def biometric_json_errors(view):
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except Exception:
+            logger.exception('Biometric request failed: %s %s', request.method, request.path)
+            return JsonResponse(
+                {'ok': False, 'error': 'Biometric service failed. Please refresh and try again.'},
+                status=500,
+            )
+
+    return wrapped
 
 
 def _rp_id(request):
@@ -30,6 +50,7 @@ def _get_staff_from_session(request):
     return staff_id, schema_name
 
 
+@biometric_json_errors
 @require_http_methods(['GET'])
 def staff_biometric_status(request):
     staff_id, schema_name = _get_staff_from_session(request)
@@ -44,6 +65,7 @@ def staff_biometric_status(request):
     return JsonResponse({'enabled': enabled, 'status': 'ok'})
 
 
+@biometric_json_errors
 @require_http_methods(['POST'])
 def staff_biometric_registration_options(request):
     staff_id, schema_name = _get_staff_from_session(request)
@@ -71,6 +93,7 @@ def staff_biometric_registration_options(request):
     return JsonResponse({'ok': True, 'options': options_to_json_dict(options)})
 
 
+@biometric_json_errors
 @require_http_methods(['POST'])
 def staff_biometric_register(request):
     staff_id, schema_name = _get_staff_from_session(request)
@@ -116,6 +139,7 @@ def staff_biometric_register(request):
     return JsonResponse({'ok': True, 'enabled': True, 'message': 'Biometric enabled successfully.'})
 
 
+@biometric_json_errors
 @require_http_methods(['POST'])
 def staff_biometric_prepare_login(request):
     try:
@@ -158,6 +182,7 @@ def staff_biometric_prepare_login(request):
     return JsonResponse({'ok': True, 'biometric_enabled': True, 'options': options_to_json_dict(options)})
 
 
+@biometric_json_errors
 @require_http_methods(['POST'])
 def staff_biometric_complete_login(request):
     try:
