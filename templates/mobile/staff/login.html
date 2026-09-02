@@ -8,6 +8,7 @@
     {% if error %}
         <div class="alert" style="color: #991b1b; background: rgba(220,38,38,.08);">{{ error }}</div>
     {% endif %}
+    <div id="staffLoginBiometricError" class="alert" hidden style="color: #991b1b; background: rgba(220,38,38,.08);"></div>
     <form id="staffLoginForm" method="post" style="display: grid; gap: 12px;">
         {% csrf_token %}
         <div>

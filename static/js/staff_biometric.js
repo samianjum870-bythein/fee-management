@@ -51,6 +51,16 @@ document.addEventListener('DOMContentLoaded', function () {
         throw new Error('Biometric credential did not include a raw ID. Please try again.');
     }
 
+    function showLoginError(message) {
+        const errorBox = document.getElementById('staffLoginBiometricError');
+        if (errorBox) {
+            errorBox.textContent = message;
+            errorBox.hidden = false;
+        } else {
+            alert(message);
+        }
+    }
+
     if (loginForm && typeof window.PublicKeyCredential !== 'undefined') {
         loginForm.addEventListener('submit', async function (event) {
             const usernameInput = loginForm.querySelector('[name="username"]');
@@ -76,7 +86,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 const prepareData = await readJsonResponse(prepareResponse);
 
-                if (!prepareData.ok || !prepareData.biometric_enabled) {
+                if (!prepareData.biometric_enabled) {
                     loginForm.submit();
                     return;
                 }
@@ -124,10 +134,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     return;
                 }
 
-                loginForm.submit();
+                throw new Error(completeData.error || 'Biometric login was not completed.');
             } catch (error) {
                 if (loginButton) loginButton.disabled = false;
-                loginForm.submit();
+                console.error('Biometric login failed:', error);
+                showLoginError(error.message || 'Biometric login failed. Please try again.');
             }
         });
     }
