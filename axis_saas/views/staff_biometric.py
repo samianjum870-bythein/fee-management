@@ -77,8 +77,9 @@ def staff_biometric_registration_options(request):
         staff = Staff.objects.filter(pk=staff_id).first()
         if not staff:
             return JsonResponse({'error': 'Staff not found.'}, status=404)
+    with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff_id, schema_name=schema_name).first()
-        user_name = credential.username if credential else staff.email or staff.full_name
+    user_name = credential.username if credential else staff.email or staff.full_name
 
     options = generate_registration_options(
         rp_id=_rp_id(request),
@@ -151,7 +152,8 @@ def staff_biometric_prepare_login(request):
 
     username = (payload.get('username') or '').strip()
     password = payload.get('password') or ''
-    credential = StaffCredential.objects.filter(username=username).first() if username else None
+    with schema_context('public'):
+        credential = StaffCredential.objects.filter(username=username).first() if username else None
     if not credential or not credential.is_active or credential.locked_until and credential.locked_until > timezone.now():
         return JsonResponse({'ok': False, 'error': 'Invalid user or locked account.'}, status=401)
 

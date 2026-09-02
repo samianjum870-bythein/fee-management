@@ -15,6 +15,7 @@ done
 # Run migrations (public + tenants)
 echo "Running migrations..."
 python manage.py migrate
+python manage.py migrate_schemas --shared
 
 # Ensure default tenant 'sh' exists
 echo "Creating default tenant (if missing)..."

@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     allowCredentials: (prepareData.options.allowCredentials || []).map((item) => ({
                         id: base64UrlToUint8Array(item.id),
                         type: item.type,
-                            ...(item.transports ? { transports: item.transports } : {}),
+                        ...(item.transports ? { transports: item.transports } : {}),
                     })),
                     userVerification: prepareData.options.userVerification || 'preferred',
                 };
@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                            'X-CSRFToken': getCsrfToken(),
+                        'X-CSRFToken': getCsrfToken(),
                         'X-Requested-With': 'XMLHttpRequest',
                     },
                     body: JSON.stringify({
