@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('staffLoginForm');
     const profileButton = document.getElementById('enableBiometricBtn');
+    const disableButton = document.getElementById('disableBiometricBtn');
 
     function getCsrfToken() {
         return (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
@@ -239,6 +240,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     const statusBadge = document.getElementById('biometricStatus');
                     if (statusBadge) statusBadge.textContent = 'Enabled';
                     alert('Biometric enabled on this device. To use it on another device, sign in there with the same Google, Apple, or Microsoft account that syncs this passkey.');
+                    if (window.location.pathname === '/portal/staff/biometric/setup/') {
+                        window.location.href = '/portal/staff/dashboard/';
+                    }
                     return;
                 }
 
@@ -254,6 +258,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 profileButton.disabled = false;
                 profileButton.textContent = originalButtonText;
+            }
+        });
+    }
+
+    if (disableButton) {
+        disableButton.addEventListener('click', async function () {
+            if (!window.confirm('Disable biometric access? You will need to set it up again before using the portal.')) return;
+            disableButton.disabled = true;
+            try {
+                const response = await fetch('/portal/staff/biometric/disable/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCsrfToken(),
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                const data = await readJsonResponse(response);
+                window.location.href = data.redirect || '/portal/staff/login/';
+            } catch (error) {
+                disableButton.disabled = false;
+                alert('Biometric could not be disabled. Please try again.');
+                console.error('Biometric disable failed:', error);
             }
         });
     }

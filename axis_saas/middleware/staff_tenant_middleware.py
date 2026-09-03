@@ -2,7 +2,7 @@ from django.db import connection
 
 from django_tenants.utils import get_tenant_model, schema_context
 
-from axis_saas.models import Staff, StaffCredential
+from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
 from django.shortcuts import redirect
 import logging
 from django.conf import settings
@@ -23,8 +23,13 @@ class StaffTenantMiddleware:
         public_staff_paths = {
             '/portal/staff/login/',
             '/portal/staff/logout/',
+            '/portal/staff/biometric/setup/',
             '/portal/staff/biometric/prepare-login/',
             '/portal/staff/biometric/complete-login/',
+            '/portal/staff/biometric/status/',
+            '/portal/staff/biometric/registration-options/',
+            '/portal/staff/biometric/register/',
+            '/portal/staff/biometric/disable/',
         }
         if request.path_info in public_staff_paths:
             connection.set_schema_to_public()
@@ -80,5 +85,14 @@ class StaffTenantMiddleware:
                 request.staff = Staff.objects.get(pk=staff_id)
             except Staff.DoesNotExist:
                 request.staff = Staff(pk=staff_id, full_name='Developer', status='active')
+
+        with schema_context('public'):
+            biometric_enabled = StaffBiometricCredential.objects.filter(
+                staff_id=staff_id,
+                schema_name=schema_name,
+                enabled=True,
+            ).exists()
+        if not biometric_enabled and request.path_info != '/portal/staff/biometric/setup/':
+            return redirect('staff_biometric_setup')
 
         return self.get_response(request)

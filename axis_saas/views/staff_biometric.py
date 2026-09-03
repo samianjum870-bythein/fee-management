@@ -176,6 +176,23 @@ def staff_biometric_register(request):
 
 @biometric_json_errors
 @require_http_methods(['POST'])
+def staff_biometric_disable(request):
+    staff_id, schema_name = _get_staff_from_session(request)
+    if not staff_id or not schema_name:
+        return JsonResponse({'ok': False, 'error': 'Login required.'}, status=401)
+
+    with schema_context('public'):
+        StaffBiometricCredential.objects.filter(
+            staff_id=staff_id,
+            schema_name=schema_name,
+        ).update(enabled=False)
+
+    request.session.flush()
+    return JsonResponse({'ok': True, 'redirect': '/portal/staff/login/'})
+
+
+@biometric_json_errors
+@require_http_methods(['POST'])
 def staff_biometric_prepare_login(request):
     try:
         payload = json.loads(request.body.decode('utf-8'))

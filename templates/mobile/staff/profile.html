@@ -37,7 +37,11 @@
                 <div class="subtle" style="font-size:12px; margin-bottom:4px;">Status</div>
                 <div id="biometricStatus" style="font-weight:700;">{% if biometric_enabled %}Enabled{% else %}Disabled{% endif %}</div>
             </div>
-            <button id="enableBiometricBtn" type="button" class="btn-primary">{% if biometric_enabled %}Register This Device{% else %}Enable Biometric{% endif %}</button>
+            {% if biometric_enabled %}
+            <button id="disableBiometricBtn" type="button" class="btn-secondary">Disable Biometric</button>
+            {% else %}
+            <button id="enableBiometricBtn" type="button" class="btn-primary">Enable Biometric</button>
+            {% endif %}
         </div>
         <div class="subtle" style="font-size:12px; line-height:1.5;">This device will use its fingerprint, Face ID, or screen lock. On another device, sign in to the same Google, Apple, or Microsoft account that syncs this passkey.</div>
     </div>

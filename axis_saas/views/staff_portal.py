@@ -143,6 +143,15 @@ def require_staff_login(view_func):
     return wrapped
 
 
+@require_staff_login
+@require_http_methods(['GET'])
+def staff_biometric_setup(request):
+    schema_name = request.session['staff_schema_name']
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
+    return render(request, 'mobile/staff/biometric_setup.html', {'staff': staff})
+
+
 def staff_accessible_classes(staff, schema_name):
     from django_tenants.utils import schema_context
     with schema_context(schema_name):
