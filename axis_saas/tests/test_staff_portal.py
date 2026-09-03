@@ -63,6 +63,34 @@ class StaffPortalTests(TestCase):
         self.assertEqual(self.client.session.get('staff_schema_name'), self.tenant.schema_name)
         self.assertNotIn('staff_pending_passkey', self.client.session)
 
+    def test_password_login_is_blocked_when_biometric_is_enabled(self):
+        with schema_context(self.tenant.schema_name):
+            staff = Staff.objects.create(
+                first_name='Omar',
+                last_name='Rashid',
+                email='omar@example.com',
+                job_title='English Teacher',
+                department='teaching',
+                phone='03005556666',
+                role='teacher',
+            )
+
+        credential = StaffCredential.objects.get(staff_id=staff.id, schema_name=self.tenant.schema_name)
+        StaffBiometricCredential.objects.create(
+            staff_id=staff.id,
+            schema_name=self.tenant.schema_name,
+            credential_id='registered-device-credential',
+            public_key='registered-device-key',
+        )
+
+        response = self.client.post(
+            '/portal/staff/login/',
+            {'username': credential.username, 'password': credential.raw_password},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Biometric verification is required')
+        self.assertNotEqual(self.client.session.get('staff_id'), staff.id)
+
     def test_staff_profile_exposes_biometric_status(self):
         with schema_context(self.tenant.schema_name):
             staff = Staff.objects.create(

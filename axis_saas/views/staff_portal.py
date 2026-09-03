@@ -19,7 +19,6 @@ from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
 from axis_saas.models import Notification, SchoolClass, Staff, StaffBiometricCredential, StaffCredential, Student, StudentAttendance
-from django.views.decorators.csrf import csrf_exempt
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,6 @@ def get_client_ip(request):
 
 
 
-@csrf_exempt
 def staff_login(request):
     if request.method == 'POST':
         username = (request.POST.get('username') or '').strip()
@@ -55,6 +53,17 @@ def staff_login(request):
                 if staff is None or staff.status != 'active':
                     cache.set(ip_key, attempts + 1, 60)
                     return render(request, 'mobile/staff/login.html', {'error': 'Your staff account is inactive or missing.'})
+
+                with schema_context('public'):
+                    biometric_enabled = StaffBiometricCredential.objects.filter(
+                        staff_id=staff.pk,
+                        schema_name=credential.schema_name,
+                        enabled=True,
+                    ).exists()
+                if biometric_enabled:
+                    return render(request, 'mobile/staff/login.html', {
+                        'error': 'Biometric verification is required for this account. Please use a registered device.',
+                    })
 
                 cache.delete(ip_key)
                 cache.delete(f'{ip_key}_blocked_until')
