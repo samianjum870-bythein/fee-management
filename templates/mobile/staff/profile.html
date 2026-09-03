@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}My Profile{% endblock %}
 {% block extra_head %}
-<script src="{% static 'js/staff_biometric.js' %}" defer></script>
+\1<style>\n#biometricConsentModal:not([hidden]) {\n    display: grid;\n    place-items: center;\n}\n</style>\n<script src="{% static 'js/staff_biometric.js' %}" defer></script>
 {% endblock %}
 {% block body %}
 <div class="card">
@@ -59,7 +59,7 @@
         <button type="submit" class="btn-primary">Update</button>
     </form>
 </div>
-<div id="biometricConsentModal" hidden role="dialog" aria-modal="true" aria-labelledby="biometricConsentTitle" style="position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(15,23,42,.48);">
+<div id="biometricConsentModal" hidden role="dialog" aria-modal="true" aria-labelledby="biometricConsentTitle" style="position:fixed; inset:0; z-index:100; place-items:center; padding:20px; background:rgba(15,23,42,.48);">
     <div style="width:min(100%,420px); padding:22px; border-radius:16px; background:#fff; box-shadow:0 20px 50px rgba(15,23,42,.25);">
         <h3 id="biometricConsentTitle" style="margin:0 0 10px;">Before enabling biometric access</h3>
         <p class="subtle" style="line-height:1.5;">Your device will verify you with fingerprint, Face ID, or screen lock. The portal receives a secure passkey proof, not your biometric data.</p>
