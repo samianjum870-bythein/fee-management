@@ -2,6 +2,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('staffLoginForm');
     const profileButton = document.getElementById('enableBiometricBtn');
     const disableButton = document.getElementById('disableBiometricBtn');
+    const consentModal = document.getElementById('biometricConsentModal');
+    const consentButton = document.getElementById('biometricConsentAgree');
+    const consentCancelButton = document.getElementById('biometricConsentCancel');
 
     function getCsrfToken() {
         return (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
@@ -62,6 +65,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function friendlyBiometricError(error, action) {
+        if (error && error.message && error.message.includes('Invalid username or password')) {
+            return 'Username or password is incorrect. Please check both fields and try again.';
+        }
+        if (error && error.message && error.message.includes('Invalid user or locked account')) {
+            return 'This username is invalid, inactive, or temporarily locked. Please contact the administrator if the problem continues.';
+        }
         if (error && error.name === 'NotAllowedError') {
             return 'Biometric verification was cancelled or this device has no matching passkey. Sign in to the same Google, Apple, or Microsoft account that stores the passkey, then try again.';
         }
@@ -76,6 +85,23 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         return `${action} could not be completed. Please try again. ${error && error.message ? error.message : ''}`.trim();
     }
+
+    function closeConsentModal() {
+        if (consentModal) consentModal.hidden = true;
+    }
+
+    function openConsentModal() {
+        if (consentModal) consentModal.hidden = false;
+    }
+
+    if (consentCancelButton) consentCancelButton.addEventListener('click', closeConsentModal);
+    if (consentButton) consentButton.addEventListener('click', function () {
+        closeConsentModal();
+        if (profileButton) {
+            profileButton.dataset.consentGiven = 'true';
+            profileButton.click();
+        }
+    });
 
     if (loginForm && typeof window.PublicKeyCredential !== 'undefined') {
         loginForm.addEventListener('submit', async function (event) {
@@ -162,6 +188,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (profileButton) {
         profileButton.addEventListener('click', async function () {
             if (profileButton.disabled) return;
+            if (profileButton.dataset.consentGiven !== 'true') {
+                openConsentModal();
+                return;
+            }
 
             if (!window.isSecureContext) {
                 alert('Biometric setup requires HTTPS. Open the secure HTTPS address and try again.');

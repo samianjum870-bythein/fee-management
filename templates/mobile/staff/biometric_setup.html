@@ -28,5 +28,16 @@
         <div id="staffLoginBiometricError" class="error" hidden></div>
         {% csrf_token %}
     </main>
+    <div id="biometricConsentModal" hidden role="dialog" aria-modal="true" style="position:fixed; inset:0; z-index:10; display:grid; place-items:center; padding:20px; background:rgba(15,23,42,.48);">
+        <div style="width:min(100%,420px); padding:22px; border-radius:16px; background:#fff; box-shadow:0 20px 50px rgba(15,23,42,.25);">
+            <h2 style="margin:0 0 10px; font-size:1.2rem;">Before enabling biometric access</h2>
+            <p style="line-height:1.5;">Your device will verify you with fingerprint, Face ID, or screen lock. The portal receives a secure passkey proof, not your biometric data.</p>
+            <p style="line-height:1.5;">Use the same Google, Apple, or Microsoft account on another device if you want this passkey to sync. Never register on a shared device.</p>
+            <div style="display:flex; gap:10px; margin-top:16px;">
+                <button id="biometricConsentCancel" type="button" style="background:#e2e8f0; color:#1f2937;">Cancel</button>
+                <button id="biometricConsentAgree" type="button">I Agree &amp; Enable</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
