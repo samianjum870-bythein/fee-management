@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('staffLoginForm');
-    const passwordFallbackButton = document.getElementById('staffPasswordLoginBtn');
     const profileButton = document.getElementById('enableBiometricBtn');
 
     function getCsrfToken() {
@@ -60,16 +59,6 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             alert(message);
         }
-    }
-
-    function showPasswordFallback() {
-        if (passwordFallbackButton) passwordFallbackButton.hidden = false;
-    }
-
-    if (passwordFallbackButton && loginForm) {
-        passwordFallbackButton.addEventListener('click', function () {
-            loginForm.submit();
-        });
     }
 
     if (loginForm && typeof window.PublicKeyCredential !== 'undefined') {
@@ -150,7 +139,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (loginButton) loginButton.disabled = false;
                 console.error('Biometric login failed:', error);
                 showLoginError(error.message || 'Biometric login failed. Please try again.');
-                showPasswordFallback();
             }
         });
     }
