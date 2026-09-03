@@ -14,6 +14,8 @@ from webauthn import generate_authentication_options, generate_registration_opti
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json_dict
 from webauthn.helpers.structs import (
     AttestationConveyancePreference,
+    PublicKeyCredentialDescriptor,
+    PublicKeyCredentialType,
     UserVerificationRequirement,
 )
 from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidJSONStructure, InvalidRegistrationResponse
@@ -196,14 +198,25 @@ def staff_biometric_prepare_login(request):
         return JsonResponse({'ok': False, 'error': 'Staff account is inactive or missing.'}, status=403)
 
     with schema_context('public'):
-        biometric = StaffBiometricCredential.objects.filter(staff_id=staff.pk, schema_name=credential.schema_name, enabled=True).first()
-    if not biometric:
+        biometrics = list(StaffBiometricCredential.objects.filter(
+            staff_id=staff.pk,
+            schema_name=credential.schema_name,
+            enabled=True,
+        ))
+    if not biometrics:
         return JsonResponse({'ok': True, 'biometric_enabled': False, 'message': 'No biometric credential found.'})
 
     options = generate_authentication_options(
         rp_id=_rp_id(request),
         challenge=None,
         timeout=60000,
+        allow_credentials=[
+            PublicKeyCredentialDescriptor(
+                id=biometric.credential_id_bytes,
+                type=PublicKeyCredentialType.PUBLIC_KEY,
+            )
+            for biometric in biometrics
+        ],
         user_verification=UserVerificationRequirement.PREFERRED,
     )
     request.session['staff_pending_biometric_login'] = {
@@ -211,7 +224,7 @@ def staff_biometric_prepare_login(request):
         'schema_name': credential.schema_name,
         'staff_id': staff.pk,
         'challenge': bytes_to_base64url(options.challenge),
-        'credential_id': biometric.credential_id,
+        'credential_ids': [biometric.credential_id for biometric in biometrics],
     }
     return JsonResponse({'ok': True, 'biometric_enabled': True, 'options': options_to_json_dict(options)})
 
