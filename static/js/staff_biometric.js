@@ -56,9 +56,24 @@ document.addEventListener('DOMContentLoaded', function () {
         if (errorBox) {
             errorBox.textContent = message;
             errorBox.hidden = false;
-        } else {
-            alert(message);
         }
+        alert(message);
+    }
+
+    function friendlyBiometricError(error, action) {
+        if (error && error.name === 'NotAllowedError') {
+            return 'Biometric verification was cancelled or this device has no matching passkey. Sign in to the same Google, Apple, or Microsoft account that stores the passkey, then try again.';
+        }
+        if (error && error.name === 'InvalidStateError') {
+            return 'This biometric passkey is already registered on this device.';
+        }
+        if (error && error.name === 'SecurityError') {
+            return 'Biometric access requires this exact HTTPS website. Please open the portal using its secure public URL.';
+        }
+        if (error && error.message && error.message.includes('not registered')) {
+            return 'This device does not have the teacher account passkey. Use the same Google, Apple, or Microsoft account that synced the passkey, then try again.';
+        }
+        return `${action} could not be completed. Please try again. ${error && error.message ? error.message : ''}`.trim();
     }
 
     if (loginForm && typeof window.PublicKeyCredential !== 'undefined') {
@@ -138,7 +153,7 @@ document.addEventListener('DOMContentLoaded', function () {
             } catch (error) {
                 if (loginButton) loginButton.disabled = false;
                 console.error('Biometric login failed:', error);
-                showLoginError(error.message || 'Biometric login failed. Please try again.');
+                showLoginError(friendlyBiometricError(error, 'Biometric login'));
             }
         });
     }
@@ -223,6 +238,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     profileButton.disabled = true;
                     const statusBadge = document.getElementById('biometricStatus');
                     if (statusBadge) statusBadge.textContent = 'Enabled';
+                    alert('Biometric enabled on this device. To use it on another device, sign in there with the same Google, Apple, or Microsoft account that syncs this passkey.');
                     return;
                 }
 
@@ -232,9 +248,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!window.isSecureContext) {
                     alert('Biometric setup requires HTTPS. Open the secure HTTPS address and try again.');
                 } else if (error.name === 'NotAllowedError') {
-                    alert('Biometric prompt was cancelled or permission was denied. Try again and allow the prompt.');
+                    alert('Biometric setup was cancelled or denied. Allow the fingerprint/Face ID prompt and try again.');
                 } else {
-                    alert('Biometric setup failed: ' + (error.message || 'Please try again.'));
+                    alert(friendlyBiometricError(error, 'Biometric setup'));
                 }
                 profileButton.disabled = false;
                 profileButton.textContent = originalButtonText;
