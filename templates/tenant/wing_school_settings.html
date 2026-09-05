@@ -85,13 +85,13 @@
             {% csrf_token %}
             <input type="hidden" name="category_action" value="add" id="categoryAction">
             <input type="hidden" name="category_id" id="categoryId">
-            <div class="form-field"><label>Category name</label><input type="text" name="category_name" id="categoryName" required placeholder="Senior Campus or Girls Wing"></div>
-            <div class="form-field"><label>Parent campus (optional)</label><select name="category_parent"><option value="">Top-level campus</option>{% for parent in wing_parents %}<option value="{{ parent.id }}">{{ parent.name }}</option>{% endfor %}</select></div>
+            <div class="form-field"><label>Main Category</label><input type="text" name="main_category" id="mainCategory" required placeholder="Senior Campus"></div>
+            <div class="form-field"><label>Sub Category</label><input type="text" name="sub_category" id="subCategory" placeholder="Girls Wing (optional)"></div>
             <button type="submit" class="btn-primary" id="categorySubmit">Add Category</button>
         </form>
     </div>
     <div class="settings-form" style="padding-top:0;">
-        {% if wing_categories %}<ul style="margin:0;padding-left:1.2rem;list-style:none;">{% for category in wing_categories %}<li style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin:.55rem 0;"><span>{{ category }}</span><button type="button" class="btn-secondary edit-category" data-id="{{ category.id }}" data-name="{{ category.name }}" data-parent="{{ category.parent_id|default:'' }}">Edit</button></li>{% endfor %}</ul>{% else %}<p style="margin:0;color:var(--muted);">No campuses or wings configured.</p>{% endif %}
+        {% if wing_categories %}<ul style="margin:0;padding-left:1.2rem;list-style:none;">{% for category in wing_parents %}<li style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin:.55rem 0;"><span>{{ category.name }}</span><button type="button" class="btn-secondary edit-category" data-id="{{ category.id }}" data-main="{{ category.name }}" data-sub="">Edit</button></li>{% for child in category.children.all %}{% if child.is_active %}<li style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin:.55rem 0;padding-left:1.5rem;"><span>{{ category.name }} ({{ child.name }})</span><button type="button" class="btn-secondary edit-category" data-id="{{ child.id }}" data-main="{{ category.name }}" data-sub="{{ child.name }}">Edit</button></li>{% endif %}{% endfor %}{% endfor %}</ul>{% else %}<p style="margin:0;color:var(--muted);">No campuses or wings configured.</p>{% endif %}
     </div>
 </div>
 
@@ -101,22 +101,21 @@ document.addEventListener('DOMContentLoaded', function () {
     const addButton = document.getElementById('addCategoryButton');
     const action = document.getElementById('categoryAction');
     const id = document.getElementById('categoryId');
-    const name = document.getElementById('categoryName');
-    const parent = document.querySelector('[name="category_parent"]');
+    const name = document.getElementById('mainCategory');
     const submit = document.getElementById('categorySubmit');
     function openEditor(category) {
         editor.hidden = false;
         action.value = category ? 'edit' : 'add';
         id.value = category ? category.id : '';
-        name.value = category ? category.name : '';
-        parent.value = category ? category.parent : '';
+        document.getElementById('mainCategory').value = category ? category.main : '';
+        document.getElementById('subCategory').value = category ? category.sub : '';
         submit.textContent = category ? 'Update Category' : 'Add Category';
         name.focus();
     }
     addButton.addEventListener('click', function () { openEditor(null); });
     document.querySelectorAll('.edit-category').forEach(function (button) {
         button.addEventListener('click', function () {
-            openEditor({id: button.dataset.id, name: button.dataset.name, parent: button.dataset.parent});
+            openEditor({id: button.dataset.id, main: button.dataset.main, sub: button.dataset.sub});
         });
     });
 });

@@ -35,29 +35,36 @@ def settings(request, schema_name):
     tenant = get_tenant(request, schema_name)
     if request.method == 'POST':
         if tenant.tenant_type == 'wing_school' and request.POST.get('category_action'):
-            name = request.POST.get('category_name', '').strip()
-            parent_id = request.POST.get('category_parent') or None
+            main_name = request.POST.get('main_category', '').strip()
+            sub_name = request.POST.get('sub_category', '').strip()
             category_id = request.POST.get('category_id')
             with schema_context(schema_name):
-                parent = WingCategory.objects.filter(pk=parent_id, parent__isnull=True, is_active=True).first() if parent_id else None
-                if not name:
-                    messages.error(request, 'Category name is required.')
+                if not main_name:
+                    messages.error(request, 'Main category is required.')
                 else:
                     try:
                         if request.POST.get('category_action') == 'edit' and category_id:
                             category = get_object_or_404(WingCategory, pk=category_id, is_active=True)
-                            if parent and (parent.pk == category.pk or parent.parent_id == category.pk):
-                                messages.error(request, 'A category cannot be its own parent or child.')
-                            else:
-                                category.name = name
-                                category.parent = parent
-                                category.save(update_fields=['name', 'parent'])
-                                messages.success(request, 'Campus / wing category updated successfully.')
+                            main_category = category.parent or category
+                            main_category.name = main_name
+                            main_category.save(update_fields=['name'])
+                            if sub_name:
+                                if category.parent:
+                                    category.name = sub_name
+                                    category.save(update_fields=['name'])
+                                else:
+                                    WingCategory.objects.create(name=sub_name, parent=main_category)
+                            elif category.parent:
+                                category.is_active = False
+                                category.save(update_fields=['is_active'])
+                            messages.success(request, 'Campus / wing category updated successfully.')
                         elif request.POST.get('category_action') == 'add':
-                            WingCategory.objects.create(name=name, parent=parent)
+                            main_category = WingCategory.objects.create(name=main_name)
+                            if sub_name:
+                                WingCategory.objects.create(name=sub_name, parent=main_category)
                             messages.success(request, 'Campus / wing category added successfully.')
                     except IntegrityError:
-                        messages.error(request, 'A category with this name already exists under the selected parent.')
+                        messages.error(request, 'A category with this name already exists under the selected main category.')
             return redirect('settings', schema_name=schema_name)
         school_name = request.POST.get('school_name', '').strip()
         if school_name:
