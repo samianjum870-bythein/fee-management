@@ -326,7 +326,7 @@
 <!-- ===== Support Message ===== -->
 <div class="settings-card">
     <div class="card-title"><span>Campuses and Wings</span></div>
-    {% for category in wing_categories %}<div class="info-row"><span class="value">{{ category }}</span></div>{% empty %}<div class="info-row"><span class="value">No campuses or wings configured.</span></div>{% endfor %}
+    {% for category in wing_parents %}{% with children=category.children.all %}{% if children %}{% for child in children %}{% if child.is_active %}<div class="info-row"><span class="value">{{ category.name }} ({{ child.name }})</span></div>{% endif %}{% endfor %}{% else %}<div class="info-row"><span class="value">{{ category.name }}</span></div>{% endif %}{% endwith %}{% empty %}<div class="info-row"><span class="value">No campuses or wings configured.</span></div>{% endfor %}
 </div>
 
 <div class="support-card">
