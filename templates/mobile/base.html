@@ -609,6 +609,10 @@
 
 <script>
 (function() {
+    if (window.location.pathname.includes('/students')) {
+        return;
+    }
+
     // ===== INITIAL CACHE FLAG =====
     const STORAGE_KEY = 'axis_initial_cache_done_v1';
     if (localStorage.getItem(STORAGE_KEY) === 'true') {
