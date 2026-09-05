@@ -1044,7 +1044,7 @@
 <script>
     // Register service worker for offline support
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js')
+        navigator.serviceWorker.register('/sw.js?v=6')
             .then(() => console.log('[SW] Registered'))
             .catch(err => console.warn('[SW] Registration failed:', err));
     }

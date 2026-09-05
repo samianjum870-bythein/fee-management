@@ -125,7 +125,7 @@
       form.addEventListener('submit', function (event) {
         event.preventDefault();
 
-        const redirectUrl = '{% url "mobile_student_list" schema_name=tenant.schema_name %}';
+        const redirectUrl = '{% url "mobile_student_list" schema_name=tenant.schema_name %}?fresh=1';
         const payload = Object.fromEntries(new FormData(form).entries());
         const fallbackMessage = 'Student saved offline. It will sync automatically when the connection returns.';
 
