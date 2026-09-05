@@ -7,6 +7,7 @@ from django_tenants.models import TenantMixin, DomainMixin
 from decimal import Decimal
 from datetime import date, timedelta
 from django.contrib.auth.hashers import make_password, check_password
+from django.db import DatabaseError
 
 from .biometric_models import StaffBiometricCredential
 
@@ -135,9 +136,12 @@ class WingCategory(models.Model):
     def __str__(self):
         if not self.parent_id:
             return self.name
-        parent_name = WingCategory.objects.filter(
-            pk=self.parent_id,
-        ).values_list('name', flat=True).first()
+        try:
+            parent_name = WingCategory.objects.filter(
+                pk=self.parent_id,
+            ).values_list('name', flat=True).first()
+        except DatabaseError:
+            parent_name = None
         return f"{parent_name} ({self.name})" if parent_name else self.name
 
 # ------------------- Student Model -------------------
