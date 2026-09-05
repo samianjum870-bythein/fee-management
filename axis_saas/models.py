@@ -40,10 +40,11 @@ FEATURE_CATEGORY_CHOICES = [
 ]
 
 TENANT_TYPE_CHOICES = [
-    ('school', 'School'),
     ('wing_school', 'Wing School'),
     ('single_small_school', 'Single Small School'),
 ]
+
+LEGACY_TENANT_TYPES = ('school',)
 
 # ------------------- Tenant Model -------------------
 class SchoolClient(TenantMixin):
@@ -54,7 +55,7 @@ class SchoolClient(TenantMixin):
     admin_username = models.CharField(max_length=150, default="admin_pending")
     admin_password = models.CharField(max_length=128, default="AxisFallback123!")
     school_logo = models.FileField(upload_to="school_logos/", blank=True, null=True)
-    tenant_type = models.CharField(max_length=30, choices=TENANT_TYPE_CHOICES, default="school")
+    tenant_type = models.CharField(max_length=30, choices=TENANT_TYPE_CHOICES, default="wing_school")
     enabled_features = models.JSONField(default=list, blank=True, help_text="Select the school modules enabled for this tenant.")
     
     auto_create_schema = True
@@ -93,7 +94,7 @@ class SchoolClient(TenantMixin):
         return [choice[0] for choice in SCHOOL_FEATURE_CHOICES]
 
     def is_feature_enabled(self, feature_key, channel='desktop'):
-        if self.tenant_type not in dict(TENANT_TYPE_CHOICES):
+        if self.tenant_type not in dict(TENANT_TYPE_CHOICES) and self.tenant_type not in LEGACY_TENANT_TYPES:
             return False
         if not self.enabled_features:
             return False

@@ -73,7 +73,7 @@ def require_tenant_type(allowed_types):
             else:
                 tenant = get_tenant(request, schema_name)
             tenant_type_matches = tenant.tenant_type in allowed_types or (
-                'school' in allowed_types and tenant.tenant_type in ('wing_school', 'single_small_school')
+                'school' in allowed_types and tenant.tenant_type in ('school', 'wing_school', 'single_small_school')
             )
             if not tenant_type_matches:
                 raise Http404('Not available for this tenant type')

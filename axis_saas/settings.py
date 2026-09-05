@@ -65,6 +65,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'axis_saas.context_processors.tenant_processor',   # ✅ ADD THIS LINE
+                'axis_saas.context_processors.staff_portal_features',
             ],
         },
     },

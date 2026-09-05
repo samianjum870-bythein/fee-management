@@ -121,11 +121,15 @@ class SchoolClientForm(forms.ModelForm):
             'admin_password': forms.PasswordInput(render_value=True),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['tenant_type'].choices = TENANT_TYPE_CHOICES
+        self._set_feature_initials()
+
     class Media:
         js = ('js/school_client_features.js',)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def _set_feature_initials(self):
         features = self.instance.enabled_features if self.instance and self.instance.pk else {}
         if isinstance(features, list):
             features = {'desktop': features, 'mobile': features, 'staff_portal': []}

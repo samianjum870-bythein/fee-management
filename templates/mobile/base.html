@@ -1,4 +1,5 @@
 {% load static %}
+{% load fee_extras %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -372,22 +373,22 @@
     <!-- Bottom Navigation -->
     {% if tenant.schema_name and tenant.schema_name != 'public' %}
     <nav class="bottom-nav">
-        <a href="{% url 'mobile_dashboard' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'mobile_dashboard' %}active{% endif %}">
+        {% if tenant|has_mobile_feature:'dashboard' %}<a href="{% url 'mobile_dashboard' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'mobile_dashboard' %}active{% endif %}">
             <svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
             <span>Home</span>
-        </a>
-        <a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="nav-item {% if 'mobile_student' in request.resolver_match.url_name or request.resolver_match.url_name == 'student_list' %}active{% endif %}">
+        </a>{% endif %}
+        {% if tenant|has_mobile_feature:'students' %}<a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="nav-item {% if 'mobile_student' in request.resolver_match.url_name or request.resolver_match.url_name == 'student_list' %}active{% endif %}">
             <svg viewBox="0 0 24 24"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
             <span>Students</span>
-        </a>
-        <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name %}" class="nav-item {% if 'fee_collection' in request.resolver_match.url_name %}active{% endif %}">
+        </a>{% endif %}
+        {% if tenant|has_mobile_feature:'fee_collection' %}<a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name %}" class="nav-item {% if 'fee_collection' in request.resolver_match.url_name %}active{% endif %}">
             <svg viewBox="0 0 24 24"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
             <span>Collect</span>
-        </a>
-        <a href="{% url 'mobile_stock_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'stock' in request.resolver_match.url_name %}active{% endif %}">
+        </a>{% endif %}
+        {% if tenant|has_mobile_feature:'stock_management' %}<a href="{% url 'mobile_stock_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'stock' in request.resolver_match.url_name %}active{% endif %}">
             <svg viewBox="0 0 24 24"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg>
             <span>Stock</span>
-        </a>
+        </a>{% endif %}
         <a href="{% url 'mobile_more' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'mobile_more' %}active{% endif %}">
             <svg viewBox="0 0 24 24"><path d="M12 6a2 2 0 110-4 2 2 0 010 4zm0 8a2 2 0 110-4 2 2 0 010 4zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
             <span>More</span>

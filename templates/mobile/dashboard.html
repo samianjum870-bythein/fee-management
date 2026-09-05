@@ -1,5 +1,6 @@
 {% extends 'mobile/base.html' %}
 {% load fee_extras %}
+{% load fee_extras %}
 {% block title %}Dashboard | {{ tenant.name }}{% endblock %}
 
 {% block extra_head %}
@@ -449,40 +450,40 @@
     </a>
 </div>
 <div class="actions-grid">
-    <a href="{% url 'add_student_mobile' schema_name=tenant.schema_name %}" class="action-tile">
+    {% if tenant|has_mobile_feature:'students' %}<a href="{% url 'add_student_mobile' schema_name=tenant.schema_name %}" class="action-tile">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg></div>
         <strong>Add Student</strong>
-    </a>
-    <a href="{% url 'mobile_fee_settings' schema_name=tenant.schema_name %}" class="action-tile">
+    </a>{% endif %}
+    {% if tenant|has_mobile_feature:'fee_settings' %}<a href="{% url 'mobile_fee_settings' schema_name=tenant.schema_name %}" class="action-tile">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div>
         <strong>Fee Settings</strong>
-    </a>
-    <a href="{% url 'mobile_defaulters' schema_name=tenant.schema_name %}" class="action-tile">
+    </a>{% endif %}
+    {% if tenant|has_mobile_feature:'defaulters' %}<a href="{% url 'mobile_defaulters' schema_name=tenant.schema_name %}" class="action-tile">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg></div>
         <strong>Defaulters</strong>
-    </a>
-    <a href="{% url 'mobile_reports' schema_name=tenant.schema_name %}" class="action-tile">
+    </a>{% endif %}
+    {% if tenant|has_mobile_feature:'reports' %}<a href="{% url 'mobile_reports' schema_name=tenant.schema_name %}" class="action-tile">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div>
         <strong>Reports</strong>
-    </a>
-    <a href="{% url 'mobile_stock_management' schema_name=tenant.schema_name %}" class="action-tile">
+    </a>{% endif %}
+    {% if tenant|has_mobile_feature:'stock_management' %}<a href="{% url 'mobile_stock_management' schema_name=tenant.schema_name %}" class="action-tile">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg></div>
         <strong>Stock</strong>
-    </a>
-    <a href="{% url 'mobile_vouchers_list' schema_name=tenant.schema_name %}" class="action-tile">
+    </a>{% endif %}
+    {% if tenant|has_mobile_feature:'fee_collection' %}<a href="{% url 'mobile_vouchers_list' schema_name=tenant.schema_name %}" class="action-tile">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg></div>
         <strong>Vouchers</strong>
-    </a>
+    </a>{% endif %}
 </div>
 
 <!-- ===== RECENT PAYMENTS ===== -->
 <div class="section-heading">
     <h2>Recent payments</h2>
-    <a href="{% url 'mobile_reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all">
+    {% if tenant|has_mobile_feature:'reports' %}<a href="{% url 'mobile_reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all">
         See all <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 18l6-6-6-6"/></svg>
-    </a>
+    </a>{% endif %}
 </div>
-<div class="activity-card">
+{% if tenant|has_mobile_feature:'fee_collection' %}<div class="activity-card">
     {% if recent_payments %}
         {% for p in recent_payments %}
         <div class="activity-row">
@@ -503,16 +504,16 @@
             No recent payments
         </div>
     {% endif %}
-</div>
+</div>{% endif %}
 
 <!-- ===== TOP DEFAULTERS ===== -->
-<div class="section-heading">
+{% if tenant|has_mobile_feature:'defaulters' %}<div class="section-heading">
     <h2>Top defaulters</h2>
     <a href="{% url 'mobile_defaulters' schema_name=tenant.schema_name %}">
         View all <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 18l6-6-6-6"/></svg>
     </a>
-</div>
-<div class="defaulter-card">
+</div>{% endif %}
+{% if tenant|has_mobile_feature:'defaulters' %}<div class="defaulter-card">
     {% if top_defaulters %}
         {% for d in top_defaulters %}
         <div class="defaulter-row">
@@ -533,7 +534,7 @@
             No defaulters
         </div>
     {% endif %}
-</div>
+</div>{% endif %}
 
 <div class="bottom-spacer"></div>
 

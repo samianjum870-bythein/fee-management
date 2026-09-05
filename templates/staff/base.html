@@ -56,11 +56,11 @@
     <div class="topbar">
         <div class="brand">AXIS Staff Portal</div>
         <div class="nav">
-            <a href="{% url 'staff_dashboard' %}">Dashboard</a>
-            <a href="{% url 'staff_classes' %}">Classes</a>
-            <a href="{% url 'staff_attendance_list' %}">Attendance</a>
-            <a href="{% url 'staff_notifications' %}">Alerts</a>
-            <a href="{% url 'staff_profile_page' %}">Profile</a>
+            {% if 'staff_dashboard' in staff_portal_features %}<a href="{% url 'staff_dashboard' %}">Dashboard</a>{% endif %}
+            {% if 'staff_classes' in staff_portal_features %}<a href="{% url 'staff_classes' %}">Classes</a>{% endif %}
+            {% if 'staff_attendance' in staff_portal_features %}<a href="{% url 'staff_attendance_list' %}">Attendance</a>{% endif %}
+            {% if 'staff_notifications' in staff_portal_features %}<a href="{% url 'staff_notifications' %}">Alerts</a>{% endif %}
+            {% if 'staff_profile' in staff_portal_features %}<a href="{% url 'staff_profile_page' %}">Profile</a>{% endif %}
             <a href="{% url 'staff_logout' %}">Logout</a>
         </div>
     </div>

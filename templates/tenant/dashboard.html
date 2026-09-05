@@ -337,82 +337,82 @@
 
 <!-- ====== QUICK ACTIONS ====== -->
 <div class="quick-actions">
-    <a href="{% url 'add_student' schema_name=tenant.schema_name %}" class="action-card">
+    {% if tenant|has_feature:'students' %}<a href="{% url 'add_student' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg>
         Add Student
-    </a>
-    <a href="{% url 'fee_collection' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'fee_collection' %}<a href="{% url 'fee_collection' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
         Fee Collection
-    </a>
-    <a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'defaulters' %}<a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         Defaulters
-    </a>
-    <a href="{% url 'reports' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'reports' %}<a href="{% url 'reports' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         Reports
-    </a>
-    <a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'stock_management' %}<a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg>
         Add Product
-    </a>
-    <a href="{% url 'sell_separately' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'stock_management' %}<a href="{% url 'sell_separately' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
         Sell Separately
-    </a>
-    <a href="{% url 'fee_structure' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'fee_structure' %}<a href="{% url 'fee_structure' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
         Fee Structure
-    </a>
-    <a href="{% url 'settings' schema_name=tenant.schema_name %}" class="action-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'fee_settings' %}<a href="{% url 'settings' schema_name=tenant.schema_name %}" class="action-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
         Settings
-    </a>
+    </a>{% endif %}
 </div>
 
 <!-- ====== KPI CARDS (clickable) ====== -->
 <div class="kpi-grid">
-    <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="kpi-card">
+    {% if tenant|has_feature:'students' %}<a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="kpi-card">
         <div class="kpi-icon blue"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg></div>
         <div class="kpi-info">
             <div class="kpi-label">Total Students</div>
             <div class="kpi-value">{{ total_students|humanize_number }}</div>
             <div class="kpi-sub">Enrolled</div>
         </div>
-    </a>
-    <a href="{% url 'reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all" class="kpi-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'reports' %}<a href="{% url 'reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all" class="kpi-card">
         <div class="kpi-icon green"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M3 12h3l3-9 3 18 3-9h3"/></svg></div>
         <div class="kpi-info">
             <div class="kpi-label">Total Revenue</div>
             <div class="kpi-value">{{ total_revenue|humanize_number }}</div>
             <div class="kpi-sub">All time</div>
         </div>
-    </a>
-    <a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="kpi-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'defaulters' %}<a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="kpi-card">
         <div class="kpi-icon orange"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
         <div class="kpi-info">
             <div class="kpi-label">Total Pending</div>
             <div class="kpi-value">{{ total_pending|humanize_number }}</div>
             <div class="kpi-sub">All time</div>
         </div>
-    </a>
-    <a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="kpi-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'defaulters' %}<a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="kpi-card">
         <div class="kpi-icon red"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
         <div class="kpi-info">
             <div class="kpi-label">Defaulters</div>
             <div class="kpi-value">{{ defaulters_count|humanize_number }}</div>
             <div class="kpi-sub">With pending fees</div>
         </div>
-    </a>
-    <a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="kpi-card">
+    </a>{% endif %}
+    {% if tenant|has_feature:'stock_management' %}<a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="kpi-card">
         <div class="kpi-icon purple"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
         <div class="kpi-info">
             <div class="kpi-label">Low Stock</div>
             <div class="kpi-value">{{ low_stock_count|humanize_number }}</div>
             <div class="kpi-sub">Items < 10</div>
         </div>
-    </a>
+    </a>{% endif %}
     <div class="kpi-card" style="cursor: default;">
         <div class="kpi-icon teal"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></div>
         <div class="kpi-info">
