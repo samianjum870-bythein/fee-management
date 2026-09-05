@@ -133,7 +133,12 @@ class WingCategory(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.parent.name} ({self.name})" if self.parent else self.name
+        if not self.parent_id:
+            return self.name
+        try:
+            return f"{self.parent.name} ({self.name})"
+        except WingCategory.DoesNotExist:
+            return self.name
 
 # ------------------- Student Model -------------------
 class Student(models.Model):
