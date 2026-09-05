@@ -410,24 +410,29 @@
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Name</th>
+                        {% if tenant.tenant_type == 'wing_school' %}<th>Campus / Wing</th>{% endif %}
+                        <th>Class</th>
                         <th>Section</th>
                         <th>Description</th>
                         <th>Subjects Assigned</th>
                         <th>Strength</th>
+                        <th>Class Teacher</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for cls in classes %}
-                    <tr>
+                    <tr style="background-color: {{ cls|class_row_color }};">
+                        {% if tenant.tenant_type == 'wing_school' %}<td><strong>{{ cls.wing_category|default:'Unassigned' }}</strong></td>{% endif %}
                         <td><strong>{{ cls.name }}</strong></td>
                         <td>{{ cls.section|default:"—" }}</td>
                         <td>{{ cls.description|default:"—" }}</td>
                         <td>{{ cls.class_subjects.all|length }}</td>
+                        <td>{{ cls.student_count }}</td>
+                        <td>{% if cls.class_teacher %}<a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}">{{ cls.class_teacher.full_name }}</a>{% else %}&mdash;{% endif %}</td>
                         <td class="action-btns">
                             <button class="action-icon" onclick="location.href='{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Students">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/></svg>
                             </button>
                             <button class="action-icon" onclick="location.href='{% url 'staff_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Teachers">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>

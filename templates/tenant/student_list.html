@@ -182,7 +182,7 @@
             </thead>
             <tbody>
                 {% for s in students %}
-                <tr data-student-id="{{ s.id }}" {% if tenant.tenant_type == 'wing_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
+                <tr data-student-id="{{ s.id }}" {% if tenant.tenant_type == 'wing_school' or tenant.tenant_type == 'single_small_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
                     <td><span class="roll-badge">{{ s.roll_number }}</span></td>
                     <td><strong>{{ s.name }}</strong></td>
                     <td>{{ s.father_name }}</td>

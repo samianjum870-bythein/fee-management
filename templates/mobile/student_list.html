@@ -811,7 +811,7 @@
 <div class="student-list" id="studentContainer">
   {% if students %}
     {% for s in students %}
-    <div class="student-card status-{{ s.status }}" data-student-id="{{ s.id }}" data-name="{{ s.name|lower }}" data-roll="{{ s.roll_number|lower }}" data-father="{{ s.father_name|lower }}" {% if tenant.tenant_type == 'wing_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
+    <div class="student-card status-{{ s.status }}" data-student-id="{{ s.id }}" data-name="{{ s.name|lower }}" data-roll="{{ s.roll_number|lower }}" data-father="{{ s.father_name|lower }}" {% if tenant.tenant_type == 'wing_school' or tenant.tenant_type == 'single_small_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
       <div class="card-top">
         <div class="student-name">{{ s.name }}</div>
         <span class="badge badge-{{ s.status }}">{{ s.get_status_display }}</span>

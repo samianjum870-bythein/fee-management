@@ -67,7 +67,7 @@ def get_class_management_context(request, schema_name):
     tenant = get_tenant(request, schema_name)
     with schema_context(schema_name):
         # Active classes for display
-        classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section')
+        classes = SchoolClass.objects.filter(is_active=True).select_related('wing_category', 'class_teacher').order_by('name', 'section')
         # Compute student strength and class teacher for each class
         for cls in classes:
             cls.student_count = Student.objects.filter(school_class=cls).count() if hasattr(Student, 'school_class') else Student.objects.filter(grade=cls.name, section=cls.section).count()
