@@ -20,7 +20,7 @@ from webauthn.helpers.structs import (
 )
 from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidJSONStructure, InvalidRegistrationResponse
 
-from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
+from axis_saas.models import SchoolClient, Staff, StaffBiometricCredential, StaffCredential
 from axis_saas.views.staff_portal import require_staff_feature
 
 
@@ -73,6 +73,11 @@ def _get_staff_from_session(request):
     if not staff_id or not schema_name:
         return None, None
     return staff_id, schema_name
+
+def _staff_portal_enabled(schema_name):
+    with schema_context('public'):
+        tenant = SchoolClient.objects.filter(schema_name=schema_name).first()
+    return bool(tenant and tenant.is_channel_enabled('staff_portal'))
 
 
 @biometric_json_errors
@@ -214,6 +219,9 @@ def staff_biometric_prepare_login(request):
     if not credential.check_password(password):
         return JsonResponse({'ok': False, 'error': 'Invalid username or password.'}, status=401)
 
+    if not _staff_portal_enabled(credential.schema_name):
+        return JsonResponse({'error': 'Invalid username or password.'}, status=401)
+
     with schema_context(credential.schema_name):
         staff = Staff.objects.filter(pk=credential.staff_id).first()
     if not staff or staff.status != 'active':
@@ -262,6 +270,10 @@ def staff_biometric_complete_login(request):
     pending = request.session.get('staff_pending_biometric_login') or {}
     if not pending:
         return JsonResponse({'ok': False, 'error': 'Biometric login was not started.'}, status=400)
+
+    if not _staff_portal_enabled(pending.get('schema_name')):
+        request.session.pop('staff_pending_biometric_login', None)
+        return JsonResponse({'ok': False, 'error': 'Invalid username or password.'}, status=401)
 
     assertion = payload.get('assertion') or payload
     credential_id = assertion.get('id') or assertion.get('credential_id') or ''

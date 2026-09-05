@@ -25,5 +25,7 @@
 {% endblock %}
 
 {% block extra_head %}
+{% if biometric_available %}
 <script src="{% static 'js/staff_biometric.js' %}" defer></script>
+{% endif %}
 {% endblock %}

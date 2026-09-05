@@ -60,6 +60,7 @@ def staff_login(request):
                 if tenant is None or not tenant.is_channel_enabled('staff_portal'):
                     return render(request, 'mobile/staff/login.html', {
                         'error': 'Your staff portal is suspended. Please contact your school administration.',
+                        'biometric_available': False,
                     })
 
                 with schema_context('public'):
@@ -71,6 +72,7 @@ def staff_login(request):
                 if biometric_enabled:
                     return render(request, 'mobile/staff/login.html', {
                         'error': 'Biometric verification is required for this account. Please use a registered device.',
+                        'biometric_available': True,
                     })
 
                 cache.delete(ip_key)
@@ -106,7 +108,10 @@ def staff_login(request):
             credential.increment_failed_attempts()
         return render(request, 'mobile/staff/login.html', {'error': 'Invalid username or password.'})
 
-    return render(request, 'mobile/staff/login.html', {'error': portal_error})
+    return render(request, 'mobile/staff/login.html', {
+        'error': portal_error,
+        'biometric_available': True,
+    })
 
 
 def staff_logout(request):
@@ -166,7 +171,7 @@ def require_staff_feature(feature_key):
             schema_name = request.session.get('staff_schema_name')
             with schema_context('public'):
                 tenant = SchoolClient.objects.filter(schema_name=schema_name).first()
-            if tenant is None or (
+            if tenant is None or not tenant.is_channel_enabled('staff_portal') or (
                 not isinstance(tenant.enabled_features, list)
                 and not tenant.is_feature_enabled(feature_key, 'staff_portal')
             ):

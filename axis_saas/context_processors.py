@@ -22,10 +22,10 @@ def staff_portal_features(request):
     if schema_name:
         with schema_context('public'):
             tenant = SchoolClient.objects.filter(schema_name=schema_name).first()
-        if tenant:
+        if tenant and tenant.is_channel_enabled('staff_portal'):
             enabled = {
                 key for key, _ in STAFF_PORTAL_FEATURE_CHOICES
                 if tenant.is_feature_enabled(key, 'staff_portal')
-                or isinstance(tenant.enabled_features, list)
+                or (isinstance(tenant.enabled_features, list) and bool(tenant.enabled_features))
             }
     return {'staff_portal_features': enabled}

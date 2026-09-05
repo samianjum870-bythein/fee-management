@@ -106,7 +106,7 @@ class SchoolClient(TenantMixin):
 
     def is_channel_enabled(self, channel):
         if isinstance(self.enabled_features, list):
-            return True
+            return bool(self.enabled_features)
         if not isinstance(self.enabled_features, dict):
             return False
         return bool(self.enabled_features.get(channel))
