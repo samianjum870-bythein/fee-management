@@ -32,6 +32,7 @@ def get_client_ip(request):
 
 
 def staff_login(request):
+    portal_error = request.session.pop('staff_portal_error', None)
     if request.method == 'POST':
         username = (request.POST.get('username') or '').strip()
         password = request.POST.get('password') or ''
@@ -53,6 +54,13 @@ def staff_login(request):
                 if staff is None or staff.status != 'active':
                     cache.set(ip_key, attempts + 1, 60)
                     return render(request, 'mobile/staff/login.html', {'error': 'Your staff account is inactive or missing.'})
+
+                with schema_context('public'):
+                    tenant = SchoolClient.objects.filter(schema_name=credential.schema_name).first()
+                if tenant is None or not tenant.is_channel_enabled('staff_portal'):
+                    return render(request, 'mobile/staff/login.html', {
+                        'error': 'Your staff portal is suspended. Please contact your school administration.',
+                    })
 
                 with schema_context('public'):
                     biometric_enabled = StaffBiometricCredential.objects.filter(
@@ -98,7 +106,7 @@ def staff_login(request):
             credential.increment_failed_attempts()
         return render(request, 'mobile/staff/login.html', {'error': 'Invalid username or password.'})
 
-    return render(request, 'mobile/staff/login.html')
+    return render(request, 'mobile/staff/login.html', {'error': portal_error})
 
 
 def staff_logout(request):
@@ -127,6 +135,15 @@ def require_staff_login(view_func):
         schema_name = request.session.get('staff_schema_name')
 
         if not staff_id or not schema_name:
+            return redirect('staff_login')
+
+        with schema_context('public'):
+            tenant = SchoolClient.objects.filter(schema_name=schema_name).first()
+        if tenant is None or not tenant.is_channel_enabled('staff_portal'):
+            request.session.flush()
+            request.session['staff_portal_error'] = (
+                'Your staff portal is suspended. Please contact your school administration.'
+            )
             return redirect('staff_login')
 
         if not settings.DEBUG:

@@ -104,6 +104,13 @@ class SchoolClient(TenantMixin):
             return False
         return feature_key in self.enabled_features.get(channel, [])
 
+    def is_channel_enabled(self, channel):
+        if isinstance(self.enabled_features, list):
+            return True
+        if not isinstance(self.enabled_features, dict):
+            return False
+        return bool(self.enabled_features.get(channel))
+
     
 class SchoolDomain(DomainMixin):
     pass
