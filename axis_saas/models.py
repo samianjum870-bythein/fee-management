@@ -115,6 +115,26 @@ class SchoolClient(TenantMixin):
 class SchoolDomain(DomainMixin):
     pass
 
+# ------------------- Wing Categories -------------------
+class WingCategory(models.Model):
+    """Tenant-local campus/wing hierarchy used by wing-based schools."""
+    name = models.CharField(max_length=100)
+    parent = models.ForeignKey(
+        'self', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='children',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['parent__name', 'name']
+        constraints = [
+            models.UniqueConstraint(fields=['parent', 'name'], name='unique_wing_category_name'),
+        ]
+
+    def __str__(self):
+        return f"{self.parent.name} ({self.name})" if self.parent else self.name
+
 # ------------------- Student Model -------------------
 class Student(models.Model):
     STATUS_CHOICES = [
@@ -146,6 +166,7 @@ class Student(models.Model):
     default_extra_charges = models.JSONField(default=list, blank=True, null=True)
     automation_enabled = models.BooleanField(default=False, help_text="Enable monthly auto‑generation of fees")
     school_class = models.ForeignKey('SchoolClass', on_delete=models.SET_NULL, null=True, blank=True, related_name='students')
+    wing_category = models.ForeignKey('WingCategory', on_delete=models.SET_NULL, null=True, blank=True, related_name='students')
 
     def save(self, *args, **kwargs):
         # Ensure roll number
@@ -620,16 +641,23 @@ class SchoolClass(models.Model):
     section = models.CharField(max_length=10, blank=True, help_text="Section, e.g., 'A'")
     description = models.TextField(blank=True, null=True)
     class_teacher = models.ForeignKey("Staff", on_delete=models.SET_NULL, null=True, blank=True, related_name="class_teacher_of")
+    wing_category = models.ForeignKey('WingCategory', on_delete=models.SET_NULL, null=True, blank=True, related_name='classes')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['name', 'section']
-        unique_together = ['name', 'section']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['wing_category', 'name', 'section'],
+                name='unique_class_per_wing_category',
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.name} - {self.section}" if self.section else self.name
+        label = f"{self.name} - {self.section}" if self.section else self.name
+        return f"{self.wing_category} | {label}" if self.wing_category else label
 
     def normalize_fields(self):
         """Normalize name to title case and section to uppercase."""
@@ -644,12 +672,14 @@ class SchoolClass(models.Model):
         if self.pk:
             existing = SchoolClass.objects.filter(
                 name__iexact=self.name,
-                section__iexact=self.section
+                section__iexact=self.section,
+                wing_category=self.wing_category,
             ).exclude(pk=self.pk)
         else:
             existing = SchoolClass.objects.filter(
                 name__iexact=self.name,
-                section__iexact=self.section
+                section__iexact=self.section,
+                wing_category=self.wing_category,
             )
         if existing.exists():
             from django.core.exceptions import ValidationError

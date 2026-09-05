@@ -1,0 +1,218 @@
+{% extends 'mobile/base.html' %}
+{% load static %}
+{% load fee_extras %}
+{% block title %}{% if student %}Edit{% else %}Add{% endif %} Student | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .form-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .form-page-header h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0;
+  }
+  .form-page-header a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .form-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+  .form-group label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+  }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+  }
+  .form-group .help-text {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
+  .form-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  .form-actions button {
+    flex: 1;
+    padding: 0.7rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-secondary {
+    background: var(--surface-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const category = document.getElementById('id_wing_category');
+  const classSelect = document.getElementById('id_school_class');
+  if (!category || !classSelect) return;
+  function filterClasses() {
+    const selected = category.value;
+    Array.from(classSelect.options).forEach(function (option) {
+      if (!option.value) return;
+      option.hidden = Boolean(selected && option.dataset.wingCategory !== selected);
+      if (option.hidden && option.selected) classSelect.value = '';
+    });
+  }
+  category.addEventListener('change', filterClasses);
+  filterClasses();
+});
+</script>
+{% endblock %}
+
+{% block body %}
+<div class="form-page-header">
+  <h1>{% if student %}✎ Edit Student{% else %}➕ Add Student{% endif %}</h1>
+  <a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}">Cancel</a>
+</div>
+
+<div class="form-card">
+  <form method="post" id="studentForm">
+    {% csrf_token %}
+    {% for field in form %}
+    <div class="form-group">
+      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}
+        <div class="help-text">{{ field.help_text }}</div>
+      {% endif %}
+      {% if field.errors %}
+        <div class="help-text" style="color: var(--danger);">{{ field.errors|striptags }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">{% if student %}Update{% else %}Save{% endif %}</button>
+      <a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="btn-secondary" style="text-align:center; text-decoration:none; padding:0.7rem; border-radius: var(--radius); border:1px solid var(--border); flex:1;">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+  window.AXIS_SCHEMA = '{{ tenant.schema_name }}';
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('studentForm');
+    if (form) {
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        const redirectUrl = '{% url "mobile_student_list" schema_name=tenant.schema_name %}';
+        const payload = Object.fromEntries(new FormData(form).entries());
+        const fallbackMessage = 'Student saved offline. It will sync automatically when the connection returns.';
+
+        if (window.offlineStudent?.submitForm) {
+          window.offlineStudent.submitForm(form, redirectUrl);
+          return;
+        }
+
+        try {
+          const dbName = 'AxisOfflineDB';
+          const storeName = 'offlineStudents';
+          const actionUrl = form.getAttribute('action') || window.location.href;
+          const editMatch = actionUrl.match(/\/students\/edit\/(\d+)\/?$/);
+          const offlineAction = editMatch ? 'edit' : 'create';
+          const studentId = editMatch ? editMatch[1] : null;
+          const request = indexedDB.open(dbName, 1);
+          request.onupgradeneeded = function (evt) {
+            const db = evt.target.result;
+            if (!db.objectStoreNames.contains(storeName)) {
+              db.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+            }
+          };
+          request.onsuccess = function (evt) {
+            const db = evt.target.result;
+            const transaction = db.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const saveRequest = store.add({
+              action: offlineAction,
+              student_id: studentId,
+              data: payload,
+              submitted_at: new Date().toISOString(),
+              redirect_to: redirectUrl,
+              action_url: actionUrl
+            });
+            saveRequest.onsuccess = function () {
+              alert(fallbackMessage);
+              form.reset();
+              window.location.assign(redirectUrl);
+            };
+            saveRequest.onerror = function () {
+              alert('Could not save student offline. Please try again.');
+            };
+          };
+          request.onerror = function () {
+            alert('Could not save student offline. Please try again.');
+          };
+        } catch (error) {
+          console.error(error);
+          alert('Could not save student offline. Please try again.');
+        }
+      });
+    }
+
+    // Auto-format CNIC field
+    const cnicField = document.querySelector('input[name="father_cnic"]');
+    if (cnicField) {
+      cnicField.addEventListener('input', function(e) {
+        let val = this.value.replace(/[^0-9]/g, '');
+        if (val.length > 5) {
+          val = val.slice(0, 5) + '-' + val.slice(5);
+        }
+        if (val.length > 13) {
+          val = val.slice(0, 13) + '-' + val.slice(13);
+        }
+        if (val.length > 15) {
+          val = val.slice(0, 15);
+        }
+        this.value = val;
+      });
+    }
+  });
+</script>
+{% endblock %}

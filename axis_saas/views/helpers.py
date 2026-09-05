@@ -164,8 +164,9 @@ def get_tenant(request, schema_name):
         return get_object_or_404(SchoolClient, schema_name=schema_name)
 
 def create_student_from_payload(schema_name, payload):
+    tenant = get_tenant(None, schema_name)
     with schema_context(schema_name):
-        form = StudentForm(payload)
+        form = StudentForm(payload, wing_school=tenant.tenant_type == 'wing_school')
         if not form.is_valid():
             return (None, form)
         student = form.save(commit=False)
@@ -177,9 +178,10 @@ def create_student_from_payload(schema_name, payload):
         return (student, form)
 
 def update_student_from_payload(schema_name, student_id, payload):
+    tenant = get_tenant(None, schema_name)
     with schema_context(schema_name):
         student = get_object_or_404(Student, id=student_id)
-        form = StudentForm(payload, instance=student)
+        form = StudentForm(payload, instance=student, wing_school=tenant.tenant_type == 'wing_school')
         if not form.is_valid():
             return (None, form)
         student = form.save(commit=False)

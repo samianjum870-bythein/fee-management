@@ -21,7 +21,7 @@ from functools import wraps
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
-from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory
+from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory, WingCategory
 from ..forms import StudentForm, FeeCollectionForm, FeeSettingsForm, FeeStructureForm, FamilyPaymentForm
 from django.http import JsonResponse, HttpResponse
 from django.db import transaction
@@ -33,6 +33,15 @@ from .helpers import *
 def settings(request, schema_name):
     tenant = get_tenant(request, schema_name)
     if request.method == 'POST':
+        if tenant.tenant_type == 'wing_school' and request.POST.get('category_action'):
+            name = request.POST.get('category_name', '').strip()
+            parent_id = request.POST.get('category_parent') or None
+            if name:
+                with schema_context(schema_name):
+                    parent = WingCategory.objects.filter(pk=parent_id, parent__isnull=True, is_active=True).first() if parent_id else None
+                    WingCategory.objects.create(name=name, parent=parent)
+                messages.success(request, 'Campus / wing category added successfully.')
+            return redirect('settings', schema_name=schema_name)
         school_name = request.POST.get('school_name', '').strip()
         if school_name:
             tenant.name = school_name
@@ -54,7 +63,11 @@ def settings(request, schema_name):
         messages.success(request, 'Settings updated successfully.')
         return redirect('settings', schema_name=schema_name)
     context = {'tenant': tenant, 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
-    return render(request, 'tenant/settings.html', context)
+    template = 'tenant/wing_school_settings.html' if tenant.tenant_type == 'wing_school' else 'tenant/settings.html'
+    with schema_context(schema_name):
+        context['wing_categories'] = WingCategory.objects.filter(is_active=True).select_related('parent') if tenant.tenant_type == 'wing_school' else []
+        context['wing_parents'] = WingCategory.objects.filter(is_active=True, parent__isnull=True) if tenant.tenant_type == 'wing_school' else []
+    return render(request, template, context)
 
 def mobile_settings(request, schema_name):
     tenant = get_tenant(request, schema_name)
@@ -80,4 +93,9 @@ def mobile_settings(request, schema_name):
         messages.success(request, 'Settings updated successfully.')
         return redirect('settings', schema_name=schema_name)
     context = {'tenant': tenant, 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
-    return render(request, 'mobile/settings.html', context)
+    template = 'mobile/wing_school_settings.html' if tenant.tenant_type == 'wing_school' else 'mobile/settings.html'
+    if tenant.tenant_type == 'wing_school':
+        with schema_context(schema_name):
+            context['wing_categories'] = WingCategory.objects.filter(is_active=True).select_related('parent')
+            context['wing_parents'] = WingCategory.objects.filter(is_active=True, parent__isnull=True)
+    return render(request, template, context)

@@ -81,10 +81,11 @@ def add_student(request, schema_name):
                 messages.success(request, f'Student {student.name} added successfully. Roll No: {student.roll_number}')
                 return redirect('student_list', schema_name=schema_name)
         else:
-            form = StudentForm()
+            form = StudentForm(wing_school=tenant.tenant_type == 'wing_school')
         grades = FeeStructure.objects.values_list('grade', flat=True).distinct()
         context = {'tenant': tenant, 'form': form, 'grades': grades, 'classes': SchoolClass.objects.filter(is_active=True).order_by('name', 'section'), 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
-    return render(request, 'tenant/student_form.html', context)
+    template = 'tenant/wing_school_student_form.html' if tenant.tenant_type == 'wing_school' else 'tenant/student_form.html'
+    return render(request, template, context)
 
 @csrf_exempt
 @require_http_methods(['POST'])
@@ -124,10 +125,11 @@ def add_student_mobile(request, schema_name):
                 messages.success(request, f'Student {student.name} added successfully. Roll No: {student.roll_number}')
                 return redirect('mobile_student_list', schema_name=schema_name)
         else:
-            form = StudentForm()
+            form = StudentForm(wing_school=tenant.tenant_type == 'wing_school')
         grades = FeeStructure.objects.values_list('grade', flat=True).distinct()
         context = {'tenant': tenant, 'form': form, 'grades': grades, 'classes': SchoolClass.objects.filter(is_active=True).order_by('name', 'section'), 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
-    return render(request, 'mobile/student_form.html', context)
+    template = 'mobile/wing_school_student_form.html' if tenant.tenant_type == 'wing_school' else 'mobile/student_form.html'
+    return render(request, template, context)
 
 @require_tenant_type(['school'])
 @require_school_feature('students')
@@ -136,7 +138,7 @@ def edit_student(request, schema_name, student_id):
     with schema_context(schema_name):
         student = get_object_or_404(Student, id=student_id)
         if request.method == 'POST':
-            form = StudentForm(request.POST, instance=student)
+            form = StudentForm(request.POST, instance=student, wing_school=tenant.tenant_type == 'wing_school')
             if form.is_valid():
                 form.save()
                 messages.success(request, f'Student {student.name} updated successfully.')
@@ -145,10 +147,11 @@ def edit_student(request, schema_name, student_id):
                     return redirect(reverse('mobile_student_profile', kwargs={'schema_name': schema_name, 'student_id': student.id}) + '?updated=1')
                 return redirect(reverse('student_profile', kwargs={'schema_name': schema_name, 'student_id': student.id}) + '?updated=1')
         else:
-            form = StudentForm(instance=student)
+            form = StudentForm(instance=student, wing_school=tenant.tenant_type == 'wing_school')
         grades = FeeStructure.objects.values_list('grade', flat=True).distinct()
         context = {'tenant': tenant, 'form': form, 'student': student, 'grades': grades, 'classes': SchoolClass.objects.filter(is_active=True).order_by('name', 'section'), 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
-    return render(request, 'tenant/student_form.html', context)
+    template = 'tenant/wing_school_student_form.html' if tenant.tenant_type == 'wing_school' else 'tenant/student_form.html'
+    return render(request, template, context)
 
 def student_fee_records_api(request, schema_name, student_id):
     """API: Return JSON list of fee records for a student."""

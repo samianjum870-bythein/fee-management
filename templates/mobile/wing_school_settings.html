@@ -1,0 +1,502 @@
+{% extends 'mobile/base.html' %}
+{% load static %}
+{% block title %}Settings | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* ===== All styles use base CSS variables ===== */
+
+    .page-header {
+        margin-bottom: 1rem;
+    }
+    .page-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 0.1rem;
+    }
+    .page-desc {
+        color: var(--muted);
+        font-size: 0.9rem;
+    }
+
+    /* ---- Settings Card ---- */
+    .settings-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+        box-shadow: var(--shadow);
+        transition: background 0.25s, border-color 0.25s;
+    }
+    .settings-card .card-title {
+        font-size: 1rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        color: var(--text);
+    }
+    .settings-card .card-title svg {
+        color: var(--accent);
+    }
+
+    /* ---- Read-only field with eye button ---- */
+    .info-row {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 0.75rem;
+        padding: 0.4rem 0.6rem;
+        background: var(--surface-alt);
+        border-radius: 0.5rem;
+        border: 1px solid var(--border);
+        position: relative;
+    }
+    .info-row .label {
+        font-weight: 400;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        color: var(--muted);
+        letter-spacing: 0.02em;
+    }
+    .info-row .value-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-top: 0.05rem;
+    }
+    .info-row .value {
+        font-weight: 600;
+        color: var(--text);
+        font-size: 0.95rem;
+        word-break: break-word;
+        flex: 1;
+    }
+    .info-row .value .password-dots {
+        letter-spacing: 0.3rem;
+        font-weight: 700;
+        color: var(--muted);
+    }
+    .info-row .value .password-text {
+        display: none;
+        font-weight: 600;
+        color: var(--text);
+        font-family: monospace;
+        letter-spacing: 0.02em;
+    }
+    .info-row .value .password-text.visible {
+        display: inline;
+    }
+    .info-row .value .password-dots.hidden {
+        display: none;
+    }
+
+    /* ---- Eye Button ---- */
+    .eye-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 0.2rem 0.3rem;
+        border-radius: 0.3rem;
+        transition: color 0.2s, background 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .eye-btn:hover {
+        color: var(--accent);
+        background: var(--surface);
+    }
+    .eye-btn.locked {
+        color: var(--muted);
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .eye-btn.locked:hover {
+        color: var(--muted);
+        background: transparent;
+    }
+    .eye-btn svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+    }
+    .eye-btn .eye-open { display: none; }
+    .eye-btn .eye-closed { display: block; }
+    .eye-btn.visible .eye-open { display: block; }
+    .eye-btn.visible .eye-closed { display: none; }
+
+    /* ---- Lock indicator ---- */
+    .lock-icon {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.7rem;
+        color: var(--muted);
+        margin-top: 0.5rem;
+    }
+    .lock-icon svg {
+        width: 14px;
+        height: 14px;
+        stroke: var(--muted);
+    }
+
+    /* ---- Support Message ---- */
+    .support-card {
+        background: var(--surface-alt);
+        border-radius: var(--radius);
+        padding: 1rem 1.25rem;
+        border: 1px solid var(--border);
+        margin-top: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        text-align: left;
+    }
+    .support-card svg {
+        width: 28px;
+        height: 28px;
+        stroke: var(--accent);
+        fill: none;
+        stroke-width: 2;
+        flex-shrink: 0;
+    }
+    .support-card .support-text {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+    .support-card .support-text strong {
+        color: var(--text);
+        font-weight: 700;
+    }
+
+    /* ---- Auto-lock timer indicator ---- */
+    .lock-timer {
+        font-size: 0.65rem;
+        color: var(--muted);
+        margin-top: 0.3rem;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+    .lock-timer .timer-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #10b981;
+        animation: pulse-timer 1s infinite;
+    }
+    .lock-timer .timer-dot.locked-dot {
+        background: #ef4444;
+        animation: none;
+    }
+    @keyframes pulse-timer {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+
+    .bottom-spacer {
+        height: 80px;
+    }
+
+    @media (max-width: 480px) {
+        .support-card {
+            flex-direction: column;
+            text-align: center;
+        }
+        .support-card svg {
+            width: 32px;
+            height: 32px;
+        }
+        .info-row .value-wrap {
+            flex-wrap: wrap;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="page-header">
+    <h1 class="page-title">Settings</h1>
+    <p class="page-desc">View your school profile and credentials</p>
+</div>
+
+<!-- ===== School Information (Read-Only) ===== -->
+<div class="settings-card">
+    <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+        </svg>
+        <span>School Information</span>
+    </div>
+
+    <div class="info-row">
+        <span class="label">School Name</span>
+        <div class="value-wrap">
+            <span class="value">{{ tenant.name }}</span>
+        </div>
+    </div>
+
+    <div class="info-row">
+        <span class="label">School Logo</span>
+        <div class="value-wrap">
+            <span class="value">
+                {% if logo_url %}
+                    <img src="{{ logo_url }}" style="max-height:50px; max-width:100px; border-radius:0.3rem; border:1px solid var(--border); padding:0.1rem; background:var(--surface);" alt="School logo">
+                {% else %}
+                    <span style="color:var(--muted); font-weight:400;">No logo uploaded</span>
+                {% endif %}
+            </span>
+        </div>
+    </div>
+
+    <div class="lock-icon">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Read-only – settings are managed by the system administrator
+    </div>
+</div>
+
+<!-- ===== Account Security (Read-Only with Eye Toggle) ===== -->
+<div class="settings-card">
+    <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+        </svg>
+        <span>Account Security</span>
+    </div>
+
+    <!-- Username -->
+    <div class="info-row">
+        <span class="label">Admin Username</span>
+        <div class="value-wrap">
+            <span class="value" id="usernameDisplay">{{ tenant.admin_username }}</span>
+            <button class="eye-btn" id="usernameEyeBtn" title="Toggle username visibility">
+                <span class="eye-open">
+                    <svg viewBox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                </span>
+                <span class="eye-closed">
+                    <svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                </span>
+            </button>
+        </div>
+        <div class="lock-timer" id="usernameTimer" style="display:none;">
+            <span class="timer-dot"></span>
+            <span>Visible</span>
+        </div>
+    </div>
+
+    <!-- Password -->
+    <div class="info-row">
+        <span class="label">Password</span>
+        <div class="value-wrap">
+            <span class="value" id="passwordDisplay">
+                <span class="password-dots" id="passwordDots">••••••••</span>
+                <span class="password-text" id="passwordText">••••••••</span>
+            </span>
+            <button class="eye-btn" id="passwordEyeBtn" title="Toggle password visibility">
+                <span class="eye-open">
+                    <svg viewBox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                </span>
+                <span class="eye-closed">
+                    <svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                </span>
+            </button>
+        </div>
+        <div class="lock-timer" id="passwordTimer" style="display:none;">
+            <span class="timer-dot"></span>
+            <span>Visible</span>
+        </div>
+    </div>
+
+    <div class="lock-icon">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Credentials are managed by the system administrator
+    </div>
+</div>
+
+<!-- ===== Support Message ===== -->
+<div class="settings-card">
+    <div class="card-title"><span>Campuses and Wings</span></div>
+    {% for category in wing_categories %}<div class="info-row"><span class="value">{{ category }}</span></div>{% empty %}<div class="info-row"><span class="value">No campuses or wings configured.</span></div>{% endfor %}
+</div>
+
+<div class="support-card">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <div class="support-text">
+        <strong>Need to make changes?</strong><br>
+        For any changes to school settings or credentials, please contact the <strong>Axis System Support Team</strong>.
+    </div>
+</div>
+
+<div class="bottom-spacer"></div>
+
+<script>
+    (function() {
+        'use strict';
+
+        // ===== DOM Elements =====
+        const usernameDisplay = document.getElementById('usernameDisplay');
+        const passwordDots = document.getElementById('passwordDots');
+        const passwordText = document.getElementById('passwordText');
+
+        const usernameEye = document.getElementById('usernameEyeBtn');
+        const passwordEye = document.getElementById('passwordEyeBtn');
+
+        const usernameTimer = document.getElementById('usernameTimer');
+        const passwordTimer = document.getElementById('passwordTimer');
+
+        // ===== State =====
+        let usernameVisible = false;
+        let passwordVisible = false;
+        let usernameLockTimer = null;
+        let passwordLockTimer = null;
+
+        const AUTO_LOCK_DELAY = 10000; // 10 seconds
+
+        // ===== Actual password (from server) =====
+        // Since we can't get the actual password hash, we'll use a placeholder
+        // In a real system, the password would be fetched via API
+        const actualPassword = '••••••••'; // Placeholder – in real system, fetch from API
+
+        // ===== Toggle Functions =====
+        function toggleUsernameVisibility(show) {
+            usernameVisible = show;
+            if (show) {
+                // Show actual username (already visible)
+                usernameEye.classList.add('visible');
+                usernameTimer.style.display = 'flex';
+                startUsernameLockTimer();
+            } else {
+                usernameEye.classList.remove('visible');
+                usernameTimer.style.display = 'none';
+                clearTimeout(usernameLockTimer);
+            }
+        }
+
+        function togglePasswordVisibility(show) {
+            passwordVisible = show;
+            if (show) {
+                // Show actual password (placeholder)
+                passwordDots.classList.add('hidden');
+                passwordText.classList.add('visible');
+                passwordText.textContent = '••••••••'; // In real system, use actual password
+                passwordEye.classList.add('visible');
+                passwordTimer.style.display = 'flex';
+                startPasswordLockTimer();
+            } else {
+                passwordDots.classList.remove('hidden');
+                passwordText.classList.remove('visible');
+                passwordEye.classList.remove('visible');
+                passwordTimer.style.display = 'none';
+                clearTimeout(passwordLockTimer);
+            }
+        }
+
+        function startUsernameLockTimer() {
+            clearTimeout(usernameLockTimer);
+            usernameLockTimer = setTimeout(function() {
+                if (usernameVisible) {
+                    toggleUsernameVisibility(false);
+                    // Show a brief notification
+                    showLockNotification('Username hidden (auto-lock)');
+                }
+            }, AUTO_LOCK_DELAY);
+        }
+
+        function startPasswordLockTimer() {
+            clearTimeout(passwordLockTimer);
+            passwordLockTimer = setTimeout(function() {
+                if (passwordVisible) {
+                    togglePasswordVisibility(false);
+                    showLockNotification('Password hidden (auto-lock)');
+                }
+            }, AUTO_LOCK_DELAY);
+        }
+
+        // ===== Simple notification =====
+        function showLockNotification(message) {
+            // Use a subtle toast/notification
+            const existing = document.querySelector('.lock-notification');
+            if (existing) existing.remove();
+
+            const notif = document.createElement('div');
+            notif.className = 'lock-notification';
+            notif.style.cssText = `
+                position: fixed;
+                bottom: 100px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 2rem;
+                padding: 0.5rem 1.2rem;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+                font-size: 0.85rem;
+                color: var(--text);
+                z-index: 9999;
+                opacity: 0;
+                transition: opacity 0.3s ease, transform 0.3s ease;
+                backdrop-filter: blur(8px);
+                max-width: 90%;
+                text-align: center;
+            `;
+            notif.textContent = message;
+            document.body.appendChild(notif);
+
+            // Fade in
+            requestAnimationFrame(() => {
+                notif.style.opacity = '1';
+            });
+
+            // Auto dismiss after 2.5s
+            setTimeout(() => {
+                notif.style.opacity = '0';
+                setTimeout(() => notif.remove(), 400);
+            }, 2500);
+        }
+
+        // ===== Event Listeners =====
+        usernameEye.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (this.classList.contains('locked')) return;
+            toggleUsernameVisibility(!usernameVisible);
+        });
+
+        passwordEye.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (this.classList.contains('locked')) return;
+            togglePasswordVisibility(!passwordVisible);
+        });
+
+        // ===== Prevent default context menu on eye buttons =====
+        document.querySelectorAll('.eye-btn').forEach(btn => {
+            btn.addEventListener('contextmenu', e => e.preventDefault());
+        });
+
+        // ===== Ensure fields are hidden on page load =====
+        // Username is always visible (it's not sensitive)
+        // Password is hidden by default
+        togglePasswordVisibility(false);
+        // Username is visible by default (it's just username)
+        toggleUsernameVisibility(true);
+
+        // ===== Auto-lock timer for username (starts immediately) =====
+        // Username visible by default, start timer
+        startUsernameLockTimer();
+
+        // ===== If user clicks anywhere on the page, reset timer? No, only on eye click =====
+        // Reset timer when eye is clicked (already handled in toggle functions)
+
+        console.log('Settings page loaded – auto-lock enabled (10s)');
+    })();
+</script>
+{% endblock %}

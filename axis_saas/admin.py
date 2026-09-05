@@ -123,7 +123,12 @@ class SchoolClientForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['tenant_type'].choices = TENANT_TYPE_CHOICES
+        choices = list(TENANT_TYPE_CHOICES)
+        if self.instance and self.instance.tenant_type == 'school':
+            choices.insert(0, ('school', 'School'))
+        self.fields['tenant_type'].choices = choices
+        if self.instance and self.instance.tenant_type == 'wing_school':
+            self.fields['tenant_type'].disabled = True
         self._set_feature_initials()
 
     class Media:
@@ -144,6 +149,10 @@ class SchoolClientForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         tenant_type = cleaned_data.get('tenant_type') or getattr(self.instance, 'tenant_type', None)
+        original_type = getattr(self.instance, 'tenant_type', None)
+        if original_type == 'wing_school':
+            cleaned_data['tenant_type'] = original_type
+            tenant_type = original_type
         categories = set(cleaned_data.get('feature_categories') or [])
         categories.add('desktop')
         cleaned_data['feature_categories'] = list(categories)

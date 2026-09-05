@@ -1,0 +1,523 @@
+{% extends 'mobile/base.html' %}
+{% load fee_extras %}
+{% block title %}Classes & Subjects | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+    .page-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+    .fab-add {
+        position: fixed;
+        bottom: 80px;
+        right: 1.5rem;
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 999px;
+        width: 48px;
+        height: 48px;
+        font-size: 1.6rem;
+        box-shadow: var(--shadow);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+        transition: transform 0.25s;
+    }
+    .fab-add:hover { transform: scale(1.06); }
+
+    .tabs {
+        display: flex;
+        gap: 0.5rem;
+        overflow-x: auto;
+        padding: 0.25rem 0;
+        margin-bottom: 0.5rem;
+        border-bottom: 2px solid var(--border);
+    }
+    .tab-btn {
+        padding: 0.4rem 0.8rem;
+        background: transparent;
+        border: none;
+        border-bottom: 3px solid transparent;
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: var(--muted);
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+    .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+    }
+    .tab-content {
+        display: none;
+    }
+    .tab-content.active { display: block; }
+
+    .card {
+        background: var(--surface);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+        box-shadow: var(--shadow);
+    }
+    .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+    .card-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+
+    .list-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .list-item:last-child { border-bottom: none; }
+    .list-item .info { flex: 1; }
+    .list-item .info .name { font-weight: 600; }
+    .list-item .info .sub { font-size: 0.7rem; color: var(--muted); }
+    .list-item .actions {
+        display: flex;
+        gap: 0.3rem;
+    }
+    .list-item .actions button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 0.2rem;
+        border-radius: 0.3rem;
+    }
+    .list-item .actions button:hover {
+        color: var(--accent);
+        background: var(--surface-alt);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 1.5rem;
+        color: var(--muted);
+    }
+
+    /* Modal (same as desktop but adapted for mobile) */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        visibility: hidden;
+        opacity: 0;
+        transition: all 0.2s;
+    }
+    .modal-overlay.active {
+        visibility: visible;
+        opacity: 1;
+    }
+    .modal-container {
+        background: var(--surface);
+        border-radius: var(--radius);
+        max-width: 500px;
+        width: 90%;
+        max-height: 85vh;
+        overflow-y: auto;
+        padding: 1.5rem;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .modal-header h3 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+    .close-modal {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: var(--muted);
+        line-height: 1;
+    }
+    .form-field {
+        margin-bottom: 1rem;
+    }
+    .form-field label {
+        display: block;
+        font-weight: 600;
+        font-size: 0.85rem;
+        margin-bottom: 0.25rem;
+    }
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        width: 100%;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: 0.9rem;
+    }
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+    }
+    .modal-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+        margin-top: 1rem;
+    }
+    .btn-primary {
+        background: var(--accent);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 2rem;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .btn-secondary {
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 0.5rem 1rem;
+        border-radius: 2rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="page-header">
+    <h1 class="page-title">Classes & Subjects</h1>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+    <button class="tab-btn active" data-tab="classes">Classes</button>
+    <button class="tab-btn" data-tab="subjects">Subjects</button>
+    <button class="tab-btn" data-tab="assignments">Assignments</button>
+</div>
+
+<!-- Tab: Classes -->
+<div class="tab-content active" id="tab-classes">
+    <div class="card">
+        <div class="card-header">
+            <h3>Classes ({{ total_classes }})</h3>
+            <button class="btn-sm" onclick="openModal('classModal')">+ Add</button>
+        </div>
+        <div>
+            {% for cls in classes %}
+            <div class="list-item">
+                <div class="info">
+                    <div class="name">{{ cls.name }}</div>
+                    <div class="sub">Section: {{ cls.section|default:"—" }} • {{ cls.class_subjects.all|length }} subjects</div>
+                </div>
+                <div class="actions">
+                    <button onclick="editClassMobile({{ cls.id }}, '{{ cls.name|escapejs }}', '{{ cls.section|escapejs }}', '{{ cls.description|escapejs }}', '{{ cls.wing_category_id|default:'' }}')" title="Edit">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+                    </button>
+                    <button onclick="deleteClassMobile({{ cls.id }})" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </div>
+            </div>
+            {% empty %}
+            <div class="empty-state">No classes yet. Add one.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Tab: Subjects -->
+<div class="tab-content" id="tab-subjects">
+    <div class="card">
+        <div class="card-header">
+            <h3>Subjects ({{ total_subjects }})</h3>
+            <button class="btn-sm" onclick="openModal('subjectModal')">+ Add</button>
+        </div>
+        <div>
+            {% for subj in subjects %}
+            <div class="list-item">
+                <div class="info">
+                    <div class="name">{{ subj.name }}</div>
+                    <div class="sub">Code: {{ subj.code }}</div>
+                </div>
+                <div class="actions">
+                    <button onclick="editSubjectMobile({{ subj.id }}, '{{ subj.name|escapejs }}', '{{ subj.code|escapejs }}', '{{ subj.description|escapejs }}')" title="Edit">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+                    </button>
+                    <button onclick="deleteSubjectMobile({{ subj.id }})" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </div>
+            </div>
+            {% empty %}
+            <div class="empty-state">No subjects yet. Add one.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Tab: Assignments -->
+<div class="tab-content" id="tab-assignments">
+    <div class="card">
+        <div class="card-header">
+            <h3>Assignments ({{ total_assignments }})</h3>
+            <button class="btn-sm" onclick="openModal('assignModal')">+ Assign</button>
+        </div>
+        <div>
+            {% for assign in assignments %}
+            <div class="list-item">
+                <div class="info">
+                    <div class="name">{{ assign.school_class }} → {{ assign.subject }}</div>
+                    <div class="sub">Teacher: {{ assign.teacher.full_name|default:"Unassigned" }} • {{ assign.academic_year|default:"—" }}</div>
+                </div>
+                <div class="actions">
+                    <button onclick="editAssignmentMobile({{ assign.id }}, {{ assign.school_class.id }}, {{ assign.subject.id }}, {{ assign.teacher.id|default:'null' }}, '{{ assign.academic_year|escapejs }}')" title="Edit">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+                    </button>
+                    <button onclick="deleteAssignmentMobile({{ assign.id }})" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </div>
+            </div>
+            {% empty %}
+            <div class="empty-state">No assignments yet.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- FAB -->
+<button class="fab-add" onclick="openModal('assignModal')">+</button>
+
+<!-- ===== MODALS (mobile) ===== -->
+<!-- Class Modal -->
+<div id="classModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="classModalTitle">Add Class</h3>
+            <button class="close-modal" onclick="closeModal('classModal')">&times;</button>
+        </div>
+        <form method="post" action="{% url 'add_class' schema_name=tenant.schema_name %}" id="classForm">
+            {% csrf_token %}
+            <input type="hidden" name="class_id" id="classId">
+                <div class="form-field"><label>Campus / Wing</label>{{ class_form.wing_category }}</div>
+            <input type="hidden" name="mobile_redirect" value="1">
+            <div class="form-field">
+                <label>Class Name</label>
+                <input type="text" name="name" id="className" required placeholder="e.g., Grade 5">
+            </div>
+            <div class="form-field">
+                <label>Section</label>
+                <input type="text" name="section" id="classSection" placeholder="e.g., A">
+            </div>
+            <div class="form-field">
+                <label>Description</label>
+                <textarea name="description" id="classDesc" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('classModal')">Cancel</button>
+                <button type="submit" class="btn-primary" id="classSubmitBtn">Save Class</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Subject Modal -->
+<div id="subjectModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="subjectModalTitle">Add Subject</h3>
+            <button class="close-modal" onclick="closeModal('subjectModal')">&times;</button>
+        </div>
+        <form method="post" action="{% url 'add_subject' schema_name=tenant.schema_name %}" id="subjectForm">
+            {% csrf_token %}
+            <input type="hidden" name="subject_id" id="subjectId">
+            <input type="hidden" name="mobile_redirect" value="1">
+            <div class="form-field">
+                <label>Subject Name</label>
+                <input type="text" name="name" id="subjectName" required placeholder="e.g., Mathematics">
+            </div>
+            <div class="form-field">
+                <label>Code</label>
+                <input type="text" name="code" id="subjectCode" placeholder="Auto-generated if left blank">
+            </div>
+            <div class="form-field">
+                <label>Description</label>
+                <textarea name="description" id="subjectDesc" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('subjectModal')">Cancel</button>
+                <button type="submit" class="btn-primary" id="subjectSubmitBtn">Save Subject</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Assignment Modal -->
+<div id="assignModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="assignModalTitle">Assign Subject</h3>
+            <button class="close-modal" onclick="closeModal('assignModal')">&times;</button>
+        </div>
+        <form method="post" action="{% url 'assign_subject' schema_name=tenant.schema_name %}" id="assignForm">
+            {% csrf_token %}
+            <input type="hidden" name="assignment_id" id="assignmentId">
+            <input type="hidden" name="mobile_redirect" value="1">
+            <div class="form-field">
+                <label>Class</label>
+                <select name="school_class" id="assignClass" required>
+                    <option value="">Select Class</option>
+                    {% for cls in classes %}
+                    <option value="{{ cls.id }}">{{ cls.name }} {% if cls.section %}- {{ cls.section }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label>Subject</label>
+                <select name="subject" id="assignSubject" required>
+                    <option value="">Select Subject</option>
+                    {% for subj in subjects %}
+                    <option value="{{ subj.id }}">{{ subj.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label>Teacher</label>
+                <select name="teacher" id="assignTeacher">
+                    <option value="">Unassigned</option>
+                    {% for staff in assign_form.fields.teacher.queryset %}
+                    <option value="{{ staff.id }}">{{ staff.full_name }} ({{ staff.job_title }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label>Academic Year</label>
+                <input type="text" name="academic_year" id="assignYear" placeholder="e.g., 2024-2025">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('assignModal')">Cancel</button>
+                <button type="submit" class="btn-primary" id="assignSubmitBtn">Save Assignment</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const tabId = this.dataset.tab;
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+        });
+    });
+
+    // Modal helpers
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', function(e) {
+            if (e.target === this) this.classList.remove('active');
+        });
+    });
+
+    // Class functions (mobile) – similar to desktop but with mobile redirect
+    function editClassMobile(id, name, section, desc, categoryId) {
+        document.getElementById('classId').value = id;
+        document.getElementById('className').value = name;
+        document.getElementById('classSection').value = section;
+        document.getElementById('classDesc').value = desc;
+        document.getElementById('id_wing_category').value = categoryId || '';
+        document.getElementById('classModalTitle').innerText = 'Edit Class';
+        document.getElementById('classSubmitBtn').innerText = 'Update Class';
+        document.getElementById('classForm').action = "{% url 'edit_class' schema_name=tenant.schema_name class_id=0 %}".replace('0', id);
+        openModal('classModal');
+    }
+    function deleteClassMobile(id) {
+        if (confirm('Deactivate this class?')) {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = "{% url 'delete_class' schema_name=tenant.schema_name class_id=0 %}".replace('0', id);
+            form.innerHTML = `{% csrf_token %}`;
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+
+    function editSubjectMobile(id, name, code, desc) {
+        document.getElementById('subjectId').value = id;
+        document.getElementById('subjectName').value = name;
+        document.getElementById('subjectCode').value = code;
+        document.getElementById('subjectDesc').value = desc;
+        document.getElementById('subjectModalTitle').innerText = 'Edit Subject';
+        document.getElementById('subjectSubmitBtn').innerText = 'Update Subject';
+        document.getElementById('subjectForm').action = "{% url 'edit_subject' schema_name=tenant.schema_name subject_id=0 %}".replace('0', id);
+        openModal('subjectModal');
+    }
+    function deleteSubjectMobile(id) {
+        if (confirm('Deactivate this subject?')) {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = "{% url 'delete_subject' schema_name=tenant.schema_name subject_id=0 %}".replace('0', id);
+            form.innerHTML = `{% csrf_token %}`;
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+
+    function editAssignmentMobile(id, classId, subjectId, teacherId, year) {
+        document.getElementById('assignmentId').value = id;
+        document.getElementById('assignClass').value = classId;
+        document.getElementById('assignSubject').value = subjectId;
+        if (teacherId) document.getElementById('assignTeacher').value = teacherId;
+        else document.getElementById('assignTeacher').value = '';
+        document.getElementById('assignYear').value = year;
+        document.getElementById('assignModalTitle').innerText = 'Edit Assignment';
+        document.getElementById('assignSubmitBtn').innerText = 'Update Assignment';
+        document.getElementById('assignForm').action = "{% url 'edit_assignment' schema_name=tenant.schema_name assignment_id=0 %}".replace('0', id);
+        openModal('assignModal');
+    }
+    function deleteAssignmentMobile(id) {
+        if (confirm('Deactivate this assignment?')) {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = "{% url 'delete_assignment' schema_name=tenant.schema_name assignment_id=0 %}".replace('0', id);
+            form.innerHTML = `{% csrf_token %}`;
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+</script>
+{% endblock %}

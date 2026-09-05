@@ -44,7 +44,8 @@ def class_management(request, schema_name):
         return redirect_with_cache_bust('mobile_class_management', schema_name)
 
     context = get_class_management_context(request, schema_name)
-    response = render(request, 'tenant/class_management.html', context)
+    template = 'tenant/wing_school_class_management.html' if tenant.tenant_type == 'wing_school' else 'tenant/class_management.html'
+    response = render(request, template, context)
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'
@@ -55,7 +56,8 @@ def class_management(request, schema_name):
 def mobile_class_management(request, schema_name):
     """Mobile version of class management."""
     context = get_class_management_context(request, schema_name)
-    response = render(request, 'mobile/class_management.html', context)
+    template = 'mobile/wing_school_class_management.html' if get_tenant(request, schema_name).tenant_type == 'wing_school' else 'mobile/class_management.html'
+    response = render(request, template, context)
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'
@@ -72,7 +74,7 @@ def get_class_management_context(request, schema_name):
             cls.class_teacher_name = cls.class_teacher.full_name if cls.class_teacher else None
 
         # All classes (including inactive) for debug
-        all_classes = SchoolClass.objects.all().order_by('name', 'section')
+        all_classes = SchoolClass.objects.all().select_related('wing_category').order_by('name', 'section')
         # Active subjects
         subjects = Subject.objects.filter(is_active=True).order_by('name')
         all_subjects = Subject.objects.all().order_by('name')
@@ -86,7 +88,7 @@ def get_class_management_context(request, schema_name):
                 class_subject_map[key] = []
             class_subject_map[key].append(a)
 
-        class_form = ClassForm()
+        class_form = ClassForm(wing_school=tenant.tenant_type == 'wing_school')
         subject_form = SubjectForm()
         assign_form = ClassSubjectForm()
         assign_form.fields['teacher'].queryset = Staff.objects.filter(status='active')
@@ -134,7 +136,8 @@ def get_class_management_context(request, schema_name):
 def add_class(request, schema_name):
     """Add a new class."""
     with schema_context(schema_name):
-        form = ClassForm(request.POST)
+        tenant = get_tenant(request, schema_name)
+        form = ClassForm(request.POST, wing_school=tenant.tenant_type == 'wing_school')
         if form.is_valid():
             cls = form.save(commit=False)
             cls.is_active = True
@@ -156,7 +159,7 @@ def edit_class(request, schema_name, class_id):
     """Edit an existing class."""
     with schema_context(schema_name):
         cls = get_object_or_404(SchoolClass, id=class_id)
-        form = ClassForm(request.POST, instance=cls)
+        form = ClassForm(request.POST, instance=cls, wing_school=get_tenant(request, schema_name).tenant_type == 'wing_school')
         if form.is_valid():
             form.save()
             messages.success(request, f"Class '{cls}' updated.")
