@@ -127,7 +127,7 @@ class SchoolClientForm(forms.ModelForm):
         if self.instance and self.instance.tenant_type == 'school':
             choices.insert(0, ('school', 'School'))
         self.fields['tenant_type'].choices = choices
-        if self.instance and self.instance.tenant_type == 'wing_school':
+        if self.instance and self.instance.pk and self.instance.tenant_type == 'wing_school':
             self.fields['tenant_type'].disabled = True
         self._set_feature_initials()
 
