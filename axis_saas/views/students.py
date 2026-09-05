@@ -89,7 +89,9 @@ def add_student(request, schema_name):
         grades = FeeStructure.objects.values_list('grade', flat=True).distinct()
         context = {'tenant': tenant, 'form': form, 'grades': grades, 'classes': SchoolClass.objects.filter(is_active=True).order_by('name', 'section'), 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
     template = 'tenant/wing_school_student_form.html' if tenant.tenant_type == 'wing_school' else 'tenant/student_form.html'
-    return render(request, template, context)
+    response = render(request, template, context)
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 @csrf_exempt
 @require_http_methods(['POST'])
@@ -133,7 +135,9 @@ def add_student_mobile(request, schema_name):
         grades = FeeStructure.objects.values_list('grade', flat=True).distinct()
         context = {'tenant': tenant, 'form': form, 'grades': grades, 'classes': SchoolClass.objects.filter(is_active=True).order_by('name', 'section'), 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
     template = 'mobile/wing_school_student_form.html' if tenant.tenant_type == 'wing_school' else 'mobile/student_form.html'
-    return render(request, template, context)
+    response = render(request, template, context)
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 @require_tenant_type(['school'])
 @require_school_feature('students')
@@ -155,7 +159,9 @@ def edit_student(request, schema_name, student_id):
         grades = FeeStructure.objects.values_list('grade', flat=True).distinct()
         context = {'tenant': tenant, 'form': form, 'student': student, 'grades': grades, 'classes': SchoolClass.objects.filter(is_active=True).order_by('name', 'section'), 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
     template = 'tenant/wing_school_student_form.html' if tenant.tenant_type == 'wing_school' else 'tenant/student_form.html'
-    return render(request, template, context)
+    response = render(request, template, context)
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 def student_fee_records_api(request, schema_name, student_id):
     """API: Return JSON list of fee records for a student."""

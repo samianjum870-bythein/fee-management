@@ -108,9 +108,15 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    const isStudentList = /^\/portal\/[^\/]+\/students\/?$/.test(url.pathname) ||
-                          /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname);
-    if (isStudentList) {
+    if (url.pathname === '/sw.js') {
+        event.respondWith(fetch(event.request, { cache: 'no-store' }));
+        return;
+    }
+
+    const isStudentManagement = /^\/portal\/[^\/]+\/students(?:\/add|\/edit\/[^/]+)?\/?$/.test(url.pathname) ||
+                                /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname) ||
+                                /^\/portal\/[^\/]+\/students\/add\/mobile\/?$/.test(url.pathname);
+    if (isStudentManagement) {
         event.respondWith(fetch(event.request, { cache: 'no-store' }));
         return;
     }

@@ -38,7 +38,7 @@ def manifest(request, schema_name):
     return JsonResponse(manifest_data)
 
 def service_worker(request):
-    sw_js = """// AXIS PWA Service Worker
+    sw_js = r"""// AXIS PWA Service Worker
 const CACHE_NAME = 'axis-pwa-v6';
 const STATIC_EXTENSIONS = ['css', 'js', 'png', 'jpg', 'svg', 'ico', 'json', 'woff2'];
 const STATIC_URLS = [
@@ -80,9 +80,10 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    const isStudentList = /^\/portal\/[^\/]+\/students\/?$/.test(url.pathname) ||
-                          /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname);
-    if (isStudentList) {
+    const isStudentManagement = /^\/portal\/[^\/]+\/students(?:\/add|\/edit\/[^/]+)?\/?$/.test(url.pathname) ||
+                                 /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname) ||
+                                 /^\/portal\/[^\/]+\/students\/add\/mobile\/?$/.test(url.pathname);
+    if (isStudentManagement) {
         event.respondWith(fetch(request, { cache: 'no-store' }));
         return;
     }
@@ -109,4 +110,7 @@ self.addEventListener('fetch', event => {
     }
 });
 """
-    return HttpResponse(sw_js, content_type='application/javascript')
+    response = HttpResponse(sw_js, content_type='application/javascript')
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    return response
