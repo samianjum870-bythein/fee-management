@@ -39,7 +39,7 @@ def has_mobile_feature(tenant, feature_name):
 def student_row_color(student):
     """Return a stable light color for a category/class combination."""
     category = getattr(student, 'wing_category_id', None) or 'single'
-    school_class = getattr(student, 'school_class_id', None)
+    school_class = getattr(student, 'school_class_id', None) or getattr(student, 'pk', None)
     if school_class is None:
         school_class = f'{getattr(student, "grade", getattr(student, "name", ""))}:{getattr(student, "section", "")}'
     palette = ('#fff7d6', '#e7f5e9', '#e6f0ff', '#f5e8ff', '#ffe9df', '#e5f7f5')

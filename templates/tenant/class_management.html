@@ -1,4 +1,5 @@
 {% extends 'tenant/base.html' %}
+{% load fee_extras %}
 {% load static %}
 {% block title %}Classes & Subjects | {{ tenant.name }}{% endblock %}
 
@@ -432,10 +433,10 @@
                         <td>{% if cls.class_teacher %}<a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}">{{ cls.class_teacher.full_name }}</a>{% else %}&mdash;{% endif %}</td>
                         <td class="action-btns">
                             <button class="action-icon" onclick="location.href='{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Students">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/></svg>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                             </button>
                             <button class="action-icon" onclick="location.href='{% url 'staff_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Teachers">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/></svg>
                             </button>
                             
                             <button class="action-icon" onclick="editClass({{ cls.id }}, '{{ cls.name|escapejs }}', '{{ cls.section|escapejs }}', '{{ cls.description|escapejs }}')" title="Edit">
@@ -447,7 +448,7 @@
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" class="empty-row">No classes yet.</td></tr>
+                    <tr><td colspan="{% if tenant.tenant_type == 'wing_school' %}8{% else %}7{% endif %}" class="empty-row">No classes yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

@@ -1,5 +1,6 @@
 {% extends 'mobile/base.html' %}
 {% load fee_extras %}
+{% load fee_extras %}
 {% block title %}Classes & Subjects | {{ tenant.name }}{% endblock %}
 
 {% block extra_head %}
@@ -234,10 +235,10 @@
         </div>
         <div>
             {% for cls in classes %}
-            <div class="list-item">
+            <div class="list-item" style="background-color: {{ cls|class_row_color }};">
                 <div class="info">
                     <div class="name">{{ cls.name }}</div>
-                    <div class="sub">Section: {{ cls.section|default:"—" }} • {{ cls.class_subjects.all|length }} subjects</div>
+                    <div class="sub">Section: {{ cls.section|default:"—" }} • {{ cls.class_subjects.all|length }} subjects • Strength: {{ cls.student_count }} • Teacher: {% if cls.class_teacher %}<a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}">{{ cls.class_teacher.full_name }}</a>{% else %}&mdash;{% endif %}</div>
                 </div>
                 <div class="actions">
                     <button onclick="editClassMobile({{ cls.id }}, '{{ cls.name|escapejs }}', '{{ cls.section|escapejs }}', '{{ cls.description|escapejs }}')" title="Edit">
