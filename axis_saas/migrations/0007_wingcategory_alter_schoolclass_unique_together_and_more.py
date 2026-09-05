@@ -35,13 +35,6 @@ class Migration(migrations.Migration):
             name="schoolclass",
             unique_together=set(),
         ),
-        migrations.AddConstraint(
-            model_name="schoolclass",
-            constraint=models.UniqueConstraint(
-                fields=("wing_category", "name", "section"),
-                name="unique_class_per_wing_category",
-            ),
-        ),
         migrations.AddField(
             model_name="wingcategory",
             name="parent",
@@ -73,6 +66,13 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="students",
                 to="axis_saas.wingcategory",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="schoolclass",
+            constraint=models.UniqueConstraint(
+                fields=("wing_category", "name", "section"),
+                name="unique_class_per_wing_category",
             ),
         ),
         migrations.AddConstraint(
