@@ -21,6 +21,7 @@ from webauthn.helpers.structs import (
 from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidJSONStructure, InvalidRegistrationResponse
 
 from axis_saas.models import Staff, StaffBiometricCredential, StaffCredential
+from axis_saas.views.staff_portal import require_staff_feature
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,7 @@ def _get_staff_from_session(request):
 
 @biometric_json_errors
 @require_http_methods(['GET'])
+@require_staff_feature('staff_profile')
 def staff_biometric_status(request):
     staff_id, schema_name = _get_staff_from_session(request)
     if not staff_id or not schema_name:
@@ -92,6 +94,7 @@ def staff_biometric_status(request):
 
 @biometric_json_errors
 @require_http_methods(['POST'])
+@require_staff_feature('staff_profile')
 def staff_biometric_registration_options(request):
     staff_id, schema_name = _get_staff_from_session(request)
     if not staff_id or not schema_name:
@@ -124,6 +127,7 @@ def staff_biometric_registration_options(request):
 
 @biometric_json_errors
 @require_http_methods(['POST'])
+@require_staff_feature('staff_profile')
 def staff_biometric_register(request):
     staff_id, schema_name = _get_staff_from_session(request)
     if not staff_id or not schema_name:
@@ -176,6 +180,7 @@ def staff_biometric_register(request):
 
 @biometric_json_errors
 @require_http_methods(['POST'])
+@require_staff_feature('staff_profile')
 def staff_biometric_disable(request):
     staff_id, schema_name = _get_staff_from_session(request)
     if not staff_id or not schema_name:

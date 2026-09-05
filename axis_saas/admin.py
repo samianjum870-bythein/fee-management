@@ -6,7 +6,13 @@ from django_tenants.admin import TenantAdminMixin
 from django import forms
 from django.utils.safestring import mark_safe
 from django.core.exceptions import ValidationError
-from .models import SchoolClient, SCHOOL_FEATURE_CHOICES
+from .models import (
+    SchoolClient,
+    SCHOOL_FEATURE_CHOICES,
+    STAFF_PORTAL_FEATURE_CHOICES,
+    FEATURE_CATEGORY_CHOICES,
+    TENANT_TYPE_CHOICES,
+)
 
 
 def get_public_base_url():
@@ -80,21 +86,88 @@ class PublicOnlyAdminMixin:
 
 
 class SchoolClientForm(forms.ModelForm):
-    enabled_features = forms.MultipleChoiceField(
+    feature_categories = forms.MultipleChoiceField(
+        choices=FEATURE_CATEGORY_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        help_text="Desktop is always enabled. Select Mobile or Staff Portal to enable those areas.",
+    )
+    desktop_features = forms.MultipleChoiceField(
         choices=SCHOOL_FEATURE_CHOICES,
         widget=forms.CheckboxSelectMultiple,
         required=False,
-        help_text="Enable school-specific modules for this tenant. Only selected modules will appear in the school portal."
+        help_text="Desktop modules enabled for this tenant."
+    )
+    mobile_features = forms.MultipleChoiceField(
+        choices=SCHOOL_FEATURE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        help_text="Mobile modules enabled for this tenant."
+    )
+    staff_portal_features = forms.MultipleChoiceField(
+        choices=STAFF_PORTAL_FEATURE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        help_text="Staff portal sections enabled for this tenant."
     )
 
     class Meta:
         model = SchoolClient
-        fields = ['name', 'schema_name', 'admin_username', 'admin_password', 'is_active', 'tenant_type', 'enabled_features']
+        fields = [
+            'name', 'schema_name', 'admin_username', 'admin_password', 'is_active',
+            'tenant_type', 'feature_categories', 'desktop_features', 'mobile_features', 'staff_portal_features',
+        ]
         widgets = {
             'admin_password': forms.PasswordInput(render_value=True),
         }
+
+    class Media:
+        js = ('js/school_client_features.js',)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        features = self.instance.enabled_features if self.instance and self.instance.pk else {}
+        if isinstance(features, list):
+            features = {'desktop': features, 'mobile': features, 'staff_portal': []}
+        self.fields['feature_categories'].initial = [
+            'desktop',
+            *[category for category in ('mobile', 'staff_portal') if features.get(category)],
+        ]
+        self.fields['desktop_features'].initial = features.get('desktop', [choice[0] for choice in SCHOOL_FEATURE_CHOICES])
+        self.fields['mobile_features'].initial = features.get('mobile', [])
+        self.fields['staff_portal_features'].initial = features.get('staff_portal', [])
+
+    def clean(self):
+        cleaned_data = super().clean()
+        tenant_type = cleaned_data.get('tenant_type') or getattr(self.instance, 'tenant_type', None)
+        categories = set(cleaned_data.get('feature_categories') or [])
+        categories.add('desktop')
+        cleaned_data['feature_categories'] = list(categories)
+        if tenant_type not in dict(TENANT_TYPE_CHOICES):
+            cleaned_data['feature_categories'] = []
+            cleaned_data['desktop_features'] = []
+            cleaned_data['mobile_features'] = []
+            cleaned_data['staff_portal_features'] = []
+        else:
+            if not cleaned_data.get('desktop_features'):
+                cleaned_data['desktop_features'] = [choice[0] for choice in SCHOOL_FEATURE_CHOICES]
+            if 'mobile' in categories and not cleaned_data.get('mobile_features'):
+                cleaned_data['mobile_features'] = [choice[0] for choice in SCHOOL_FEATURE_CHOICES]
+            if 'staff_portal' in categories and not cleaned_data.get('staff_portal_features'):
+                cleaned_data['staff_portal_features'] = [choice[0] for choice in STAFF_PORTAL_FEATURE_CHOICES]
+            if 'mobile' not in categories:
+                cleaned_data['mobile_features'] = []
+            if 'staff_portal' not in categories:
+                cleaned_data['staff_portal_features'] = []
+        return cleaned_data
+
     def save(self, commit=True):
         instance = super().save(commit=False)
+        instance.enabled_features = {
+            'desktop': self.cleaned_data.get('desktop_features', []),
+            'mobile': self.cleaned_data.get('mobile_features', []),
+            'staff_portal': self.cleaned_data.get('staff_portal_features', []),
+        }
         raw_password = self.cleaned_data.get("admin_password")
         if raw_password:
             instance._raw_password = raw_password
@@ -102,21 +175,6 @@ class SchoolClientForm(forms.ModelForm):
         if commit:
             instance.save()
         return instance
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.instance and self.instance.pk:
-            self.fields['enabled_features'].initial = self.instance.enabled_features or [choice[0] for choice in SCHOOL_FEATURE_CHOICES]
-
-    def clean(self):
-        cleaned_data = super().clean()
-        tenant_type = cleaned_data.get('tenant_type') or getattr(self.instance, 'tenant_type', None)
-        enabled_features = cleaned_data.get('enabled_features')
-        if tenant_type != 'school':
-            cleaned_data['enabled_features'] = []
-        elif not enabled_features:
-            cleaned_data['enabled_features'] = [choice[0] for choice in SCHOOL_FEATURE_CHOICES]
-        return cleaned_data
 
     def clean_schema_name(self):
         schema = self.cleaned_data.get('schema_name').lower().strip()
@@ -149,9 +207,21 @@ class SchoolClientAdmin(TenantAdminMixin, admin.ModelAdmin):
         ('Tenant Type', {
             'fields': ('tenant_type',),
         }),
-        ('School Feature Authority', {
-            'fields': ('enabled_features',),
-            'description': 'Select the school modules that should be visible and enabled for this tenant admin portal. Only enabled school features will be rendered to the tenant.',
+        ('Feature Categories', {
+            'fields': ('feature_categories',),
+            'description': 'Desktop is always enabled. Select Mobile or Staff Portal to reveal and enable their modules.',
+        }),
+        ('Desktop Features', {
+            'fields': ('desktop_features',),
+            'description': 'Select the modules available in the desktop portal.',
+        }),
+        ('Mobile Features', {
+            'fields': ('mobile_features',),
+            'description': 'Select the modules available in the mobile portal.',
+        }),
+        ('Staff Portal Features', {
+            'fields': ('staff_portal_features',),
+            'description': 'Select the sections available in the staff portal.',
         }),
         ('Generated Access Routes', {
             'fields': ('school_admin_portal_url',),

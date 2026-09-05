@@ -72,7 +72,10 @@ def require_tenant_type(allowed_types):
                 tenant = request.tenant
             else:
                 tenant = get_tenant(request, schema_name)
-            if tenant.tenant_type not in allowed_types:
+            tenant_type_matches = tenant.tenant_type in allowed_types or (
+                'school' in allowed_types and tenant.tenant_type in ('wing_school', 'single_small_school')
+            )
+            if not tenant_type_matches:
                 raise Http404('Not available for this tenant type')
             return view_func(request, schema_name, *args, **kwargs)
         return wrapper
@@ -87,7 +90,8 @@ def require_school_feature(feature_key):
                 tenant = request.tenant
             else:
                 tenant = get_tenant(request, schema_name)
-            if tenant.tenant_type != 'school' or not tenant.is_feature_enabled(feature_key):
+            channel = 'mobile' if '/mobile/' in request.path or is_mobile_user_agent(request) else 'desktop'
+            if tenant.tenant_type not in ('school', 'wing_school', 'single_small_school') or not tenant.is_feature_enabled(feature_key, channel):
                 raise Http404('This school feature is not enabled for this tenant.')
             return view_func(request, schema_name, *args, **kwargs)
         return wrapper

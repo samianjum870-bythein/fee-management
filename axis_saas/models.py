@@ -24,6 +24,27 @@ SCHOOL_FEATURE_CHOICES = [
     ('staff_management', 'Staff Management'),
 ]
 
+STAFF_PORTAL_FEATURE_CHOICES = [
+    ('staff_dashboard', 'Dashboard'),
+    ('staff_classes', 'Classes & Students'),
+    ('staff_attendance', 'Attendance'),
+    ('staff_profile', 'Profile & Password'),
+    ('staff_notifications', 'Notifications'),
+    ('staff_more', 'More'),
+]
+
+FEATURE_CATEGORY_CHOICES = [
+    ('desktop', 'Desktop'),
+    ('mobile', 'Mobile'),
+    ('staff_portal', 'Staff Portal'),
+]
+
+TENANT_TYPE_CHOICES = [
+    ('school', 'School'),
+    ('wing_school', 'Wing School'),
+    ('single_small_school', 'Single Small School'),
+]
+
 # ------------------- Tenant Model -------------------
 class SchoolClient(TenantMixin):
     name = models.CharField(max_length=100, unique=True)
@@ -33,7 +54,7 @@ class SchoolClient(TenantMixin):
     admin_username = models.CharField(max_length=150, default="admin_pending")
     admin_password = models.CharField(max_length=128, default="AxisFallback123!")
     school_logo = models.FileField(upload_to="school_logos/", blank=True, null=True)
-    tenant_type = models.CharField(max_length=20, choices=[("school", "School")], default="school")
+    tenant_type = models.CharField(max_length=30, choices=TENANT_TYPE_CHOICES, default="school")
     enabled_features = models.JSONField(default=list, blank=True, help_text="Select the school modules enabled for this tenant.")
     
     auto_create_schema = True
@@ -71,12 +92,16 @@ class SchoolClient(TenantMixin):
     def get_available_school_features(self):
         return [choice[0] for choice in SCHOOL_FEATURE_CHOICES]
 
-    def is_feature_enabled(self, feature_key):
-        if self.tenant_type != 'school':
+    def is_feature_enabled(self, feature_key, channel='desktop'):
+        if self.tenant_type not in dict(TENANT_TYPE_CHOICES):
             return False
         if not self.enabled_features:
             return False
-        return feature_key in self.enabled_features
+        if isinstance(self.enabled_features, list):
+            return feature_key in self.enabled_features
+        if not isinstance(self.enabled_features, dict):
+            return False
+        return feature_key in self.enabled_features.get(channel, [])
 
     
 class SchoolDomain(DomainMixin):

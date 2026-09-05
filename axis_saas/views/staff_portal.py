@@ -12,13 +12,13 @@ from django.db import connection
 from django.db import transaction
 from django.contrib import messages
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
-from axis_saas.models import Notification, SchoolClass, Staff, StaffBiometricCredential, StaffCredential, Student, StudentAttendance
+from axis_saas.models import Notification, SchoolClient, SchoolClass, Staff, StaffBiometricCredential, StaffCredential, Student, StudentAttendance
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +143,25 @@ def require_staff_login(view_func):
     return wrapped
 
 
+def require_staff_feature(feature_key):
+    def decorator(view_func):
+        def wrapped(request, *args, **kwargs):
+            schema_name = request.session.get('staff_schema_name')
+            with schema_context('public'):
+                tenant = SchoolClient.objects.filter(schema_name=schema_name).first()
+            if tenant is None or (
+                not isinstance(tenant.enabled_features, list)
+                and not tenant.is_feature_enabled(feature_key, 'staff_portal')
+            ):
+                raise Http404('This staff portal feature is not enabled for this tenant.')
+            return view_func(request, *args, **kwargs)
+        return wrapped
+    return decorator
+
+
 @require_staff_login
 @require_http_methods(['GET'])
+@require_staff_feature('staff_profile')
 def staff_biometric_setup(request):
     schema_name = request.session['staff_schema_name']
     with schema_context(schema_name):
@@ -160,6 +177,7 @@ def staff_accessible_classes(staff, schema_name):
 
 
 @require_staff_login
+@require_staff_feature('staff_dashboard')
 def staff_dashboard(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -186,6 +204,7 @@ def staff_dashboard(request):
 
 
 @require_staff_login
+@require_staff_feature('staff_classes')
 def staff_classes(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -199,6 +218,7 @@ def staff_classes(request):
 
 
 @require_staff_login
+@require_staff_feature('staff_classes')
 def staff_class_students(request, class_id):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -218,6 +238,7 @@ def staff_class_students(request, class_id):
 
 
 @require_staff_login
+@require_staff_feature('staff_attendance')
 def staff_attendance_list(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -228,6 +249,7 @@ def staff_attendance_list(request):
 
 
 @require_staff_login
+@require_staff_feature('staff_attendance')
 def staff_attendance_mark(request, class_id, attendance_date):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -260,6 +282,7 @@ def staff_attendance_mark(request, class_id, attendance_date):
 
 @require_staff_login
 @require_http_methods(['GET'])
+@require_staff_feature('staff_profile')
 def staff_profile(request):
     try:
         schema_name = request.session.get('staff_schema_name')
@@ -306,6 +329,7 @@ def staff_profile(request):
 
 @require_staff_login
 @require_http_methods(['POST'])
+@require_staff_feature('staff_profile')
 def staff_change_password(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -361,6 +385,7 @@ def staff_change_password(request):
 
 @require_staff_login
 @require_http_methods(['GET'])
+@require_staff_feature('staff_notifications')
 def staff_notifications(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -371,6 +396,7 @@ def staff_notifications(request):
 
 @require_staff_login
 @require_http_methods(['GET'])
+@require_staff_feature('staff_more')
 def staff_more(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -385,6 +411,7 @@ def staff_more(request):
 
 @require_staff_login
 @require_http_methods(['POST'])
+@require_staff_feature('staff_notifications')
 def staff_mark_notification_read(request, notif_id):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -396,6 +423,7 @@ def staff_mark_notification_read(request, notif_id):
 
 
 @require_staff_login
+@require_staff_feature('staff_classes')
 def staff_student_profile(request, student_id):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -409,6 +437,7 @@ def staff_student_profile(request, student_id):
 
 
 @require_staff_login
+@require_staff_feature('staff_classes')
 def staff_api_classes(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -423,6 +452,7 @@ def staff_api_classes(request):
 
 
 @require_staff_login
+@require_staff_feature('staff_attendance')
 def staff_api_attendance(request, class_id, attendance_date):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -438,6 +468,7 @@ def staff_api_attendance(request, class_id, attendance_date):
 
 @require_staff_login
 @require_http_methods(['POST'])
+@require_staff_feature('staff_attendance')
 def staff_api_attendance_submit(request, class_id, attendance_date):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
@@ -469,6 +500,7 @@ def staff_api_attendance_submit(request, class_id, attendance_date):
 
 
 @require_staff_login
+@require_staff_feature('staff_profile')
 def staff_api_profile(request):
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context

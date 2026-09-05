@@ -27,5 +27,10 @@ def humanize_number(value):
 @register.filter
 def has_feature(tenant, feature_name):
     """Return True if tenant has the given feature enabled."""
-    return tenant.is_feature_enabled(feature_name)
+    return tenant.is_feature_enabled(feature_name, 'desktop')
+
+@register.filter
+def has_mobile_feature(tenant, feature_name):
+    """Return True if tenant has the given feature enabled on mobile."""
+    return tenant.is_feature_enabled(feature_name, 'mobile')
 
