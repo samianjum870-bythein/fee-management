@@ -25,6 +25,7 @@ from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTran
 from ..forms import StudentForm, FeeCollectionForm, FeeSettingsForm, FeeStructureForm, FamilyPaymentForm
 from django.http import JsonResponse, HttpResponse
 from django.db import transaction
+from django.db import IntegrityError
 from ..models import ManualGenerationLog
 
 from .helpers import *
@@ -36,11 +37,27 @@ def settings(request, schema_name):
         if tenant.tenant_type == 'wing_school' and request.POST.get('category_action'):
             name = request.POST.get('category_name', '').strip()
             parent_id = request.POST.get('category_parent') or None
-            if name:
-                with schema_context(schema_name):
-                    parent = WingCategory.objects.filter(pk=parent_id, parent__isnull=True, is_active=True).first() if parent_id else None
-                    WingCategory.objects.create(name=name, parent=parent)
-                messages.success(request, 'Campus / wing category added successfully.')
+            category_id = request.POST.get('category_id')
+            with schema_context(schema_name):
+                parent = WingCategory.objects.filter(pk=parent_id, parent__isnull=True, is_active=True).first() if parent_id else None
+                if not name:
+                    messages.error(request, 'Category name is required.')
+                else:
+                    try:
+                        if request.POST.get('category_action') == 'edit' and category_id:
+                            category = get_object_or_404(WingCategory, pk=category_id, is_active=True)
+                            if parent and (parent.pk == category.pk or parent.parent_id == category.pk):
+                                messages.error(request, 'A category cannot be its own parent or child.')
+                            else:
+                                category.name = name
+                                category.parent = parent
+                                category.save(update_fields=['name', 'parent'])
+                                messages.success(request, 'Campus / wing category updated successfully.')
+                        elif request.POST.get('category_action') == 'add':
+                            WingCategory.objects.create(name=name, parent=parent)
+                            messages.success(request, 'Campus / wing category added successfully.')
+                    except IntegrityError:
+                        messages.error(request, 'A category with this name already exists under the selected parent.')
             return redirect('settings', schema_name=schema_name)
         school_name = request.POST.get('school_name', '').strip()
         if school_name:
