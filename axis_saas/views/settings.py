@@ -59,9 +59,20 @@ def settings(request, schema_name):
                                 category.save(update_fields=['is_active'])
                             messages.success(request, 'Campus / wing category updated successfully.')
                         elif request.POST.get('category_action') == 'add':
-                            main_category = WingCategory.objects.create(name=main_name)
+                            main_category, _ = WingCategory.objects.get_or_create(
+                                name=main_name,
+                                parent=None,
+                                defaults={'is_active': True},
+                            )
+                            if not main_category.is_active:
+                                main_category.is_active = True
+                                main_category.save(update_fields=['is_active'])
                             if sub_name:
-                                WingCategory.objects.create(name=sub_name, parent=main_category)
+                                WingCategory.objects.get_or_create(
+                                    name=sub_name,
+                                    parent=main_category,
+                                    defaults={'is_active': True},
+                                )
                             messages.success(request, 'Campus / wing category added successfully.')
                     except IntegrityError:
                         messages.error(request, 'A category with this name already exists under the selected main category.')

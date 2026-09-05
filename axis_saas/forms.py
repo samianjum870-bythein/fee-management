@@ -1,6 +1,13 @@
 from django import forms
 from django.db import models
+from django.db.models import Exists, OuterRef
 from .models import Student, FeeStructure, PaymentTransaction, SchoolFeeSettings, SchoolClass, WingCategory
+
+def available_wing_categories():
+    active_children = WingCategory.objects.filter(parent=OuterRef('pk'), is_active=True)
+    return WingCategory.objects.filter(is_active=True).annotate(
+        has_active_children=Exists(active_children),
+    ).filter(has_active_children=False).order_by('parent__name', 'name')
 
 class WingCategorySelect(forms.Select):
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
@@ -36,7 +43,7 @@ class StudentForm(forms.ModelForm):
         from django.db.models import Count
         # Annotate each class with student count and display it in the label
         if wing_school:
-            categories = WingCategory.objects.filter(is_active=True).order_by('parent__name', 'name')
+            categories = available_wing_categories()
             self.fields['wing_category'].queryset = categories
         classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section').annotate(
             student_count=Count('students')
@@ -137,7 +144,7 @@ class ClassForm(forms.ModelForm):
         if not wing_school:
             self.fields.pop('wing_category')
         else:
-            self.fields['wing_category'].queryset = WingCategory.objects.filter(is_active=True).order_by('parent__name', 'name')
+            self.fields['wing_category'].queryset = available_wing_categories()
             self.fields['wing_category'].required = True
 
     def clean(self):
