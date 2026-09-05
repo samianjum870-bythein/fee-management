@@ -7,6 +7,8 @@ import logging
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib import messages
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.http import JsonResponse, HttpResponseRedirect
 from django.db.models import Q
 from django.core.paginator import Paginator
@@ -141,8 +143,16 @@ def add_class(request, schema_name):
         if form.is_valid():
             cls = form.save(commit=False)
             cls.is_active = True
-            cls.save()
-            messages.success(request, f"Class '{cls}' added successfully.")
+            try:
+                cls.save()
+                messages.success(request, f"Class '{cls}' added successfully.")
+            except (ValidationError, IntegrityError) as error:
+                if isinstance(error, IntegrityError):
+                    messages.error(request, 'A class with this name and section already exists in this campus / wing.')
+                    error = None
+                if error:
+                    for message in error.messages:
+                        messages.error(request, message)
         else:
             for field, errors in form.errors.items():
                 for error in errors:
@@ -161,8 +171,16 @@ def edit_class(request, schema_name, class_id):
         cls = get_object_or_404(SchoolClass, id=class_id)
         form = ClassForm(request.POST, instance=cls, wing_school=get_tenant(request, schema_name).tenant_type == 'wing_school')
         if form.is_valid():
-            form.save()
-            messages.success(request, f"Class '{cls}' updated.")
+            try:
+                form.save()
+                messages.success(request, f"Class '{cls}' updated.")
+            except (ValidationError, IntegrityError) as error:
+                if isinstance(error, IntegrityError):
+                    messages.error(request, 'A class with this name and section already exists in this campus / wing.')
+                    error = None
+                if error:
+                    for message in error.messages:
+                        messages.error(request, message)
         else:
             for field, errors in form.errors.items():
                 for error in errors:

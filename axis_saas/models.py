@@ -135,10 +135,10 @@ class WingCategory(models.Model):
     def __str__(self):
         if not self.parent_id:
             return self.name
-        try:
-            return f"{self.parent.name} ({self.name})"
-        except WingCategory.DoesNotExist:
-            return self.name
+        parent_name = WingCategory.objects.filter(
+            pk=self.parent_id,
+        ).values_list('name', flat=True).first()
+        return f"{parent_name} ({self.name})" if parent_name else self.name
 
 # ------------------- Student Model -------------------
 class Student(models.Model):
