@@ -149,7 +149,7 @@ class SchoolClientForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         tenant_type = cleaned_data.get('tenant_type') or getattr(self.instance, 'tenant_type', None)
-        original_type = getattr(self.instance, 'tenant_type', None)
+        original_type = getattr(self.instance, 'tenant_type', None) if self.instance and self.instance.pk else None
         if original_type == 'wing_school':
             cleaned_data['tenant_type'] = original_type
             tenant_type = original_type
