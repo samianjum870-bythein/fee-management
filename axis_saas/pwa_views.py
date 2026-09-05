@@ -39,7 +39,7 @@ def manifest(request, schema_name):
 
 def service_worker(request):
     sw_js = """// AXIS PWA Service Worker
-const CACHE_NAME = 'axis-pwa-v5';
+const CACHE_NAME = 'axis-pwa-v6';
 const STATIC_EXTENSIONS = ['css', 'js', 'png', 'jpg', 'svg', 'ico', 'json', 'woff2'];
 const STATIC_URLS = [
     '/static/pwa/icon-192x192.png',
@@ -77,6 +77,13 @@ self.addEventListener('fetch', event => {
     }
 
     if (url.origin !== self.location.origin) {
+        return;
+    }
+
+    const isStudentList = /^\/portal\/[^\/]+\/students\/?$/.test(url.pathname) ||
+                          /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname);
+    if (isStudentList) {
+        event.respondWith(fetch(request, { cache: 'no-store' }));
         return;
     }
 

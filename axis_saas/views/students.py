@@ -35,13 +35,21 @@ def student_list(request, schema_name):
     if is_mobile_user_agent(request):
         return redirect('mobile_student_list', schema_name=schema_name)
     context = get_student_list_context(request, schema_name)
-    return render(request, 'tenant/student_list.html', context)
+    response = render(request, 'tenant/student_list.html', context)
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
 
 @require_tenant_type(['school'])
 @require_school_feature('students')
 def mobile_student_list(request, schema_name):
     context = get_student_list_context(request, schema_name)
-    return render(request, 'mobile/student_list.html', context)
+    response = render(request, 'mobile/student_list.html', context)
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
 
 @require_tenant_type(['school'])
 @require_school_feature('students')

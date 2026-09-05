@@ -1,5 +1,5 @@
 // AXIS PWA Service Worker – Auto‑cache Student Profiles
-const CACHE_NAME = 'axis-pwa-v5';
+const CACHE_NAME = 'axis-pwa-v6';
 const STATIC_ASSETS = [
     '/manifest.json',
     '/static/icons/icon-192.png',
@@ -107,6 +107,13 @@ self.addEventListener('activate', event => {
 // ---- Fetch ----
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
+
+    const isStudentList = /^\/portal\/[^\/]+\/students\/?$/.test(url.pathname) ||
+                          /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname);
+    if (isStudentList) {
+        event.respondWith(fetch(event.request, { cache: 'no-store' }));
+        return;
+    }
 
     // ---- 1. Student list API -> cache all profiles ----
     if (url.pathname.endsWith('/api/students/')) {
