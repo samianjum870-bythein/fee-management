@@ -59,7 +59,7 @@ from ..models import SchoolClass
 from ..forms import StudentForm, FeeCollectionForm, FeeSettingsForm, FeeStructureForm, FamilyPaymentForm
 from django.http import JsonResponse, HttpResponse
 from django.db import transaction
-from ..models import ManualGenerationLog
+from ..models import ManualGenerationLog, WingCategory
 
 MOBILE_AGENT_RE = re.compile(r"Mobile|Android|iP(hone|od|ad)|Opera Mini|IEMobile|BlackBerry|webOS|Fennec|Silk", re.I)
 
@@ -349,6 +349,7 @@ def get_student_list_context(request, schema_name):
     grade = request.GET.get('grade', '')
     section = request.GET.get('section', '')
     class_id = request.GET.get('class_id')
+    category_id = request.GET.get('category_id')
     status = request.GET.get('status', '')
     pending_only = request.GET.get('pending_only') == '1'
     page_number = request.GET.get('page', 1)
@@ -357,12 +358,14 @@ def get_student_list_context(request, schema_name):
     logger.info('get_student_list_context: schema=%s class_id=%s', schema_name, class_id)
 
     with schema_context(schema_name):
-        students = Student.objects.all()
+        students = Student.objects.select_related('wing_category', 'school_class').all()
         if class_id:
             try:
                 students = students.filter(school_class_id=class_id)
             except:
                 pass
+        if category_id and tenant.tenant_type == 'wing_school':
+            students = students.filter(wing_category_id=category_id)
         if query:
             students = students.filter(
                 Q(name__icontains=query) | Q(roll_number__icontains=query) |
@@ -388,7 +391,18 @@ def get_student_list_context(request, schema_name):
         sections = list(Student.objects.values_list('section', flat=True).distinct().order_by('section'))
         status_choices = Student.STATUS_CHOICES
         total_active = Student.objects.filter(status='active').count()
-        classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section')
+        classes = SchoolClass.objects.filter(is_active=True).select_related('wing_category').order_by('name', 'section')
+        categories = WingCategory.objects.filter(
+            is_active=True,
+            parent__isnull=False,
+        ).select_related('parent').order_by('parent__name', 'name') if tenant.tenant_type == 'wing_school' else []
+        if tenant.tenant_type == 'wing_school':
+            categories = list(categories)
+            parent_ids = {category.parent_id for category in categories}
+            categories.extend(
+                WingCategory.objects.filter(is_active=True, parent__isnull=True)
+                .exclude(id__in=parent_ids).order_by('name')
+            )
 
     return {
         'tenant': tenant,
@@ -396,6 +410,8 @@ def get_student_list_context(request, schema_name):
         'grades': grades,
         'sections': sections,
         'classes': classes,
+        'categories': categories,
+        'selected_category': category_id,
         'status_choices': status_choices,
         'search_query': query,
         'total_pending_all': total_pending_all,

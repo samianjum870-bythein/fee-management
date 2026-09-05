@@ -1,5 +1,6 @@
 {% extends 'mobile/base.html' %}
 {% load fee_extras %}
+{% load fee_extras %}
 {% block title %}Students | {{ tenant.name }}{% endblock %}
 
 {% block extra_head %}
@@ -780,6 +781,7 @@
       
         
         <div class="filter-group">
+            {% if tenant.tenant_type == 'wing_school' %}<select name="category_id" id="categorySelect" class="filter-select"><option value="">All Campuses / Wings</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>{% endif %}
             <select name="class_id" id="classSelect" class="filter-select">
                 <option value="">All Classes</option>
                 {% for cls in classes %}
@@ -809,11 +811,12 @@
 <div class="student-list" id="studentContainer">
   {% if students %}
     {% for s in students %}
-    <div class="student-card status-{{ s.status }}" data-student-id="{{ s.id }}" data-name="{{ s.name|lower }}" data-roll="{{ s.roll_number|lower }}" data-father="{{ s.father_name|lower }}">
+    <div class="student-card status-{{ s.status }}" data-student-id="{{ s.id }}" data-name="{{ s.name|lower }}" data-roll="{{ s.roll_number|lower }}" data-father="{{ s.father_name|lower }}" {% if tenant.tenant_type == 'wing_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
       <div class="card-top">
         <div class="student-name">{{ s.name }}</div>
         <span class="badge badge-{{ s.status }}">{{ s.get_status_display }}</span>
       </div>
+      {% if tenant.tenant_type == 'wing_school' %}<div class="student-category" style="background-color: {{ s|student_row_color }};">{{ s.wing_category|default:'Unassigned' }}</div>{% endif %}
       <div class="student-meta">
         {{ s.grade }}<span class="separator">•</span>{{ s.section }}
         <span class="separator">•</span>Roll {{ s.roll_number }}
@@ -847,8 +850,8 @@
     <!-- Pagination -->
     <div class="pagination">
       {% if students.has_previous %}
-        <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">First</a>
-        <a href="?page={{ students.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">‹</a>
+        <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">First</a>
+        <a href="?page={{ students.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">‹</a>
       {% else %}
         <span class="disabled">First</span>
         <span class="disabled">‹</span>
@@ -857,8 +860,8 @@
       <span class="active">Page {{ students.number }} of {{ students.paginator.num_pages }}</span>
 
       {% if students.has_next %}
-        <a href="?page={{ students.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">›</a>
-        <a href="?page={{ students.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">Last</a>
+        <a href="?page={{ students.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">›</a>
+        <a href="?page={{ students.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">Last</a>
       {% else %}
         <span class="disabled">›</span>
         <span class="disabled">Last</span>
@@ -897,8 +900,10 @@
       const params = new URLSearchParams();
       const q = document.getElementById('searchInput').value.trim();
       if (q) params.set('q', q);
-      const grade = document.getElementById('gradeSelect').value;
-      if (grade) params.set('grade', grade);
+      const category = document.getElementById('categorySelect');
+      if (category && category.value) params.set('category_id', category.value);
+      const classSelect = document.getElementById('classSelect');
+      if (classSelect && classSelect.value) params.set('class_id', classSelect.value);
       const section = document.getElementById('sectionSelect').value;
       if (section) params.set('section', section);
       const status = document.getElementById('statusSelect').value;
@@ -922,12 +927,14 @@
       }
     });
 
-    document.getElementById('gradeSelect').addEventListener('change', applyFilters);
+    const categorySelect = document.getElementById('categorySelect');
+    if (categorySelect) categorySelect.addEventListener('change', applyFilters);
+    document.getElementById('classSelect').addEventListener('change', applyFilters);
     document.getElementById('sectionSelect').addEventListener('change', applyFilters);
     document.getElementById('statusSelect').addEventListener('change', applyFilters);
 
     // Open filter drawer if any filter is active
-    const hasFilters = {{ request.GET.grade|yesno:"true,false" }} || {{ request.GET.section|yesno:"true,false" }} || {{ request.GET.status|yesno:"true,false" }} || {{ request.GET.pending_only|yesno:"true,false" }};
+    const hasFilters = {{ request.GET.category_id|yesno:"true,false" }} || {{ request.GET.class_id|yesno:"true,false" }} || {{ request.GET.section|yesno:"true,false" }} || {{ request.GET.status|yesno:"true,false" }} || {{ request.GET.pending_only|yesno:"true,false" }};
     if (hasFilters) {
       drawer.classList.add('open');
     }

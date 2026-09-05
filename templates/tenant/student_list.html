@@ -1,4 +1,5 @@
 {% extends 'tenant/base.html' %}
+{% load fee_extras %}
 {% block title %}Students | {{ tenant.name }}{% endblock %}
 {% block body %}
 
@@ -24,6 +25,15 @@
     
 
 <form method="get" class="filter-form" id="studentFilterForm">
+    <div class="filter-group">
+        {% if tenant.tenant_type == 'wing_school' %}
+        <label for="categorySelect">Campus / Wing</label>
+        <select name="category_id" id="categorySelect" class="filter-select">
+            <option value="">All Campuses / Wings</option>
+            {% for category in categories %}<option value="{{ category.id }}" {% if selected_category == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>{% endfor %}
+        </select>
+        {% endif %}
+    </div>
     <div class="filter-group">
         <label for="classSelect">Class</label>
         <select name="class_id" id="classSelect" class="filter-select">
@@ -136,6 +146,10 @@
                 filterForm.submit();
             }
         });
+        const categorySelect = document.getElementById('categorySelect');
+        if (categorySelect) categorySelect.addEventListener('change', function() {
+            document.getElementById('studentFilterForm').submit();
+        });
 
         // Initial update on page load
         updateSectionOptions();
@@ -159,6 +173,7 @@
                     <th>Roll No</th>
                     <th>Student Name</th>
                     <th>Father Name</th>
+                    {% if tenant.tenant_type == 'wing_school' %}<th>Campus / Wing</th>{% endif %}
                     <th>Class</th>
                     <th>Pending Fee</th>
                     <th>Status</th>
@@ -167,10 +182,11 @@
             </thead>
             <tbody>
                 {% for s in students %}
-                <tr data-student-id="{{ s.id }}">
+                <tr data-student-id="{{ s.id }}" {% if tenant.tenant_type == 'wing_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
                     <td><span class="roll-badge">{{ s.roll_number }}</span></td>
                     <td><strong>{{ s.name }}</strong></td>
                     <td>{{ s.father_name }}</td>
+                    {% if tenant.tenant_type == 'wing_school' %}<td>{% if s.wing_category %}{{ s.wing_category }}{% else %}&mdash;{% endif %}</td>{% endif %}
                     <td>{{ s.grade }} - {{ s.section }}</td>
                     <td><span class="fee-pending">₹{{ s.pending_amount|default:0 }}</span></td>
                     <td><span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span></td>
@@ -187,7 +203,7 @@
                     </td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="7" class="empty-row">No students found. <a href="{% url 'add_student' schema_name=tenant.schema_name %}" class="btn-sm">Add one <svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18l6-6-6-6"/></svg></a></td></tr>
+                <tr><td colspan="{% if tenant.tenant_type == 'wing_school' %}8{% else %}7{% endif %}" class="empty-row">No students found. <a href="{% url 'add_student' schema_name=tenant.schema_name %}" class="btn-sm">Add one <svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18l6-6-6-6"/></svg></a></td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -196,13 +212,13 @@
     <!-- Pagination -->
     <div class="pagination">
         {% if students.has_previous %}
-            <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">« First</a>
-            <a href="?page={{ students.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">Previous</a>
+            <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">« First</a>
+            <a href="?page={{ students.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">Previous</a>
         {% endif %}
         <span class="current-page">Page {{ students.number }} of {{ students.paginator.num_pages }}</span>
         {% if students.has_next %}
-            <a href="?page={{ students.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">Next</a>
-            <a href="?page={{ students.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">Last »</a>
+            <a href="?page={{ students.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">Next</a>
+            <a href="?page={{ students.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">Last »</a>
         {% endif %}
     </div>
 </div>

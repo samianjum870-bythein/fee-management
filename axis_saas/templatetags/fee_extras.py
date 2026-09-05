@@ -1,4 +1,5 @@
 from django import template
+import hashlib
 register = template.Library()
 
 @register.filter
@@ -33,4 +34,13 @@ def has_feature(tenant, feature_name):
 def has_mobile_feature(tenant, feature_name):
     """Return True if tenant has the given feature enabled on mobile."""
     return tenant.is_feature_enabled(feature_name, 'mobile')
+
+@register.filter
+def student_row_color(student):
+    """Return a stable light color for a category/class combination."""
+    category = getattr(student, 'wing_category_id', None) or 'single'
+    school_class = getattr(student, 'school_class_id', None) or f'{student.grade}:{student.section}'
+    palette = ('#fff7d6', '#e7f5e9', '#e6f0ff', '#f5e8ff', '#ffe9df', '#e5f7f5')
+    index = int(hashlib.md5(f'{category}:{school_class}'.encode()).hexdigest()[:8], 16) % len(palette)
+    return palette[index]
 
