@@ -624,7 +624,7 @@
                 <select name="teacher_id" id="teacherSelectModal">
                     <option value="">Unassign</option>
                     {% for teacher in assign_form.fields.teacher.queryset %}
-                    <option value="{{ teacher.id }}">{{ teacher.full_name }} ({{ teacher.job_title }})</option>
+                    <option value="{{ teacher.id }}"><b style="font-size:1.1em;">{{ teacher.first_name }}</b> {% if teacher.gender == "male" %}(son of){% elif teacher.gender == "female" %}(daughter of){% else %}(child of){% endif %} {{ teacher.last_name }}</option>
                     {% endfor %}
                 </select>
             </div>
