@@ -23,3 +23,4 @@ from .sell import *
 # Also export helpers if needed
 from .helpers import *
 from .classes import *
+from .classes import assign_class_teacher

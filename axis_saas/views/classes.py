@@ -18,8 +18,8 @@ from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 import json
 
-from ..models import SchoolClass, Subject, ClassSubject, Staff, Student
-from ..forms import ClassForm, SubjectForm, ClassSubjectForm
+from ..models import SchoolClass, Subject, ClassSubject, Staff, Student, WingCategory
+from ..forms import ClassForm, SubjectForm, ClassSubjectForm, available_wing_categories
 from .helpers import get_tenant, is_mobile_user_agent, require_tenant_type, require_school_feature
 
 def redirect_with_cache_bust(url_name, schema_name, **kwargs):
@@ -67,9 +67,12 @@ def mobile_class_management(request, schema_name):
 
 def get_class_management_context(request, schema_name):
     tenant = get_tenant(request, schema_name)
+    selected_wing = request.GET.get('wing')
     with schema_context(schema_name):
         # Active classes for display
         classes = SchoolClass.objects.filter(is_active=True).select_related('wing_category', 'class_teacher').order_by('name', 'section')
+        if selected_wing:
+            classes = classes.filter(wing_category_id=selected_wing)
         # Compute student strength and class teacher for each class
         for cls in classes:
             cls.student_count = Student.objects.filter(school_class=cls).count() if hasattr(Student, 'school_class') else Student.objects.filter(grade=cls.name, section=cls.section).count()
@@ -95,6 +98,9 @@ def get_class_management_context(request, schema_name):
         assign_form = ClassSubjectForm()
         assign_form.fields['teacher'].queryset = Staff.objects.filter(status='active')
 
+        wing_categories = available_wing_categories() if tenant.tenant_type == 'wing_school' else []
+
+
         total_classes = classes.count()
         total_all_classes = all_classes.count()
         total_subjects = subjects.count()
@@ -110,6 +116,7 @@ def get_class_management_context(request, schema_name):
         debug_all_subjects = list(all_subjects.values('id', 'name', 'is_active'))
 
         return {
+            'selected_wing': selected_wing,
             'tenant': tenant,
             'classes': classes,
             'subjects': subjects,
@@ -126,6 +133,7 @@ def get_class_management_context(request, schema_name):
             'debug_all_subjects': debug_all_subjects,
             'total_all_classes': total_all_classes,
             'total_all_subjects': total_all_subjects,
+            'wing_categories': wing_categories,
             'logo_url': tenant.school_logo.url if tenant.school_logo else None,
         }
 
@@ -322,6 +330,37 @@ def delete_assignment(request, schema_name, assignment_id):
 
 
 @require_tenant_type(['school'])
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@require_tenant_type(['school'])
+@require_school_feature('class_management')
+def assign_class_teacher(request, schema_name):
+    """Assign a teacher as class teacher for a given class."""
+    from django.shortcuts import redirect, get_object_or_404
+    from django.contrib import messages
+    from ..models import SchoolClass, Staff
+
+    class_id = request.POST.get('class_id')
+    teacher_id = request.POST.get('teacher_id')
+
+    if not class_id:
+        messages.error(request, "Class ID is required.")
+        return redirect('class_management', schema_name=schema_name)
+
+    with schema_context(schema_name):
+        school_class = get_object_or_404(SchoolClass, id=class_id)
+        if teacher_id:
+            teacher = get_object_or_404(Staff, id=teacher_id, status='active')
+            school_class.class_teacher = teacher
+        else:
+            school_class.class_teacher = None
+        school_class.save(update_fields=['class_teacher'])
+        messages.success(request, f"Class teacher assigned successfully for {school_class}.")
+    return redirect('class_management', schema_name=schema_name)
+
+
 def class_strength_api(request, schema_name):
     """Return the number of students in a given class."""
     from django.http import JsonResponse
@@ -335,4 +374,3 @@ def class_strength_api(request, schema_name):
         return JsonResponse({'strength': count})
     except SchoolClass.DoesNotExist:
         return JsonResponse({'error': 'Class not found'}, status=404)
-

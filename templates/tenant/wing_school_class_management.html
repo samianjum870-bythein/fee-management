@@ -396,6 +396,7 @@
     <button class="tab-btn active" data-tab="classes">Classes & Sections</button>
     <button class="tab-btn" data-tab="subjects">Subjects</button>
     <button class="tab-btn" data-tab="assignments">Assignments</button>
+    <button class="tab-btn" data-tab="class-teacher">Class Teacher</button>
 </div>
 
 <!-- Tab: Classes -->
@@ -545,6 +546,88 @@
         </div>
     </div>
 </div>
+
+<!-- Tab: Class Teacher -->
+<div class="tab-content" id="tab-class-teacher">
+    <div class="card">
+        <div class="card-header">
+            <h3>Assign Class Teacher</h3>
+        </div>
+        <div class="card-body" style="padding: 1rem;">
+            <form method="post" action="{% url 'assign_class_teacher' schema_name=tenant.schema_name %}" id="classTeacherForm">
+                {% csrf_token %}
+                {% if tenant.tenant_type == 'wing_school' %}
+                <div class="form-field">
+                    <label>Campus / Wing</label>
+                    <select id="wingFilter" class="form-control">
+                        <option value="">All Wings</option>
+                        {% for wing in wing_categories %}
+                        <option value="{{ wing.id }}" {% if selected_wing == wing.id|stringformat:"s" %}selected{% endif %}>{{ wing }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div class="form-field">
+                    <label>Class</label>
+                    <select name="class_id" id="classSelect" required>
+                        <option value="">Select Class</option>
+                        {% for cls in classes %}
+                        <option value="{{ cls.id }}" data-wing="{{ cls.wing_category_id|default:'' }}">{{ cls.name }} {% if cls.section %}- {{ cls.section }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label>Teacher</label>
+                    <select name="teacher_id" id="teacherSelect">
+                        <option value="">Unassign</option>
+                        {% for teacher in assign_form.fields.teacher.queryset %}
+                        <option value="{{ teacher.id }}">{{ teacher.full_name }} ({{ teacher.job_title }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn-primary">Assign Teacher</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<script>
+    (function() {
+        const wingFilter = document.getElementById('wingFilter');
+        const classSelect = document.getElementById('classSelect');
+
+        if (wingFilter && classSelect) {
+            function filterClasses() {
+                const selectedWing = wingFilter.value;
+                const options = classSelect.options;
+                for (let i = 0; i < options.length; i++) {
+                    const option = options[i];
+                    if (option.value === '') continue;
+                    const wing = option.getAttribute('data-wing');
+                    if (selectedWing === '' || wing === selectedWing) {
+                        option.style.display = '';
+                    } else {
+                        option.style.display = 'none';
+                    }
+                }
+                // Reset the selected value if the currently selected option is hidden
+                const selectedOption = classSelect.options[classSelect.selectedIndex];
+                if (selectedOption && selectedOption.style.display === 'none') {
+                    classSelect.value = '';
+                }
+            }
+
+            // Initial filter
+            filterClasses();
+
+            // Add event listener
+            wingFilter.addEventListener('change', filterClasses);
+        }
+    })();
+</script>
 
 <!-- ===== MODALS ===== -->
 
