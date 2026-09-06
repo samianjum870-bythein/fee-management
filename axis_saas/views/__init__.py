@@ -3,6 +3,7 @@ AXIS views package – re‑export all view functions.
 """
 
 from .dashboard import *
+from .class_teacher_views import *
 from .staff import (
     staff_list, mobile_staff_list, staff_profile, mobile_staff_profile,
     staff_add, staff_add_mobile, staff_edit, staff_search_api

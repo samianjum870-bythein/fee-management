@@ -666,8 +666,13 @@ class SchoolClass(models.Model):
 
     def __str__(self):
         label = f"{self.name} - {self.section}" if self.section else self.name
-        return f"{self.wing_category} | {label}" if self.wing_category else label
-
+        try:
+            wing_name = self.wing_category.name if self.wing_category_id else None
+        except WingCategory.DoesNotExist:
+            wing_name = None
+        if wing_name:
+            return f"{wing_name} | {label}"
+        return label
     def normalize_fields(self):
         """Normalize name to title case and section to uppercase."""
         if self.name:
@@ -713,7 +718,6 @@ class Subject(models.Model):
 
     def __str__(self):
         return self.name
-
     def normalize_fields(self):
         if self.name:
             self.name = self.name.strip().title()
@@ -749,7 +753,3 @@ class ClassSubject(models.Model):
     class Meta:
         unique_together = ['school_class', 'subject']
         ordering = ['school_class', 'subject']
-
-    def __str__(self):
-        teacher_name = self.teacher.full_name if self.teacher else "Unassigned"
-        return f"{self.school_class} - {self.subject} ({teacher_name})"

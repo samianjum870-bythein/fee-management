@@ -432,14 +432,16 @@
                         <td>{{ cls.class_subjects.all|length }}</td>
                         <td>{{ cls.student_count }}</td>
                         <td>{% if cls.class_teacher %}<a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}">{{ cls.class_teacher.full_name }}</a>{% else %}&mdash;{% endif %}</td>
+
                         <td class="action-btns">
                             <button class="action-icon" onclick="location.href='{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Students">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                             </button>
-                            <button class="action-icon" onclick="location.href='{% url 'staff_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Teachers">
+                            {% if cls.class_teacher %}
+                            <button class="action-icon" onclick="location.href='{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}'" title="View Teacher Profile">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/></svg>
                             </button>
-                            
+                            {% endif %}
                             <button class="action-icon" onclick="editClass({{ cls.id }}, '{{ cls.name|escapejs }}', '{{ cls.section|escapejs }}', '{{ cls.description|escapejs }}')" title="Edit">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
                             </button>
@@ -447,6 +449,7 @@
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                             </button>
                         </td>
+
                     </tr>
                     {% empty %}
                     <tr><td colspan="{% if tenant.tenant_type == 'wing_school' %}8{% else %}7{% endif %}" class="empty-row">No classes yet.</td></tr>
@@ -547,73 +550,92 @@
     </div>
 </div>
 
+
 <!-- Tab: Class Teacher -->
 <div class="tab-content" id="tab-class-teacher">
     <div class="card">
         <div class="card-header">
-            <h3>Assign Class Teacher</h3>
+            <h3>Class Teacher Assignments</h3>
+            <div class="actions">
+                <button class="btn-sm" onclick="openModal('classTeacherModal')">+ Assign Class Teacher</button>
+            </div>
         </div>
-        <div class="card-body" style="padding: 1rem;">
-            <form method="post" action="{% url 'assign_class_teacher' schema_name=tenant.schema_name %}" id="classTeacherForm">
-                {% csrf_token %}
-                {% if tenant.tenant_type == 'wing_school' %}
-                <div class="form-field">
-                    <label>Campus / Wing</label>
-                    <select id="wingFilter" class="form-control">
-                        <option value="">All Wings</option>
-                        {% for wing in wing_categories %}
-                        <option value="{{ wing.id }}">{{ wing.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                {% endif %}
-                <div class="form-field">
-                    <label>Class</label>
-                    <select name="class_id" id="classSelect" required>
-                        <option value="">Select Class</option>
-                        {% for cls in classes %}
-                        <option value="{{ cls.id }}" data-wing="{{ cls.wing_category_id|default:'' }}">{{ cls.name }} {% if cls.section %}- {{ cls.section }}{% endif %}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-field">
-                    <label>Teacher</label>
-                    <select name="teacher_id" id="teacherSelect">
-                        <option value="">Unassign</option>
-                        {% for teacher in assign_form.fields.teacher.queryset %}
-                        <option value="{{ teacher.id }}">{{ teacher.full_name }} ({{ teacher.job_title }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="modal-actions">
-                    <button type="submit" class="btn-primary">Assign Teacher</button>
-                </div>
-            </form>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Class</th>
+                        <th>Section</th>
+                        <th>Class Teacher</th>
+                        <th>Strength</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cls in classes %}
+                    <tr>
+                        <td><strong>{{ cls.name }}</strong></td>
+                        <td>{{ cls.section|default:"—" }}</td>
+                        <td>{% if cls.class_teacher %}<a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}">{{ cls.class_teacher.full_name }}</a>{% else %}&mdash;{% endif %}</td>
+                        <td>{{ cls.student_count }}</td>
+                        <td class="action-btns">
+                            <button class="action-icon" onclick="location.href='{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}'" title="View Students">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                            </button>
+                            {% if cls.class_teacher %}
+                            <button class="action-icon" onclick="location.href='{% url 'staff_profile' schema_name=tenant.schema_name staff_id=cls.class_teacher.id %}'" title="View Teacher Profile">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/></svg>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="empty-row">No classes found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
+<!-- ===== MODALS ===== -->
 
-<script>
-    (function() {
-        const wingFilter = document.getElementById('wingFilter');
-        const classSelect = document.getElementById('classSelect');
-        if (wingFilter) {
-            wingFilter.addEventListener('change', function() {
-                const selectedWing = this.value;
-                for (let option of classSelect.options) {
-                    if (option.value === '') continue;
-                    const wing = option.getAttribute('data-wing');
-                    if (selectedWing === '' || wing === selectedWing) {
-                        option.style.display = '';
-                    } else {
-                        option.style.display = 'none';
-                    }
-                }
-                classSelect.value = '';
-            });
-        }
-    })();
-</script><!-- ===== MODALS ===== -->
+
+<!-- ===== Class Teacher Assignment Modal ===== -->
+<div id="classTeacherModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="classTeacherModalTitle">Assign Class Teacher</h3>
+            <button class="close-modal" onclick="closeModal('classTeacherModal')">&times;</button>
+        </div>
+        <form method="post" action="{% url 'assign_class_teacher' schema_name=tenant.schema_name %}" id="classTeacherForm">
+            {% csrf_token %}
+            <input type="hidden" name="class_id" id="classTeacherClassId">
+            <div class="form-field">
+                <label>Class</label>
+                <select name="class_id" id="classSelectModal" required>
+                    <option value="">Select Class</option>
+                    {% for cls in classes %}
+                    <option value="{{ cls.id }}">{{ cls.name }} {% if cls.section %}- {{ cls.section }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label>Teacher</label>
+                <select name="teacher_id" id="teacherSelectModal">
+                    <option value="">Unassign</option>
+                    {% for teacher in assign_form.fields.teacher.queryset %}
+                    <option value="{{ teacher.id }}">{{ teacher.full_name }} ({{ teacher.job_title }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('classTeacherModal')">Cancel</button>
+                <button type="submit" class="btn-primary" id="classTeacherSubmitBtn">Assign Teacher</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 
 <!-- Class Modal -->
 <div id="classModal" class="modal-overlay">
