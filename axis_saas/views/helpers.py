@@ -147,6 +147,7 @@ def aggregate_pending_totals():
 # Import left at module scope for the Subquery helper above.
 from django.db.models import Subquery
 from axis_saas.utils.display_grade import get_student_display_grade
+from axis_saas.utils.class_display import get_class_display_for_student, get_class_display_name
 
 def local_time_str(dt):
     """Convert aware datetime to local timezone and return formatted time string."""

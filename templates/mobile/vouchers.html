@@ -1,4 +1,6 @@
 {% extends 'mobile/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% load fee_extras %}
 {% block title %}Fee Vouchers | {{ tenant.name }}{% endblock %}
 
@@ -421,11 +423,7 @@
                     <div class="student-name">{{ item.student.name }}</div>
                     <div class="student-meta">
     {{ item.student.roll_number }} •
-    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
-    {% else %}
-        {{ item.student.grade }} - {{ item.student.section }}
-    {% endif %}
+    {{ item.student|display_class:tenant }}
 </div>
                 </div>
                 <div>
@@ -480,11 +478,7 @@
                     <div class="student-name">{{ item.student.name }}</div>
                     <div class="student-meta">
     {{ item.student.roll_number }} •
-    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
-    {% else %}
-        {{ item.student.grade }} - {{ item.student.section }}
-    {% endif %}
+    {{ item.student|display_class:tenant }}
 </div>
                 </div>
                 <div>
@@ -537,11 +531,7 @@
                     <div class="student-name">{{ item.student.name }}</div>
                     <div class="student-meta">
     {{ item.student.roll_number }} •
-    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
-    {% else %}
-        {{ item.student.grade }} - {{ item.student.section }}
-    {% endif %}
+    {{ item.student|display_class:tenant }}
 </div>
                 </div>
                 <div>
@@ -593,11 +583,7 @@
                     <div class="student-name">{{ item.student.name }}</div>
                     <div class="student-meta">
     {{ item.student.roll_number }} •
-    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
-    {% else %}
-        {{ item.student.grade }} - {{ item.student.section }}
-    {% endif %}
+    {{ item.student|display_class:tenant }}
 </div>
                 </div>
                 <div>

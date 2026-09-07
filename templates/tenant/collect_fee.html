@@ -1,4 +1,6 @@
 {% extends 'tenant/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% block title %}Collect Fee | {{ student.name }} | {{ tenant.name }}{% endblock %}
 
 {% block body %}
@@ -22,7 +24,7 @@
     </div>
     <div class="student-details">
         <h3>{{ student.name }} <span class="roll">({{ student.roll_number }})</span></h3>
-        <p class="class-info">{{ student.display_class }} | Father: {{ student.father_name }} | CNIC: {{ student.father_cnic }}</p>
+        <p class="class-info">{{ student|display_class:tenant }} | Father: {{ student.father_name }} | CNIC: {{ student.father_cnic }}</p>
     </div>
     <div class="pending-badge">Pending: ₹{{ total_pending }}</div>
     <a href="{% url "student_profile" schema_name=tenant.schema_name student_id=student.id %}" class="btn-secondary" style="margin-left: auto;">View Profile</a>

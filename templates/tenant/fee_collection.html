@@ -1,4 +1,5 @@
 {% extends 'tenant/base.html' %}
+{% load class_display %}
 {% block title %}Fee Collection | {{ tenant.name }}{% endblock %}
 {% block body %}
 <div class="page-header">
@@ -64,7 +65,7 @@
                     <td><span class="roll-badge">{{ s.roll_number }}</span></td>
                     <td><strong>{{ s.name }}</strong></td>
                     <td>{{ s.father_name }}</td>
-                    <td>{{ s.display_class }}</td>
+                    <td>{{ s|display_class:tenant }}</td>
                     <td class="pending-amount">₹{{ s.pending_total|floatformat:2 }}</td>
                     <td><button class="select-student-btn" data-id="{{ s.id }}">Select</button></td>
                 </tr>

@@ -1,4 +1,6 @@
 {% extends 'tenant/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% block title %}Defaulters | {{ tenant.name }}{% endblock %}
 
 {% block extra_head %}
@@ -549,7 +551,7 @@
                         <span class="student-meta">{{ d.student.grade }} - {{ d.student.section }}</span>
                     </td>
                     <td>{{ d.student.father_name }}</td>
-                    <td>{{ d.display_class }}</td>
+                    <td>{{ d.student|display_class:tenant }}</td>
                     <td class="pending-amount">₹{{ d.fee_pending|floatformat:2 }}</td>
                     <td class="total-pending">₹{{ d.pending_amount|floatformat:2 }}</td>
                     <td>

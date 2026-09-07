@@ -1,4 +1,6 @@
 {% extends 'tenant/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% load fee_extras %}
 {% block title %}Fee Vouchers | {{ tenant.name }}{% endblock %}
 
@@ -312,11 +314,7 @@
                 <tr>
                     <td><strong>{{ item.student.name }}</strong></td>
                     <td>{{ item.student.roll_number }}</td>
-                    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-    <td>{{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}</td>
-{% else %}
-    <td>{{ item.student.grade }} - {{ item.student.section }}</td>
-{% endif %}
+                    
                     <td>{{ item.month }}/{{ item.year }}</td>
                     <td>₹{{ item.total_amount|floatformat:2 }}</td>
                     <td>₹{{ item.paid|floatformat:2 }}</td>
@@ -376,11 +374,7 @@
                 <tr>
                     <td><strong>{{ item.student.name }}</strong></td>
                     <td>{{ item.student.roll_number }}</td>
-                    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-    <td>{{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}</td>
-{% else %}
-    <td>{{ item.student.grade }} - {{ item.student.section }}</td>
-{% endif %}
+                    
                     <td>{{ item.month }}/{{ item.year }}</td>
                     <td>₹{{ item.total_amount|floatformat:2 }}</td>
                     <td>₹{{ item.paid|floatformat:2 }}</td>
@@ -438,11 +432,7 @@
                 <tr>
                     <td><strong>{{ item.student.name }}</strong></td>
                     <td>{{ item.student.roll_number }}</td>
-                    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-    <td>{{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}</td>
-{% else %}
-    <td>{{ item.student.grade }} - {{ item.student.section }}</td>
-{% endif %}
+                    
                     <td>{{ item.month }}/{{ item.year }}</td>
                     <td>₹{{ item.total_amount|floatformat:2 }}</td>
                     <td>₹{{ item.paid|floatformat:2 }}</td>
@@ -499,11 +489,7 @@
                 <tr>
                     <td><strong>{{ item.student.name }}</strong></td>
                     <td>{{ item.student.roll_number }}</td>
-                    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
-    <td>{{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}</td>
-{% else %}
-    <td>{{ item.student.grade }} - {{ item.student.section }}</td>
-{% endif %}
+                    
                     <td>{{ item.month }}/{{ item.year }}</td>
                     <td>—</td>
                     <td>—</td>

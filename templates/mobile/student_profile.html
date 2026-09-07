@@ -1,4 +1,6 @@
 {% extends 'mobile/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% load fee_extras %}
 {% block title %}{{ student.name }} | Profile{% endblock %}
 
@@ -572,15 +574,7 @@
         <strong>{{ student.father_name }}</strong>
       </div>
       <div class="sub">
-        {% if tenant.tenant_type == 'wing_school' and student.school_class.wing_category %}
-          <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ student.school_class.id }}&category_id={{ student.school_class.wing_category.id }}">
-            {{ student.school_class.wing_category.parent.name }} ({{ student.school_class.wing_category.name }}) - {{ student.school_class.name }} - {{ student.school_class.section }}
-          </a>
-        {% else %}
-          <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ student.school_class.id }}">
-            {{ student.grade }} - {{ student.section }}
-          </a>
-        {% endif %}
+        {{ student|display_class:tenant }}
         <span>•</span>
         <span>Roll {{ student.roll_number }}</span>
       </div>

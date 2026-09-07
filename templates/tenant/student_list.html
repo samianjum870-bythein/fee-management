@@ -1,4 +1,6 @@
 {% extends 'tenant/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% load fee_extras %}
 {% block title %}Students | {{ tenant.name }}{% endblock %}
 {% block body %}
@@ -187,7 +189,7 @@
                     <td><strong>{{ s.name }}</strong></td>
                     <td>{{ s.father_name }}</td>
                     {% if tenant.tenant_type == 'wing_school' %}<td>{% if s.wing_category %}{{ s.wing_category }}{% else %}&mdash;{% endif %}</td>{% endif %}
-                    <td>{{ s.grade }} - {{ s.section }}</td>
+                    <td>{{ s|display_class:tenant }}</td>
                     <td><span class="fee-pending">₹{{ s.pending_amount|default:0 }}</span></td>
                     <td><span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span></td>
                     <td class="action-btns">

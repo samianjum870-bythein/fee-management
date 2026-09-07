@@ -1,4 +1,6 @@
 {% extends 'mobile/base.html' %}
+{% load class_display %}
+{% load class_display %}
 {% load fee_extras %}
 {% block title %}Defaulters | {{ tenant.name }}{% endblock %}
 
@@ -362,7 +364,7 @@
       <div class="top-row">
         <div>
           <div class="student-name">{{ d.student.name }}</div>
-          <div class="student-meta">{{ d.display_class }} • Roll {{ d.student.roll_number }}</div>
+          <div class="student-meta">{{ d.student|display_class:tenant }} • Roll {{ d.student.roll_number }}</div>
         </div>
         <div class="pending-amount">₹{{ d.pending_amount|floatformat:2 }}</div>
       </div>

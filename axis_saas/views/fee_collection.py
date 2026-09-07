@@ -29,30 +29,12 @@ from django.db import transaction
 from ..models import ManualGenerationLog
 
 from .helpers import *
+from axis_saas.utils.class_display import get_class_display_for_student
 
 from axis_saas.utils.display_grade import get_student_display_grade
 
 def get_display_class(student, tenant):
-    """Return formatted class name with wing category if applicable."""
-    school_class = student.school_class
-    if school_class and tenant.tenant_type == 'wing_school' and school_class.wing_category:
-        main = school_class.wing_category.parent
-        sub = school_class.wing_category
-        if school_class.section:
-            return f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
-        else:
-            return f"{main.name} ({sub.name}) - {school_class.name}"
-    elif school_class:
-        if school_class.section:
-            return f"{school_class.name} - {school_class.section}"
-        else:
-            return school_class.name
-    else:
-        if student.section:
-            return f"{student.grade} - {student.section}"
-        else:
-            return student.grade
-
+    return get_class_display_for_student(student, tenant)
 
 @require_tenant_type(['school'])
 @require_school_feature('fee_collection')
@@ -213,7 +195,6 @@ def fee_collection(request, schema_name, student_id=None, force_mobile=False):
         pending_students = []
         for s in students_qs:
             pending = s.pending_amount
-            s.display_class = get_display_class(s, tenant)
             if pending > 0:
                 s.pending_total = pending
                 pending_students.append(s)

@@ -28,6 +28,7 @@ from .helpers import (
     get_tenant, is_mobile_user_agent, require_tenant_type, require_school_feature,
     MOBILE_AGENT_RE
 )
+from axis_saas.utils.class_display import get_class_display_name
 
 # ========== STAFF LIST ==========
 
@@ -156,23 +157,11 @@ def get_staff_profile_context(request, schema_name, staff_id):
     ).select_related('wing_category').order_by('name', 'section')
 
     # Add formatted display names based on tenant type
-    tenant = get_tenant(request, schema_name)
     for cls in assigned_classes:
-        school_class = cls.school_class
-        if tenant.tenant_type == 'wing_school' and school_class.wing_category:
-            main = school_class.wing_category.parent
-            sub = school_class.wing_category
-            cls.display_name = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}" if school_class.section else f"{main.name} ({sub.name}) - {school_class.name}"
-        else:
-            cls.display_name = f"{school_class.name} - {school_class.section}" if school_class.section else school_class.name
+        cls.display_name = get_class_display_name(cls.school_class, tenant.tenant_type)
 
     for cls in class_teacher_classes:
-        if tenant.tenant_type == 'wing_school' and cls.wing_category:
-            main = cls.wing_category.parent
-            sub = cls.wing_category
-            cls.display_name = f"{main.name} ({sub.name}) - {cls.name} - {cls.section}" if cls.section else f"{main.name} ({sub.name}) - {cls.name}"
-        else:
-            cls.display_name = f"{cls.name} - {cls.section}" if cls.section else cls.name
+        cls.display_name = get_class_display_name(cls, tenant.tenant_type)
 
     return {
         'tenant': tenant,
@@ -186,6 +175,7 @@ def get_staff_profile_context(request, schema_name, staff_id):
         'assigned_classes': assigned_classes,
         'class_teacher_classes': class_teacher_classes,
     }
+
 @require_tenant_type(['school'])
 @require_school_feature('staff_management')
 @require_http_methods(['POST'])
@@ -255,6 +245,7 @@ def staff_reset_password(request, schema_name, staff_id):
             return JsonResponse({'success': True, 'message': 'Password reset successfully.'})
         messages.success(request, 'Password reset successfully.')
         return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)
+
 def staff_add(request, schema_name):
     tenant = get_tenant(request, schema_name)
     with schema_context(schema_name):

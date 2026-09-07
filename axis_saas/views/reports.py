@@ -30,6 +30,7 @@ from ..models import ManualGenerationLog
 from django.views.decorators.cache import cache_page
 
 from .helpers import *
+from axis_saas.utils.class_display import get_class_display_for_student, get_class_display_name
 
 @require_tenant_type(['school'])
 @require_school_feature('defaulters')
@@ -83,25 +84,7 @@ def defaulters(request, schema_name, force_mobile=False):
             # Compute days overdue
             oldest_due = student.fee_records.filter(status__in=['pending', 'partial', 'overdue']).order_by('due_date').first()
             days_overdue = (today - oldest_due.due_date).days if oldest_due and oldest_due.due_date < today else 0
-            # Compute display_class
-            school_class = student.school_class
-            if school_class and tenant.tenant_type == 'wing_school' and school_class.wing_category:
-                main = school_class.wing_category.parent
-                sub = school_class.wing_category
-                if school_class.section:
-                    display_class = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
-                else:
-                    display_class = f"{main.name} ({sub.name}) - {school_class.name}"
-            elif school_class:
-                if school_class.section:
-                    display_class = f"{school_class.name} - {school_class.section}"
-                else:
-                    display_class = school_class.name
-            else:
-                if student.section:
-                    display_class = f"{student.grade} - {student.section}"
-                else:
-                    display_class = student.grade
+            display_class = get_class_display_for_student(student, tenant)
 
             defaulters_data.append({
                 'student': student,
@@ -146,6 +129,7 @@ def defaulters(request, schema_name, force_mobile=False):
     }
     template = 'mobile/defaulters.html' if force_mobile else 'tenant/defaulters.html'
     return render(request, template, context)
+
 @cache_page(60)
 @require_tenant_type(['school'])
 @require_school_feature('reports')
@@ -240,28 +224,32 @@ def reports(request, schema_name, force_mobile=False):
     # ---- add display_class to each defaulter ----
     for item in defaulters_data:
         student = item['student']
-        school_class = student.school_class
-        if school_class and tenant.tenant_type == 'wing_school' and school_class.wing_category:
-            main = school_class.wing_category.parent
-            sub = school_class.wing_category
-            if school_class.section:
-                item['display_class'] = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
-            else:
-                item['display_class'] = f"{main.name} ({sub.name}) - {school_class.name}"
-        elif school_class:
-            if school_class.section:
-                item['display_class'] = f"{school_class.name} - {school_class.section}"
-            else:
-                item['display_class'] = school_class.name
-        else:
-            if student.section:
-                item['display_class'] = f"{student.grade} - {student.section}"
-            else:
-                item['display_class'] = student.grade
+        item['display_class'] = get_class_display_for_student(student, tenant)
 
-        defaulters_data.sort(key=lambda x: x['days_overdue'], reverse=True)
-        context = {'tenant': tenant, 'report_type': report_type, 'start_date': start_date, 'end_date': end_date, 'quick_filter': quick_filter, 'search_query': search_q, 'total_collection': total_collection, 'total_pending': total_pending, 'collection_rate': round(collection_rate, 1), 'defaulters_count': defaulters_count, 'monthly_data': monthly_data, 'mode_distribution': mode_distribution, 'class_pending': class_pending, 'top_defaulters': top_defaulters, 'defaulters_data': defaulters_data, 'payments': payments_page, 'total': total_collection, 'payment_count': payment_count, 'logo_url': tenant.school_logo.url if tenant.school_logo else None, 'total_collection_all': total_collection_all}
-        template = 'mobile/reports.html' if force_mobile else 'tenant/reports.html'
+    defaulters_data.sort(key=lambda x: x['days_overdue'], reverse=True)
+    context = {
+        'tenant': tenant,
+        'report_type': report_type,
+        'start_date': start_date,
+        'end_date': end_date,
+        'quick_filter': quick_filter,
+        'search_query': search_q,
+        'total_collection': total_collection,
+        'total_pending': total_pending,
+        'collection_rate': round(collection_rate, 1),
+        'defaulters_count': defaulters_count,
+        'monthly_data': monthly_data,
+        'mode_distribution': mode_distribution,
+        'class_pending': class_pending,
+        'top_defaulters': top_defaulters,
+        'defaulters_data': defaulters_data,
+        'payments': payments_page,
+        'total': total_collection,
+        'payment_count': payment_count,
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
+        'total_collection_all': total_collection_all
+    }
+    template = 'mobile/reports.html' if force_mobile else 'tenant/reports.html'
     return render(request, template, context)
 
 @require_tenant_type(['school'])
