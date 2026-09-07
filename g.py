@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
-add_father_name_mobile_fee_collection.py
+axis_patcher.py
 
-Add father name display in mobile fee collection list.
-
-Changes:
-- In templates/mobile/fee_collection.html, add the father name after the student name
-  with a slash separator and lighter styling.
+Patches fee structure views to fix the edit parameter handling.
+Removes duplicate function definitions and ensures correct grade/class lookup.
 
 Usage:
-    python add_father_name_mobile_fee_collection.py [--dry-run] [--verbose] [--target-dir PATH]
+    python axis_patcher.py [--dry-run] [--verbose] [--target-dir PATH]
 """
 
 import re
@@ -23,109 +20,67 @@ def log(message, verbose=False, always=True):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {message}")
 
-def patch_template(file_path, dry_run=False, verbose=False):
-    if not file_path.exists():
-        log(f"Template not found: {file_path}", verbose)
-        return False
-
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    original = content
-
-    # We want to add father name in the top-row div.
-    # Current top-row pattern:
-    # <div class="top-row">
-    #   <div class="name">{{ student.name }}</div>
-    #   <div class="pending-amount">₹{{ student.pending_total|floatformat:2 }}</div>
-    # </div>
-    # We'll change it to:
-    # <div class="top-row">
-    #   <div>
-    #     <span class="name">{{ student.name }}</span>
-    #     <span class="father-name"> / {{ student.father_name }}</span>
-    #   </div>
-    #   <div class="pending-amount">₹{{ student.pending_total|floatformat:2 }}</div>
-    # </div>
-
-    # We'll find the top-row div that contains the name and pending-amount.
-    # We'll use a regex to match the entire top-row div and replace it.
-
-    # Pattern: <div class="top-row">.*?</div> (non-greedy)
-    # We'll match the whole div, then replace inside.
-
-    pattern = r'(<div class="top-row">)(.*?)(</div>)'
-    def replace_top_row(match):
-        opening = match.group(1)
-        inner = match.group(2)
-        closing = match.group(3)
-
-        # Check if this is the top-row we want (contains name and pending-amount)
-        if '{{ student.name }}' in inner and '{{ student.pending_total' in inner:
-            # We'll replace the inner with new structure.
-            # Extract the name div and pending-amount div.
-            # We'll use a simple approach: replace the inner with new content.
-            # We'll keep the pending-amount div as is, and wrap the name with father name.
-            # We'll use regex to capture the name div and pending-amount div.
-            name_div_pattern = r'<div class="name">(.*?)</div>'
-            name_match = re.search(name_div_pattern, inner, re.DOTALL)
-            if not name_match:
-                return match.group(0)  # fallback
-
-            name_content = name_match.group(1)
-            # Build new top-row
-            # We'll replace the name div with a combined div.
-            new_inner = f'''
-      <div style="display: flex; align-items: baseline; gap: 0.2rem; flex-wrap: wrap;">
-        <span class="name" style="font-weight: 700; font-size: 0.85rem; color: var(--text);">{{ student.name }}</span>
-        <span style="color: var(--muted); font-size: 0.7rem;">/ {{ student.father_name }}</span>
-      </div>
-      <div class="pending-amount" style="font-weight: 700; font-size: 0.9rem; color: #EF4444; white-space: nowrap;">₹{{ student.pending_total|floatformat:2 }}</div>
-'''
-            # But we need to preserve the pending-amount div exactly.
-            # We'll extract the pending-amount div from inner.
-            pending_div_pattern = r'(<div class="pending-amount".*?>.*?</div>)'
-            pending_match = re.search(pending_div_pattern, inner, re.DOTALL)
-            if pending_match:
-                pending_div = pending_match.group(1)
-                # Rebuild inner with new name display and the pending div.
-                new_inner = f'''
-      <div style="display: flex; align-items: baseline; gap: 0.2rem; flex-wrap: wrap;">
-        <span class="name" style="font-weight: 700; font-size: 0.85rem; color: var(--text);">{{ student.name }}</span>
-        <span style="color: var(--muted); font-size: 0.7rem;">/ {{ student.father_name }}</span>
-      </div>
-      {pending_div}
-'''
-            else:
-                # Fallback
-                new_inner = inner  # keep as is
-
-            return opening + new_inner + closing
+def replace_function(content, func_name, new_body, verbose=False):
+    """
+    Replace ALL occurrences of the given function definition (including decorators)
+    with the new_body. The function is identified by 'def func_name('.
+    """
+    # Split into lines to locate the function start and end.
+    lines = content.splitlines()
+    # We'll collect indices of all occurrences of the function start.
+    # We'll remove all and then insert one at the end of the file (or at a safe location).
+    # Actually, we'll find the first occurrence and replace it, but we need to remove all others.
+    # We'll find all blocks.
+    blocks = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Check if this line contains 'def func_name(' (ignoring indentation)
+        if re.search(r'^\s*def ' + func_name + r'\s*\(', line):
+            # Go back to find decorators
+            start = i
+            while start > 0 and lines[start - 1].strip().startswith('@'):
+                start -= 1
+            # Find end: next line that starts with 'def' or '@' at column 0 (or end)
+            end = i + 1
+            # We need to find the end of the function body, which is the next top-level def or @
+            # We'll search forward until we encounter a line that starts with 'def' or '@' at column 0
+            # but we must be careful with decorators (they are indented 0)
+            # Actually, we need to find the next line that is not indented and starts with 'def' or '@'
+            # But we also need to handle that the function might be the last in the file.
+            j = i + 1
+            while j < len(lines):
+                if lines[j] and not lines[j].startswith(' ') and (lines[j].startswith('def') or lines[j].startswith('@')):
+                    break
+                j += 1
+            end = j
+            blocks.append((start, end))
+            i = end
         else:
-            return match.group(0)
+            i += 1
 
-    new_content = re.sub(pattern, replace_top_row, content, flags=re.DOTALL)
+    if not blocks:
+        log(f"Function {func_name} not found.", verbose=verbose)
+        return content
 
-    if new_content == original:
-        log(f"No changes needed for {file_path}", verbose)
-        return False
+    # Remove all blocks from the end to avoid shifting indices
+    # We'll remove blocks in reverse order
+    for start, end in reversed(blocks):
+        del lines[start:end]
 
-    if dry_run:
-        log(f"Would modify {file_path}", always=True)
-        if verbose:
-            import difflib
-            diff = difflib.unified_diff(original.splitlines(), new_content.splitlines(), fromfile=file_path.name, tofile=file_path.name + ' (patched)')
-            for line in diff:
-                print(line)
-    else:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-        log(f"Updated {file_path}", always=True)
+    # Insert the new function at the end of the file (after all existing content)
+    # We'll add a newline before
+    if lines and lines[-1] != '':
+        lines.append('')
+    lines.extend(new_body.splitlines())
+    lines.append('')  # trailing newline
 
-    return True
+    return '\n'.join(lines)
 
 def main():
-    parser = argparse.ArgumentParser(description="Add father name to mobile fee collection list.")
+    parser = argparse.ArgumentParser(
+        description="Fix fee structure views to handle edit parameter correctly."
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without applying.")
     parser.add_argument("--verbose", action="store_true", help="Show detailed output.")
     parser.add_argument("--target-dir", default=".", help="Project root directory (default: current).")
@@ -136,17 +91,331 @@ def main():
         log(f"Target directory does not exist: {target_dir}", verbose=args.verbose)
         sys.exit(1)
 
-    template_path = target_dir / "templates" / "mobile" / "fee_collection.html"
-    if not template_path.exists():
-        log(f"Template not found: {template_path}", verbose=args.verbose)
+    view_file = target_dir / "axis_saas" / "views" / "fee_structure.py"
+    if not view_file.exists():
+        log(f"View file not found: {view_file}", verbose=args.verbose)
         sys.exit(1)
 
-    patched = patch_template(template_path, dry_run=args.dry_run, verbose=args.verbose)
+    with open(view_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Ensure imports for SchoolClass and WingCategory exist
+    if 'from ..models import SchoolClass' not in content:
+        # Add after the existing import from ..models
+        import_lines = re.findall(r'^from \.\.models import .*$', content, re.MULTILINE)
+        if import_lines:
+            last_import = import_lines[-1]
+            new_import_line = 'from ..models import SchoolClass, WingCategory  # added by patcher'
+            pattern = r'^' + re.escape(last_import) + r'$'
+            content = re.sub(pattern, last_import + '\n' + new_import_line, content, flags=re.MULTILINE)
+        else:
+            # If no import, add after the docstring
+            content = re.sub(
+                r'^"""AXIS views – fee_structure module\.\n\n"""',
+                r'\1from ..models import SchoolClass, WingCategory\n',
+                content,
+                flags=re.MULTILINE
+            )
+
+    # Define the correct function bodies (with edit_param handling)
+    new_fee_structure = '''@require_tenant_type(['school'])
+@require_school_feature('fee_structure')
+def fee_structure(request, schema_name):
+    if is_mobile_user_agent(request):
+        return redirect('mobile_fee_structure', schema_name=schema_name)
+    tenant = get_tenant(request, schema_name)
+    edit_param = request.GET.get('edit', '')
+    with schema_context(schema_name):
+        # Fetch all active classes and wing categories
+        classes = SchoolClass.objects.filter(is_active=True).select_related('wing_category').order_by('name', 'section')
+        wing_categories = WingCategory.objects.filter(is_active=True, parent__isnull=False).select_related('parent').order_by('parent__name', 'name') if tenant.tenant_type == 'wing_school' else []
+
+        if request.method == 'POST':
+            class_id = request.POST.get('class_id')
+            monthly_fee = request.POST.get('monthly_fee')
+            if class_id and monthly_fee:
+                try:
+                    school_class = SchoolClass.objects.get(id=class_id)
+                    # Build grade string based on tenant type
+                    if tenant.tenant_type == 'wing_school' and school_class.wing_category:
+                        main = school_class.wing_category.parent
+                        sub = school_class.wing_category
+                        if school_class.section:
+                            grade = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
+                        else:
+                            grade = f"{main.name} ({sub.name}) - {school_class.name}"
+                    else:
+                        if school_class.section:
+                            grade = f"{school_class.name} - {school_class.section}"
+                        else:
+                            grade = school_class.name
+
+                    obj, created = FeeStructure.objects.update_or_create(grade=grade, defaults={'monthly_fee': monthly_fee})
+                    Student.objects.filter(grade=grade).update(custom_fee=monthly_fee)
+                    messages.success(request, f'Fee structure for {grade} saved successfully.')
+                except SchoolClass.DoesNotExist:
+                    messages.error(request, 'Invalid class selected.')
+            else:
+                messages.error(request, 'Please select a class and enter a monthly fee.')
+            return redirect('fee_structure', schema_name=schema_name)
+
+        # Get existing fee structures
+        structures = list(FeeStructure.objects.all().order_by('grade'))
+        total_structures = len(structures)
+        if structures:
+            fees = [fs.monthly_fee for fs in structures]
+            avg_fee = sum(fees) / len(fees)
+            min_fee = min(fees)
+            max_fee = max(fees)
+        else:
+            avg_fee = min_fee = max_fee = 0
+
+        # Determine selected class for editing
+        selected_class = None
+        edit_class_id = None
+        if edit_param:
+            # Try to interpret as class id (numeric)
+            if edit_param.isdigit():
+                try:
+                    selected_class = SchoolClass.objects.get(id=edit_param)
+                    edit_class_id = edit_param
+                except SchoolClass.DoesNotExist:
+                    pass
+            else:
+                # Treat as grade string: find matching class
+                for cls in classes:
+                    if tenant.tenant_type == 'wing_school' and cls.wing_category:
+                        main = cls.wing_category.parent
+                        sub = cls.wing_category
+                        if cls.section:
+                            grade_str = f"{main.name} ({sub.name}) - {cls.name} - {cls.section}"
+                        else:
+                            grade_str = f"{main.name} ({sub.name}) - {cls.name}"
+                    else:
+                        if cls.section:
+                            grade_str = f"{cls.name} - {cls.section}"
+                        else:
+                            grade_str = cls.name
+                    if grade_str == edit_param:
+                        selected_class = cls
+                        edit_class_id = cls.id
+                        break
+
+        # Build form initial data from selected class
+        form = FeeStructureForm()
+        if selected_class:
+            if tenant.tenant_type == 'wing_school' and selected_class.wing_category:
+                main = selected_class.wing_category.parent
+                sub = selected_class.wing_category
+                if selected_class.section:
+                    grade_str = f"{main.name} ({sub.name}) - {selected_class.name} - {selected_class.section}"
+                else:
+                    grade_str = f"{main.name} ({sub.name}) - {selected_class.name}"
+            else:
+                if selected_class.section:
+                    grade_str = f"{selected_class.name} - {selected_class.section}"
+                else:
+                    grade_str = selected_class.name
+            try:
+                fee_obj = FeeStructure.objects.get(grade=grade_str)
+                form = FeeStructureForm(initial={'grade': grade_str, 'monthly_fee': fee_obj.monthly_fee})
+            except FeeStructure.DoesNotExist:
+                form = FeeStructureForm(initial={'grade': grade_str, 'monthly_fee': 0.00})
+
+        # Build grade -> class_id mapping for edit links
+        grade_to_class_id = {}
+        for cls in classes:
+            if tenant.tenant_type == 'wing_school' and cls.wing_category:
+                main = cls.wing_category.parent
+                sub = cls.wing_category
+                if cls.section:
+                    grade_str = f"{main.name} ({sub.name}) - {cls.name} - {cls.section}"
+                else:
+                    grade_str = f"{main.name} ({sub.name}) - {cls.name}"
+            else:
+                if cls.section:
+                    grade_str = f"{cls.name} - {cls.section}"
+                else:
+                    grade_str = cls.name
+            grade_to_class_id[grade_str] = cls.id
+
+        context = {
+            'tenant': tenant,
+            'form': form,
+            'fee_structures': structures,
+            'edit_class_id': edit_class_id,
+            'selected_class': selected_class,
+            'classes': classes,
+            'wing_categories': wing_categories,
+            'grade_to_class_id': grade_to_class_id,
+            'logo_url': tenant.school_logo.url if tenant.school_logo else None,
+            'debug_count': len(structures),
+            'total_structures': total_structures,
+            'avg_fee': avg_fee,
+            'min_fee': min_fee,
+            'max_fee': max_fee,
+        }
+        return render(request, 'tenant/fee_structure.html', context)'''
+
+    new_mobile_fee_structure = '''@require_tenant_type(['school'])
+@require_school_feature('fee_structure')
+def mobile_fee_structure(request, schema_name):
+    """Mobile version of fee structure page."""
+    tenant = get_tenant(request, schema_name)
+    edit_param = request.GET.get('edit', '')
+    with schema_context(schema_name):
+        classes = SchoolClass.objects.filter(is_active=True).select_related('wing_category').order_by('name', 'section')
+        wing_categories = WingCategory.objects.filter(is_active=True, parent__isnull=False).select_related('parent').order_by('parent__name', 'name') if tenant.tenant_type == 'wing_school' else []
+
+        if request.method == 'POST':
+            class_id = request.POST.get('class_id')
+            monthly_fee = request.POST.get('monthly_fee')
+            if class_id and monthly_fee:
+                try:
+                    school_class = SchoolClass.objects.get(id=class_id)
+                    if tenant.tenant_type == 'wing_school' and school_class.wing_category:
+                        main = school_class.wing_category.parent
+                        sub = school_class.wing_category
+                        if school_class.section:
+                            grade = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
+                        else:
+                            grade = f"{main.name} ({sub.name}) - {school_class.name}"
+                    else:
+                        if school_class.section:
+                            grade = f"{school_class.name} - {school_class.section}"
+                        else:
+                            grade = school_class.name
+
+                    obj, created = FeeStructure.objects.update_or_create(grade=grade, defaults={'monthly_fee': monthly_fee})
+                    Student.objects.filter(grade=grade).update(custom_fee=monthly_fee)
+                    messages.success(request, f'Fee structure for {grade} saved successfully.')
+                except SchoolClass.DoesNotExist:
+                    messages.error(request, 'Invalid class selected.')
+            else:
+                messages.error(request, 'Please select a class and enter a monthly fee.')
+            return redirect('mobile_fee_structure', schema_name=schema_name)
+
+        structures = list(FeeStructure.objects.all().order_by('grade'))
+        total_structures = len(structures)
+        if structures:
+            fees = [fs.monthly_fee for fs in structures]
+            avg_fee = sum(fees) / len(fees)
+            min_fee = min(fees)
+            max_fee = max(fees)
+        else:
+            avg_fee = min_fee = max_fee = 0
+
+        # Determine selected class for editing
+        selected_class = None
+        edit_class_id = None
+        if edit_param:
+            if edit_param.isdigit():
+                try:
+                    selected_class = SchoolClass.objects.get(id=edit_param)
+                    edit_class_id = edit_param
+                except SchoolClass.DoesNotExist:
+                    pass
+            else:
+                for cls in classes:
+                    if tenant.tenant_type == 'wing_school' and cls.wing_category:
+                        main = cls.wing_category.parent
+                        sub = cls.wing_category
+                        if cls.section:
+                            grade_str = f"{main.name} ({sub.name}) - {cls.name} - {cls.section}"
+                        else:
+                            grade_str = f"{main.name} ({sub.name}) - {cls.name}"
+                    else:
+                        if cls.section:
+                            grade_str = f"{cls.name} - {cls.section}"
+                        else:
+                            grade_str = cls.name
+                    if grade_str == edit_param:
+                        selected_class = cls
+                        edit_class_id = cls.id
+                        break
+
+        form = FeeStructureForm()
+        if selected_class:
+            if tenant.tenant_type == 'wing_school' and selected_class.wing_category:
+                main = selected_class.wing_category.parent
+                sub = selected_class.wing_category
+                if selected_class.section:
+                    grade_str = f"{main.name} ({sub.name}) - {selected_class.name} - {selected_class.section}"
+                else:
+                    grade_str = f"{main.name} ({sub.name}) - {selected_class.name}"
+            else:
+                if selected_class.section:
+                    grade_str = f"{selected_class.name} - {selected_class.section}"
+                else:
+                    grade_str = selected_class.name
+            try:
+                fee_obj = FeeStructure.objects.get(grade=grade_str)
+                form = FeeStructureForm(initial={'grade': grade_str, 'monthly_fee': fee_obj.monthly_fee})
+            except FeeStructure.DoesNotExist:
+                form = FeeStructureForm(initial={'grade': grade_str, 'monthly_fee': 0.00})
+
+        # grade -> class_id mapping
+        grade_to_class_id = {}
+        for cls in classes:
+            if tenant.tenant_type == 'wing_school' and cls.wing_category:
+                main = cls.wing_category.parent
+                sub = cls.wing_category
+                if cls.section:
+                    grade_str = f"{main.name} ({sub.name}) - {cls.name} - {cls.section}"
+                else:
+                    grade_str = f"{main.name} ({sub.name}) - {cls.name}"
+            else:
+                if cls.section:
+                    grade_str = f"{cls.name} - {cls.section}"
+                else:
+                    grade_str = cls.name
+            grade_to_class_id[grade_str] = cls.id
+
+        context = {
+            'tenant': tenant,
+            'form': form,
+            'fee_structures': structures,
+            'edit_class_id': edit_class_id,
+            'selected_class': selected_class,
+            'classes': classes,
+            'wing_categories': wing_categories,
+            'grade_to_class_id': grade_to_class_id,
+            'logo_url': tenant.school_logo.url if tenant.school_logo else None,
+            'debug_count': len(structures),
+            'total_structures': total_structures,
+            'avg_fee': avg_fee,
+            'min_fee': min_fee,
+            'max_fee': max_fee,
+        }
+        return render(request, 'mobile/fee_structure.html', context)'''
+
+    # Remove all existing definitions and insert the new ones.
+    content = replace_function(content, 'fee_structure', new_fee_structure, args.verbose)
+    content = replace_function(content, 'mobile_fee_structure', new_mobile_fee_structure, args.verbose)
 
     if args.dry_run:
-        log("Dry run completed.", always=True)
+        log(f"Would modify {view_file}", always=True)
+        if args.verbose:
+            import difflib
+            with open(view_file, 'r', encoding='utf-8') as f_orig:
+                orig = f_orig.read()
+            diff = difflib.unified_diff(
+                orig.splitlines(),
+                content.splitlines(),
+                fromfile=view_file.name,
+                tofile=view_file.name + ' (patched)'
+            )
+            for line in diff:
+                print(line)
     else:
-        log("Patch applied. Restart your Django server for changes to take effect.", always=True)
+        with open(view_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        log(f"Patched {view_file}", always=True)
+
+    if args.dry_run:
+        log("Dry run completed. No files were changed.")
+    else:
+        log("Patch applied. Restart your Django server for changes to take effect.")
 
 if __name__ == "__main__":
     main()

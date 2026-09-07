@@ -419,7 +419,14 @@
             <div class="top-row">
                 <div>
                     <div class="student-name">{{ item.student.name }}</div>
-                    <div class="student-meta">{{ item.student.roll_number }} • {{ item.student.grade }} - {{ item.student.section }}</div>
+                    <div class="student-meta">
+    {{ item.student.roll_number }} •
+    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
+        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
+    {% else %}
+        {{ item.student.grade }} - {{ item.student.section }}
+    {% endif %}
+</div>
                 </div>
                 <div>
                     <span class="status-badge status-{{ item.status }}">{{ item.get_status_display|default:item.status }}</span>
@@ -471,7 +478,14 @@
             <div class="top-row">
                 <div>
                     <div class="student-name">{{ item.student.name }}</div>
-                    <div class="student-meta">{{ item.student.roll_number }} • {{ item.student.grade }} - {{ item.student.section }}</div>
+                    <div class="student-meta">
+    {{ item.student.roll_number }} •
+    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
+        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
+    {% else %}
+        {{ item.student.grade }} - {{ item.student.section }}
+    {% endif %}
+</div>
                 </div>
                 <div>
                     <span class="status-badge status-{{ item.status }}">{{ item.get_status_display|default:item.status }}</span>
@@ -521,7 +535,14 @@
             <div class="top-row">
                 <div>
                     <div class="student-name">{{ item.student.name }}</div>
-                    <div class="student-meta">{{ item.student.roll_number }} • {{ item.student.grade }} - {{ item.student.section }}</div>
+                    <div class="student-meta">
+    {{ item.student.roll_number }} •
+    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
+        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
+    {% else %}
+        {{ item.student.grade }} - {{ item.student.section }}
+    {% endif %}
+</div>
                 </div>
                 <div>
                     <span class="status-badge status-{{ item.status }}">{{ item.get_status_display|default:item.status }}</span>
@@ -570,7 +591,14 @@
             <div class="top-row">
                 <div>
                     <div class="student-name">{{ item.student.name }}</div>
-                    <div class="student-meta">{{ item.student.roll_number }} • {{ item.student.grade }} - {{ item.student.section }}</div>
+                    <div class="student-meta">
+    {{ item.student.roll_number }} •
+    {% if tenant.tenant_type == 'wing_school' and item.student.school_class and item.student.school_class.wing_category %}
+        {{ item.student.school_class.wing_category.parent.name }} ({{ item.student.school_class.wing_category.name }}) - {{ item.student.school_class.name }} - {{ item.student.school_class.section }}
+    {% else %}
+        {{ item.student.grade }} - {{ item.student.section }}
+    {% endif %}
+</div>
                 </div>
                 <div>
                     <span class="status-badge status-missing">Missing</span>
