@@ -205,6 +205,40 @@ def staff_dashboard(request):
     from django_tenants.utils import schema_context
     with schema_context(schema_name):
         staff = get_object_or_404(Staff, pk=request.session['staff_id'])
+        # Classes where staff is class teacher
+        class_teacher_classes = SchoolClass.objects.filter(
+            class_teacher=staff, is_active=True
+        ).annotate(student_count=Count('students')).order_by('name', 'section')
+        # Classes where staff is subject teacher (distinct)
+        subject_teacher_classes = SchoolClass.objects.filter(
+            class_subjects__teacher=staff, is_active=True
+        ).distinct().annotate(student_count=Count('students')).order_by('name', 'section')
+        # Combined for total counts
+        all_classes = class_teacher_classes | subject_teacher_classes
+        student_count = Student.objects.filter(school_class__in=all_classes).count()
+        today = timezone.localdate()
+        attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=all_classes).count()
+        notifications = Notification.objects.filter(is_read=False).order_by('-created_at')[:5]
+
+    return render(
+        request,
+        'mobile/staff/dashboard.html',
+        {
+            'staff': staff,
+            'class_teacher_classes': class_teacher_classes,
+            'subject_teacher_classes': subject_teacher_classes,
+            'student_count': student_count,
+            'attendance_today': attendance_today,
+            'notifications': notifications,
+            'schema_name': schema_name,
+        },
+    )
+@require_staff_feature('staff_dashboard')
+def staff_dashboard(request):
+    schema_name = request.session['staff_schema_name']
+    from django_tenants.utils import schema_context
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
         classes = SchoolClass.objects.filter(Q(class_teacher=staff) | Q(class_subjects__teacher=staff)).distinct().order_by('name', 'section')
         today = timezone.localdate()
         student_count = Student.objects.filter(school_class__in=classes).count()

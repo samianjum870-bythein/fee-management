@@ -1,6 +1,37 @@
 {% extends 'mobile/staff/base.html' %}
 {% block title %}Staff Dashboard{% endblock %}
 {% block body %}
+
+<!-- ===== CLASSES SUMMARY ===== -->
+<div class="classes-summary" style="margin-bottom:1.5rem;">
+    <div class="card" style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1rem; box-shadow:var(--shadow);">
+        <h3 style="margin-top:0; font-weight:700; font-size:1.1rem; color:var(--text);">Your Classes</h3>
+        {% if class_teacher_classes %}
+            <div style="margin-bottom:0.5rem;">
+                <strong style="color:var(--accent);">Class Teacher:</strong>
+                <ul style="margin:0.2rem 0; padding-left:1.2rem;">
+                    {% for cls in class_teacher_classes %}
+                        <li>{{ cls.name }} - {{ cls.section }} ({{ cls.student_count }} students)</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+        {% if subject_teacher_classes %}
+            <div>
+                <strong style="color:var(--accent);">Subject Teacher:</strong>
+                <ul style="margin:0.2rem 0; padding-left:1.2rem;">
+                    {% for cls in subject_teacher_classes %}
+                        <li>{{ cls.name }} - {{ cls.section }} ({{ cls.student_count }} students)</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+        {% if not class_teacher_classes and not subject_teacher_classes %}
+            <p style="color:var(--muted); margin:0;">You are not assigned to any classes.</p>
+        {% endif %}
+    </div>
+</div>
+
 <div class="card">
     <h2 style="margin-bottom: 4px;">Welcome, {{ staff.full_name }}</h2>
     <div class="text-secondary">{{ staff.get_role_display }}</div>
