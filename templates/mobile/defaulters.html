@@ -362,7 +362,7 @@
       <div class="top-row">
         <div>
           <div class="student-name">{{ d.student.name }}</div>
-          <div class="student-meta">{{ d.student.grade }} • {{ d.student.section }} • Roll {{ d.student.roll_number }}</div>
+          <div class="student-meta">{{ d.display_class }} • Roll {{ d.student.roll_number }}</div>
         </div>
         <div class="pending-amount">₹{{ d.pending_amount|floatformat:2 }}</div>
       </div>

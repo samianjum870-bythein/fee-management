@@ -549,7 +549,7 @@
                         <span class="student-meta">{{ d.student.grade }} - {{ d.student.section }}</span>
                     </td>
                     <td>{{ d.student.father_name }}</td>
-                    <td>{{ d.student.grade }}</td>
+                    <td>{{ d.display_class }}</td>
                     <td class="pending-amount">₹{{ d.fee_pending|floatformat:2 }}</td>
                     <td class="total-pending">₹{{ d.pending_amount|floatformat:2 }}</td>
                     <td>

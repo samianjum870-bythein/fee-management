@@ -31,13 +31,10 @@ from django.views.decorators.cache import cache_page
 
 from .helpers import *
 
-@cache_page(60)
 @require_tenant_type(['school'])
 @require_school_feature('defaulters')
 def defaulters(request, schema_name, force_mobile=False):
-    """Defaulters list with search, filters, pagination, and analytics KPIs.
-       Now includes students with overall pending (fee + items) even if no pending fee record.
-    """
+    """Defaulters list with search, filters, pagination, and analytics KPIs."""
     tenant = get_tenant(request, schema_name)
     q = request.GET.get('q', '').strip()
     grade = request.GET.get('grade', '')
@@ -51,6 +48,7 @@ def defaulters(request, schema_name, force_mobile=False):
         days = 0
     if days < 0:
         days = 0
+
     with schema_context(schema_name):
         today = timezone.localdate()
         cutoff = today - timedelta(days=days) if days > 0 else None
@@ -76,25 +74,78 @@ def defaulters(request, schema_name, force_mobile=False):
         else:
             students_qs = students_qs.order_by('-pending_amount', 'name')
 
-        page_obj = Paginator(students_qs, 15).get_page(page_number)
-        result = list(page_obj.object_list)
-        total_defaulters = students_qs.count()
-        total_pending_all = students_qs.aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
-        avg_overdue = 0
-        max_overdue = 0
-        for student in result:
+        # Build defaulters_data list
+        defaulters_data = []
+        total_pending_all = Decimal('0')
+        for student in students_qs:
+            pending = student.pending_amount
+            total_pending_all += pending
+            # Compute days overdue
             oldest_due = student.fee_records.filter(status__in=['pending', 'partial', 'overdue']).order_by('due_date').first()
             days_overdue = (today - oldest_due.due_date).days if oldest_due and oldest_due.due_date < today else 0
-            student.days_overdue = days_overdue
-            avg_overdue += days_overdue
-            max_overdue = max(max_overdue, days_overdue)
-        avg_overdue = (avg_overdue / total_defaulters) if total_defaulters else 0
+            # Compute display_class
+            school_class = student.school_class
+            if school_class and tenant.tenant_type == 'wing_school' and school_class.wing_category:
+                main = school_class.wing_category.parent
+                sub = school_class.wing_category
+                if school_class.section:
+                    display_class = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
+                else:
+                    display_class = f"{main.name} ({sub.name}) - {school_class.name}"
+            elif school_class:
+                if school_class.section:
+                    display_class = f"{school_class.name} - {school_class.section}"
+                else:
+                    display_class = school_class.name
+            else:
+                if student.section:
+                    display_class = f"{student.grade} - {student.section}"
+                else:
+                    display_class = student.grade
+
+            defaulters_data.append({
+                'student': student,
+                'pending_amount': pending,
+                'fee_pending': pending,
+                'days_overdue': days_overdue,
+                'display_class': display_class,
+            })
+
+        total_defaulters = len(defaulters_data)
+
+        # Paginate
+        paginator = Paginator(defaulters_data, 15)
+        page_obj = paginator.get_page(page_number)
+
+        # Compute avg and max overdue from the full list
+        avg_overdue = 0
+        max_overdue = 0
+        if total_defaulters > 0:
+            total_days = sum(item['days_overdue'] for item in defaulters_data)
+            avg_overdue = total_days / total_defaulters
+            max_overdue = max(item['days_overdue'] for item in defaulters_data)
+
         grades = list(Student.objects.values_list('grade', flat=True).distinct().order_by('grade'))
         sections = list(Student.objects.values_list('section', flat=True).distinct().order_by('section'))
-    context = {'tenant': tenant, 'defaulters': page_obj, 'total_defaulters': total_defaulters, 'total_pending_all': total_pending_all, 'avg_overdue': round(avg_overdue, 1), 'max_overdue': max_overdue, 'days': days, 'search_query': q, 'grade_filter': grade, 'section_filter': section, 'sort_by': sort_by, 'grades': grades, 'sections': sections, 'logo_url': tenant.school_logo.url if tenant.school_logo else None}
+
+    context = {
+        'tenant': tenant,
+        'defaulters': page_obj,
+        'total_defaulters': total_defaulters,
+        'total_pending_all': total_pending_all,
+        'avg_overdue': round(avg_overdue, 1),
+        'max_overdue': max_overdue,
+        'days': days,
+        'search_query': q,
+        'grade_filter': grade,
+        'section_filter': section,
+        'sort_by': sort_by,
+        'grades': grades,
+        'sections': sections,
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
+    }
     template = 'mobile/defaulters.html' if force_mobile else 'tenant/defaulters.html'
     return render(request, template, context)
-
 @cache_page(60)
 @require_tenant_type(['school'])
 @require_school_feature('reports')
@@ -184,7 +235,30 @@ def reports(request, schema_name, force_mobile=False):
             pending = student.pending_amount
             oldest_due = student.fee_records.filter(status__in=['pending', 'partial', 'overdue']).order_by('due_date').first()
             days_overdue = (timezone.localdate() - oldest_due.due_date).days if oldest_due and oldest_due.due_date < timezone.localdate() else 0
-            defaulters_data.append({'student': student, 'pending_amount': pending, 'days_overdue': days_overdue})
+            defaulters_data.append({'student': student, 'pending_amount': pending, 'fee_pending': pending, 'days_overdue': days_overdue})
+
+    # ---- add display_class to each defaulter ----
+    for item in defaulters_data:
+        student = item['student']
+        school_class = student.school_class
+        if school_class and tenant.tenant_type == 'wing_school' and school_class.wing_category:
+            main = school_class.wing_category.parent
+            sub = school_class.wing_category
+            if school_class.section:
+                item['display_class'] = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}"
+            else:
+                item['display_class'] = f"{main.name} ({sub.name}) - {school_class.name}"
+        elif school_class:
+            if school_class.section:
+                item['display_class'] = f"{school_class.name} - {school_class.section}"
+            else:
+                item['display_class'] = school_class.name
+        else:
+            if student.section:
+                item['display_class'] = f"{student.grade} - {student.section}"
+            else:
+                item['display_class'] = student.grade
+
         defaulters_data.sort(key=lambda x: x['days_overdue'], reverse=True)
         context = {'tenant': tenant, 'report_type': report_type, 'start_date': start_date, 'end_date': end_date, 'quick_filter': quick_filter, 'search_query': search_q, 'total_collection': total_collection, 'total_pending': total_pending, 'collection_rate': round(collection_rate, 1), 'defaulters_count': defaulters_count, 'monthly_data': monthly_data, 'mode_distribution': mode_distribution, 'class_pending': class_pending, 'top_defaulters': top_defaulters, 'defaulters_data': defaulters_data, 'payments': payments_page, 'total': total_collection, 'payment_count': payment_count, 'logo_url': tenant.school_logo.url if tenant.school_logo else None, 'total_collection_all': total_collection_all}
         template = 'mobile/reports.html' if force_mobile else 'tenant/reports.html'

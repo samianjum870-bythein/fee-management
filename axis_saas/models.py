@@ -251,8 +251,10 @@ class FeeRecord(models.Model):
         """Total fee = base + extra charges + late fee accrued"""
         from decimal import Decimal
         extras = sum(Decimal(str(ch.get('amount', 0))) for ch in (self.extra_charges or []))
-        return self.amount + extras + getattr(self, "late_fee_accrued", Decimal("0"))
-
+        late_fee = self.late_fee_accrued
+        if not isinstance(late_fee, Decimal):
+            late_fee = Decimal(str(late_fee)) if late_fee is not None else Decimal('0')
+        return self.amount + extras + late_fee
     @property
     def remaining_total(self):
         from decimal import Decimal
