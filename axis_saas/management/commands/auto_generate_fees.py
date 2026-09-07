@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from django_tenants.utils import schema_context
 from axis_saas.views import create_fee_generation_notification
+from axis_saas.utils.display_grade import get_student_display_grade
 from axis_saas.models import SchoolClient, SchoolFeeSettings, Student, FeeRecord, FeeStructure, ManualGenerationLog
 from datetime import date, timedelta
 from decimal import Decimal
@@ -46,7 +47,8 @@ class Command(BaseCommand):
 
                     base_fee = student.custom_fee if student.custom_fee > 0 else 0
                     if base_fee == 0:
-                        base_fee = fee_structs.get(student.grade, 0)
+                        display_grade = get_student_display_grade(student)
+                    base_fee = fee_structs.get(display_grade, 0)
 
                     if base_fee > 0:
                         fee_records_to_create.append(

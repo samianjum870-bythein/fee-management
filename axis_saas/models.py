@@ -10,6 +10,7 @@ from django.contrib.auth.hashers import make_password, check_password
 from django.db import DatabaseError
 
 from .biometric_models import StaffBiometricCredential
+from axis_saas.utils.display_grade import get_student_display_grade
 
 SCHOOL_FEATURE_CHOICES = [
     ('class_management', 'Class & Subject Management'),
@@ -187,7 +188,7 @@ class Student(models.Model):
                 self.roll_number = "1001"
         # If school_class is set, update grade and section from it
         if self.school_class:
-            self.grade = self.school_class.name
+            self.grade = get_student_display_grade(self)
             self.section = self.school_class.section
         # Set custom_fee from FeeStructure if not set
         if not self.pk or self.custom_fee == 0:

@@ -29,6 +29,8 @@ from ..models import ManualGenerationLog
 
 from .helpers import *
 
+from axis_saas.utils.display_grade import get_student_display_grade
+
 def voucher_status_api(request, schema_name, student_id):
     """API: Get current month fee status, default fee, charges, pending totals."""
     from django.http import JsonResponse
@@ -49,7 +51,8 @@ def voucher_status_api(request, schema_name, student_id):
         except FeeRecord.DoesNotExist:
             pass
         default_fee = Decimal('0')
-        fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
+        display_grade = get_student_display_grade(student)
+        fee_struct = FeeStructure.objects.filter(grade=display_grade).first()
         if fee_struct:
             default_fee = fee_struct.monthly_fee
         if student.custom_fee > 0:
@@ -102,7 +105,8 @@ def generate_voucher_api(request, schema_name, student_id):
         else:
             amount = student.custom_fee if student.custom_fee > 0 else Decimal('0')
             if amount == 0:
-                fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
+                display_grade = get_student_display_grade(student)
+                fee_struct = FeeStructure.objects.filter(grade=display_grade).first()
                 if fee_struct:
                     amount = fee_struct.monthly_fee
             if amount <= 0:
@@ -259,7 +263,8 @@ def vouchers_list(request, schema_name):
             if student.custom_fee > 0:
                 reason = 'Custom fee not set'
             else:
-                fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
+                display_grade = get_student_display_grade(student)
+                fee_struct = FeeStructure.objects.filter(grade=display_grade).first()
                 if fee_struct:
                     reason = 'Not generated'
             missing_items.append({'type': 'missing', 'student': student, 'reason': reason, 'status': 'missing', 'amount': 0, 'paid': 0, 'due_date': None, 'month': month, 'year': year})
@@ -324,7 +329,8 @@ def mobile_vouchers_list(request, schema_name):
             if student.custom_fee > 0:
                 reason = 'Custom fee not set'
             else:
-                fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
+                display_grade = get_student_display_grade(student)
+                fee_struct = FeeStructure.objects.filter(grade=display_grade).first()
                 if fee_struct:
                     reason = 'Not generated'
             missing_items.append({'type': 'missing', 'student': student, 'reason': reason, 'status': 'missing', 'amount': 0, 'paid': 0, 'due_date': None, 'month': month, 'year': year})

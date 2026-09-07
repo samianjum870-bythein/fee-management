@@ -30,6 +30,8 @@ from ..models import ManualGenerationLog
 
 from .helpers import *
 
+from axis_saas.utils.display_grade import get_student_display_grade
+
 def get_display_class(student, tenant):
     """Return formatted class name with wing category if applicable."""
     school_class = student.school_class
@@ -359,7 +361,8 @@ def manual_generate_api(request):
             if existing:
                 skipped_existing += 1
                 continue
-            fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
+            display_grade = get_student_display_grade(student)
+            fee_struct = FeeStructure.objects.filter(grade=display_grade).first()
             if fee_struct:
                 base_fee = fee_struct.monthly_fee
                 if student.custom_fee != base_fee:
@@ -434,7 +437,8 @@ def manual_generate_single_api(request):
         else:
             base_fee = student.custom_fee if student.custom_fee > 0 else Decimal('0')
             if base_fee == 0:
-                fee_struct = FeeStructure.objects.filter(grade=student.grade).first()
+                display_grade = get_student_display_grade(student)
+                fee_struct = FeeStructure.objects.filter(grade=display_grade).first()
                 if fee_struct:
                     base_fee = fee_struct.monthly_fee
                     student.custom_fee = base_fee

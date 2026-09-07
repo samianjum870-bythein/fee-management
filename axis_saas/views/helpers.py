@@ -123,7 +123,6 @@ def get_overall_pending(student):
         total_items_cost += sum((item['line_total'] for item in items))
     return total_fee + total_items_cost - total_paid
 
-
 def get_student_pending_queryset(students_qs):
     """Annotate each student with SQL-level fee totals and pending balance."""
     fee_total = FeeRecord.objects.filter(student=OuterRef('pk')).values('student').annotate(total=Sum('amount')).values('total')
@@ -135,7 +134,6 @@ def get_student_pending_queryset(students_qs):
         pending_amount=ExpressionWrapper(F('total_fee') - F('total_paid'), output_field=DecimalField())
     )
 
-
 def aggregate_pending_totals():
     """Aggregate fee and payment totals for the full tenant in one database query."""
     total_fee = FeeRecord.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
@@ -146,9 +144,9 @@ def aggregate_pending_totals():
         'total_pending': total_fee - total_paid,
     }
 
-
 # Import left at module scope for the Subquery helper above.
 from django.db.models import Subquery
+from axis_saas.utils.display_grade import get_student_display_grade
 
 def local_time_str(dt):
     """Convert aware datetime to local timezone and return formatted time string."""
@@ -250,8 +248,6 @@ def _compute_dashboard_context(tenant, schema_name):
 
     return get_cached_or_compute(schema_name, 'dashboard_stats', compute, 300)
 
-
-
 def product_list_api(request, schema_name):
     """API: Return list of products with their detail URLs for pre‑caching."""
     from django.http import JsonResponse
@@ -299,14 +295,11 @@ def fee_collection_list_api(request, schema_name):
             data.append({'id': s['id'], 'desktop_url': f"/portal/{schema_name}/fee/collection/{s['id']}/", 'mobile_url': f"/portal/{schema_name}/fee/collection/mobile/{s['id']}/"})
         return JsonResponse(data, safe=False)
 
-
 def get_dashboard_context(tenant, schema_name):
     """Cached version of dashboard context."""
     def compute():
         return _compute_dashboard_context(tenant, schema_name)
     return get_cached_or_compute(schema_name, 'dashboard_stats', compute, 300)
-
-
 
 # ========== STUDENT CONTEXT HELPERS (added by patcher) ==========
 
@@ -342,7 +335,6 @@ def extract_item_sales_from_remarks(remarks):
             'raw': chunk,
         })
     return items
-
 
 def get_student_list_context(request, schema_name):
     tenant = get_tenant(request, schema_name)

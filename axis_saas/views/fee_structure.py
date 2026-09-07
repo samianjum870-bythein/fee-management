@@ -87,7 +87,6 @@ def fee_structure(request, schema_name):
         selected_class = None
         edit_class_id = None
         if edit_param:
-            # Try to interpret as class id (numeric)
             if edit_param.isdigit():
                 try:
                     selected_class = SchoolClass.objects.get(id=edit_param)
@@ -95,7 +94,6 @@ def fee_structure(request, schema_name):
                 except SchoolClass.DoesNotExist:
                     pass
             else:
-                # Treat as grade string: find matching class
                 for cls in classes:
                     if tenant.tenant_type == 'wing_school' and cls.wing_category:
                         main = cls.wing_category.parent
@@ -114,7 +112,6 @@ def fee_structure(request, schema_name):
                         edit_class_id = cls.id
                         break
 
-        # Build form initial data from selected class
         form = FeeStructureForm()
         if selected_class:
             if tenant.tenant_type == 'wing_school' and selected_class.wing_category:
@@ -135,7 +132,6 @@ def fee_structure(request, schema_name):
             except FeeStructure.DoesNotExist:
                 form = FeeStructureForm(initial={'grade': grade_str, 'monthly_fee': 0.00})
 
-        # Build grade -> class_id mapping for edit links
         grade_to_class_id = {}
         for cls in classes:
             if tenant.tenant_type == 'wing_school' and cls.wing_category:
@@ -218,7 +214,6 @@ def mobile_fee_structure(request, schema_name):
         else:
             avg_fee = min_fee = max_fee = 0
 
-        # Determine selected class for editing
         selected_class = None
         edit_class_id = None
         if edit_param:
@@ -267,7 +262,6 @@ def mobile_fee_structure(request, schema_name):
             except FeeStructure.DoesNotExist:
                 form = FeeStructureForm(initial={'grade': grade_str, 'monthly_fee': 0.00})
 
-        # grade -> class_id mapping
         grade_to_class_id = {}
         for cls in classes:
             if tenant.tenant_type == 'wing_school' and cls.wing_category:
