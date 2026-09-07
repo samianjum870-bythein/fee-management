@@ -64,7 +64,7 @@
                     <td><span class="roll-badge">{{ s.roll_number }}</span></td>
                     <td><strong>{{ s.name }}</strong></td>
                     <td>{{ s.father_name }}</td>
-                    <td>{{ s.grade }} - {{ s.section }}</td>
+                    <td>{{ s.display_class }}</td>
                     <td class="pending-amount">₹{{ s.pending_total|floatformat:2 }}</td>
                     <td><button class="select-student-btn" data-id="{{ s.id }}">Select</button></td>
                 </tr>

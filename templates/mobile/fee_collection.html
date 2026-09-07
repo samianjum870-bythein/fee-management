@@ -336,22 +336,7 @@
         <div class="name">{{ student.name }}</div>
         <div class="pending-amount">₹{{ student.pending_total|floatformat:2 }}</div>
       </div>
-      <div class="meta">
-        <span>{{ student.grade }}</span>
-        <span class="sep">•</span>
-        <span>{{ student.section }}</span>
-        <span class="sep">•</span>
-        <span>Roll {{ student.roll_number }}</span>
-      </div>
-      <div class="extra">
-        <span class="chip">{{ student.father_name }}</span>
-        {% if student.father_cnic %}
-          <span class="chip">CNIC: {{ student.father_cnic }}</span>
-        {% endif %}
-        {% if student.parent_mobile %}
-          <span class="chip">Mobile: {{ student.parent_mobile }}</span>
-        {% endif %}
-      </div>
+      <div class="meta">{{ student.display_class }} • Roll {{ student.roll_number }}</div>
     </a>
     {% endfor %}
   </div>
