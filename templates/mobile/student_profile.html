@@ -4,101 +4,101 @@
 
 {% block extra_head %}
 <style>
-  /* ---------- Premium Profile Styles ---------- */
+  /* ── Variables ── */
   :root {
-    --profile-gradient-start: #1e293b;
-    --profile-gradient-end: #0f172a;
-    --card-radius: 20px;
-    --card-shadow: 0 8px 24px rgba(0,0,0,0.06);
+    --profile-card-radius: 18px;
+    --profile-shadow: 0 6px 20px rgba(0,0,0,0.05);
+    --profile-accent: var(--accent, #2563eb);
   }
 
-  /* ---- Blinking animation for pending amount ---- */
-  @keyframes blinkPulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(1.05); }
-    100% { opacity: 1; transform: scale(1); }
-  }
-  .pending-blink {
-    animation: blinkPulse 1.2s ease-in-out infinite;
-    color: #b91c1c;  /* dark red */
-    font-weight: 800;
-    display: inline-block;
-  }
-
+  /* ── Hero Section ── */
   .profile-hero {
-    background: var(--accent);
-    border-radius: var(--card-radius);
-    padding: 24px 20px 20px;
-    margin-bottom: 20px;
-    color: white;
+    background: linear-gradient(135deg, var(--profile-accent), #1e40af);
+    border-radius: var(--profile-card-radius);
+    padding: 1.5rem 1.25rem 1.25rem;
+    margin-bottom: 1.25rem;
+    color: #fff;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25);
   }
   .profile-hero::after {
     content: '';
     position: absolute;
-    top: -30%;
-    right: -10%;
+    top: -40%;
+    right: -20%;
     width: 200px;
     height: 200px;
-    background: radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%);
     border-radius: 50%;
+    background: rgba(255,255,255,0.06);
     pointer-events: none;
-  }
-  .profile-avatar {
-    width: 76px;
-    height: 76px;
-    border-radius: 50%;
-    background: var(--accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 30px;
-    font-weight: 700;
-    color: white;
-    flex-shrink: 0;
-    box-shadow: var(--shadow);
-    border: 3px solid rgba(255,255,255,0.15);
   }
   .profile-hero-content {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     position: relative;
     z-index: 2;
   }
+  .profile-avatar {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.25);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .profile-hero-text {
+    flex: 1;
+    min-width: 0;
+  }
   .profile-hero-text h1 {
-    font-size: 1.8rem;          /* bigger student name */
+    font-size: 1.5rem;
     font-weight: 800;
     margin: 0;
     line-height: 1.2;
     letter-spacing: -0.02em;
   }
   .profile-hero-text .father-line {
-    font-size: 1.1rem;          /* father name also bigger */
+    font-size: 0.95rem;
     font-weight: 500;
     opacity: 0.9;
     margin-top: 2px;
   }
   .profile-hero-text .father-line .relation-prefix {
-    opacity: 0.75;
+    opacity: 0.7;
     font-weight: 400;
   }
   .profile-hero-text .sub {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     opacity: 0.85;
     margin-top: 4px;
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 4px 8px;
+  }
+  .profile-hero-text .sub a {
+    color: #fff;
+    text-decoration: underline;
+    font-weight: 700;
   }
   .profile-hero-text .sub span {
-    margin: 0 2px;
+    opacity: 0.7;
   }
+
+  /* ── Hero Actions ── */
   .profile-actions {
     display: flex;
     gap: 10px;
-    margin-top: 18px;
+    margin-top: 16px;
     position: relative;
     z-index: 2;
     flex-wrap: wrap;
@@ -106,61 +106,71 @@
   .profile-actions a,
   .profile-actions button {
     flex: 1;
-    padding: 12px 10px;
-    border-radius: 14px;
+    min-width: 80px;
+    padding: 10px 8px;
+    border-radius: 30px;
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     text-align: center;
     text-decoration: none;
     border: none;
     cursor: pointer;
-    transition: all 0.2s;
-    background: rgba(255,255,255,0.12);
-    color: white;
-    border: 1px solid rgba(255,255,255,0.08);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
+    transition: all 0.2s;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(4px);
   }
   .profile-actions .btn-primary {
-    background: var(--accent);
+    background: #fff;
+    color: var(--profile-accent);
     border: none;
-    color: white;
-    box-shadow: var(--shadow);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   }
-  .profile-actions .btn-primary:hover { background: var(--accent); transform: translateY(-2px); }
+  .profile-actions .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+  }
   .profile-actions .btn-secondary {
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.15);
-    color: white;
+    color: #fff;
   }
-  .profile-actions .btn-secondary:hover { background: rgba(255,255,255,0.2); transform: translateY(-2px); }
+  .profile-actions .btn-secondary:hover {
+    background: rgba(255,255,255,0.2);
+    transform: translateY(-2px);
+  }
 
-  /* Stats Cards */
+  /* ── Stats Grid ── */
   .stats-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 20px;
+    gap: 10px;
+    margin-bottom: 1.25rem;
   }
   .stat-card {
     background: var(--surface);
-    border-radius: 18px;
-    padding: 16px 14px;
-    box-shadow: var(--shadow);
+    border-radius: var(--profile-card-radius);
+    padding: 14px 12px;
+    box-shadow: var(--profile-shadow);
     border: 1px solid rgba(148,163,184,0.08);
-    transition: transform 0.2s;
+    transition: transform 0.15s;
   }
-  .stat-card:active { transform: scale(0.97); }
+  .stat-card:active {
+    transform: scale(0.97);
+  }
   .stat-card .label {
-    font-size: 0.7rem;
+    font-size: 0.6rem;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
     color: var(--muted);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
   .stat-card .label svg {
     width: 16px;
@@ -169,49 +179,118 @@
     stroke-width: 1.8;
   }
   .stat-card .value {
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     font-weight: 700;
-    margin-top: 6px;
+    margin-top: 4px;
     color: var(--text);
   }
-  /* ensure the blink class overrides colour */
   .stat-card .value .pending-blink {
+    animation: blinkPulse 1.2s ease-in-out infinite;
     color: #b91c1c !important;
+    display: inline-block;
+  }
+  @keyframes blinkPulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.05); }
+    100% { opacity: 1; transform: scale(1); }
   }
 
-  /* Info Grid */
+  /* ── Info Grid ── */
   .info-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-    margin-bottom: 20px;
+    margin-bottom: 1.25rem;
   }
   .info-item {
     background: var(--surface);
-    border-radius: 16px;
-    padding: 14px 12px;
+    border-radius: var(--profile-card-radius);
+    padding: 12px 12px;
     border: 1px solid rgba(148,163,184,0.08);
-    box-shadow: var(--shadow);
+    box-shadow: var(--profile-shadow);
   }
   .info-item .label {
-    font-size: 0.6rem;
+    font-size: 0.55rem;
     text-transform: uppercase;
     letter-spacing: 0.4px;
     color: var(--muted);
   }
   .info-item .value {
     font-weight: 600;
-    font-size: 0.95rem;
-    margin-top: 4px;
+    font-size: 0.9rem;
+    margin-top: 3px;
     color: var(--text);
+    word-break: break-word;
   }
 
-  /* Section Titles */
+  /* ── Teacher Section ── */
+  .teacher-section {
+    background: var(--surface);
+    border-radius: var(--profile-card-radius);
+    padding: 14px 12px;
+    margin-bottom: 1.25rem;
+    border: 1px solid rgba(148,163,184,0.08);
+    box-shadow: var(--profile-shadow);
+  }
+  .teacher-section .teacher-block {
+    margin-bottom: 8px;
+  }
+  .teacher-section .teacher-block:last-child {
+    margin-bottom: 0;
+  }
+  .teacher-section .block-label {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .teacher-section .teacher-name {
+    font-weight: 600;
+    color: var(--profile-accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  .teacher-section .teacher-name:hover {
+    text-decoration: underline;
+  }
+  .teacher-section .subject-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  .teacher-section .subject-list li {
+    font-size: 0.8rem;
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .teacher-section .subject-list li .subject-name {
+    font-weight: 500;
+    color: var(--text);
+  }
+  .teacher-section .subject-list li .subject-teacher {
+    color: var(--profile-accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .teacher-section .subject-list li .subject-teacher:hover {
+    text-decoration: underline;
+  }
+  .teacher-section .subject-list li .unassigned {
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  /* ── Section Titles ── */
   .section-title {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 22px 0 12px;
+    margin: 1.25rem 0 0.75rem;
   }
   .section-title h2 {
     font-size: 1rem;
@@ -219,26 +298,26 @@
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     color: var(--text);
   }
   .section-title h2 svg {
     width: 20px;
     height: 20px;
-    stroke: var(--accent);
+    stroke: var(--profile-accent);
   }
-  .section-title a,
-  .section-title .link-btn {
-    color: var(--accent);
+  .section-title .link-btn,
+  .section-title a {
+    color: var(--profile-accent);
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     text-decoration: none;
     background: none;
     border: none;
     cursor: pointer;
   }
 
-  /* History Lists */
+  /* ── History Lists ── */
   .history-list {
     display: flex;
     flex-direction: column;
@@ -246,11 +325,10 @@
   }
   .history-item {
     background: var(--surface);
-    border-radius: 16px;
-    padding: 14px 16px;
+    border-radius: var(--profile-card-radius);
+    padding: 12px 14px;
     border: 1px solid rgba(148,163,184,0.08);
-    box-shadow: var(--shadow);
-    transition: 0.2s;
+    box-shadow: var(--profile-shadow);
   }
   .history-item .item-head {
     display: flex;
@@ -259,25 +337,25 @@
   }
   .history-item .item-label {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
   }
   .history-item .item-meta {
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     margin-top: 4px;
   }
   .history-item .item-amount {
     font-weight: 700;
-    font-size: 1rem;
-    color: var(--accent);
+    font-size: 0.95rem;
+    color: var(--profile-accent);
   }
 
-  /* Status Badges */
+  /* ── Status Badges ── */
   .status-badge {
     display: inline-block;
-    padding: 4px 12px;
+    padding: 3px 10px;
     border-radius: 999px;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.3px;
     text-transform: uppercase;
@@ -287,20 +365,36 @@
   .status-paid { background: #dcfce7; color: #166534; }
   .status-overdue { background: #fee2e2; color: #991b1b; }
 
-  /* Empty State */
+  /* ── Empty State ── */
   .empty-state {
     text-align: center;
-    padding: 24px 16px;
+    padding: 20px 12px;
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
   }
   .empty-state small {
     display: block;
     margin-top: 4px;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
   }
 
-  /* ---------- MODAL STYLES ---------- */
+  /* ── Back Link ── */
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 20px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+  .back-link svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+  }
+
+  /* ── Modal Styles ── */
   .modal-overlay {
     position: fixed;
     top: 0;
@@ -308,6 +402,7 @@
     right: 0;
     bottom: 0;
     background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
     display: none;
     align-items: center;
     justify-content: center;
@@ -325,8 +420,13 @@
     max-height: 90vh;
     overflow-y: auto;
     padding: 24px 20px;
-    box-shadow: var(--shadow);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
     position: relative;
+    animation: modalFade 0.2s ease-out;
+  }
+  @keyframes modalFade {
+    from { opacity: 0; transform: scale(0.96) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
   }
   .modal-box .modal-close {
     position: absolute;
@@ -341,18 +441,18 @@
   }
   .modal-box h2 {
     margin-top: 0;
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     font-weight: 700;
     color: var(--text);
   }
   .modal-box .form-group {
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
   .modal-box .form-group label {
     display: block;
     font-weight: 600;
-    font-size: 0.85rem;
-    margin-bottom: 4px;
+    font-size: 0.8rem;
+    margin-bottom: 3px;
     color: var(--text);
   }
   .modal-box .form-group input,
@@ -362,15 +462,15 @@
     border-radius: 12px;
     border: 1px solid var(--border);
     background: var(--surface-alt);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: var(--text);
     transition: border 0.2s;
   }
   .modal-box .form-group input:focus,
   .modal-box .form-group select:focus {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    border-color: var(--profile-accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
   }
   .modal-box .form-actions {
     display: flex;
@@ -385,37 +485,39 @@
     font-weight: 600;
     border: none;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
   }
   .modal-box .btn-primary {
-    background: var(--accent);
-    color: white;
-    box-shadow: var(--shadow);
+    background: var(--profile-accent);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
   }
-  .modal-box .btn-primary:hover { background: var(--accent-hover); }
+  .modal-box .btn-primary:hover {
+    background: #1d4ed8;
+  }
   .modal-box .btn-secondary {
     background: var(--surface-alt);
     color: var(--text);
     border: 1px solid var(--border);
   }
 
-  /* Transcript Table */
+  /* ── Transcript Table ── */
   .transcript-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     margin: 12px 0;
   }
   .transcript-table th,
   .transcript-table td {
-    padding: 8px 6px;
+    padding: 6px 4px;
     text-align: left;
     border-bottom: 1px solid var(--border);
   }
   .transcript-table th {
     background: var(--surface-alt);
     font-weight: 600;
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     text-transform: uppercase;
     color: var(--muted);
   }
@@ -424,21 +526,30 @@
     margin-top: 12px;
     text-align: right;
     color: var(--text);
-  }
-
-  .back-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 24px;
-    color: var(--muted);
-    text-decoration: none;
     font-size: 0.9rem;
   }
-  .back-link svg {
-    width: 18px;
-    height: 18px;
-    stroke: currentColor;
+
+  /* ── Responsive Tweaks ── */
+  @media (max-width: 400px) {
+    .profile-actions a,
+    .profile-actions button {
+      font-size: 0.7rem;
+      padding: 8px 4px;
+    }
+    .profile-avatar {
+      width: 56px;
+      height: 56px;
+      font-size: 24px;
+    }
+    .profile-hero-text h1 {
+      font-size: 1.25rem;
+    }
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .info-grid {
+      grid-template-columns: 1fr 1fr;
+    }
   }
 </style>
 {% endblock %}
@@ -450,7 +561,6 @@
     <div class="profile-avatar">{{ student.name|slice:":1"|upper }}</div>
     <div class="profile-hero-text">
       <h1>{{ student.name }}</h1>
-      <!-- Father's name with "Son of" / "Daughter of" based on gender -->
       <div class="father-line">
         {% if student.gender == 'male' %}
           <span class="relation-prefix">Son of</span>
@@ -462,9 +572,15 @@
         <strong>{{ student.father_name }}</strong>
       </div>
       <div class="sub">
-        <span>{{ student.grade }}</span>
-        <span>•</span>
-        <span>{{ student.section }}</span>
+        {% if tenant.tenant_type == 'wing_school' and student.school_class.wing_category %}
+          <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ student.school_class.id }}&category_id={{ student.school_class.wing_category.id }}">
+            {{ student.school_class.wing_category.parent.name }} ({{ student.school_class.wing_category.name }}) - {{ student.school_class.name }} - {{ student.school_class.section }}
+          </a>
+        {% else %}
+          <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ student.school_class.id }}">
+            {{ student.grade }} - {{ student.section }}
+          </a>
+        {% endif %}
         <span>•</span>
         <span>Roll {{ student.roll_number }}</span>
       </div>
@@ -472,20 +588,20 @@
   </div>
   <div class="profile-actions">
     <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn-primary">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/>
       </svg>
       Collect
     </a>
     <button class="btn-secondary" id="editProfileBtn">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
         <path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/>
       </svg>
       Edit
     </button>
-    <button class="btn-primary" type="button" data-open-voucher data-student-id="{{ student.id }}" data-schema-name="{{ tenant.schema_name }}">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <button class="btn-primary" type="button" id="voucherBtnMobile" data-student-id="{{ student.id }}" data-schema="{{ tenant.schema_name }}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M4 4v16h16M8 12h8M12 8v8"/>
       </svg>
       Voucher
@@ -562,6 +678,41 @@
   </div>
 </div>
 
+<!-- ====== TEACHER SECTION ====== -->
+<div class="teacher-section">
+  <div class="teacher-block">
+    <div class="block-label">Class Teacher</div>
+    {% if class_teacher %}
+      <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="teacher-name">
+        {{ class_teacher.full_name }}
+      </a>
+    {% else %}
+      <span style="color: var(--muted); font-size:0.85rem;">Not assigned</span>
+    {% endif %}
+  </div>
+  <div class="teacher-block">
+    <div class="block-label">Subject Teachers</div>
+    {% if subject_teachers %}
+      <ul class="subject-list">
+        {% for item in subject_teachers %}
+          <li>
+            <span class="subject-name">{{ item.subject }}:</span>
+            {% if item.teacher %}
+              <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="subject-teacher">
+                {{ item.teacher.full_name }}
+              </a>
+            {% else %}
+              <span class="unassigned">Unassigned</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <span style="color: var(--muted); font-size:0.85rem;">No subject assignments</span>
+    {% endif %}
+  </div>
+</div>
+
 <!-- ====== FEE RECORDS ====== -->
 <div class="section-title">
   <h2>
@@ -607,7 +758,7 @@
     {% for item in payments %}
       <div class="history-item">
         <div class="item-head">
-          <span class="item-label">{{ item.payment.payment_date|date:'d MMM Y' }}</span>
+          <span class="item-label">{{ item.payment.payment_date|date:'d M Y' }}</span>
           <span class="item-amount">₹{{ item.payment.amount|floatformat:2 }}</span>
         </div>
         <div class="item-meta">
@@ -799,6 +950,14 @@
     // Print transcript
     document.getElementById('printTranscriptBtn').addEventListener('click', function() {
       window.print();
+    });
+
+    // ---- Voucher Button ----
+    document.getElementById('voucherBtnMobile').addEventListener('click', function() {
+      const studentId = this.dataset.studentId;
+      const schema = this.dataset.schema;
+      alert('Voucher modal for student ' + studentId + ' (schema: ' + schema + ')');
+      // You can replace this with actual voucher modal logic.
     });
 
   })();

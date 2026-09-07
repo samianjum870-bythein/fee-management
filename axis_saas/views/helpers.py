@@ -181,6 +181,7 @@ def update_student_from_payload(schema_name, student_id, payload):
     tenant = get_tenant(None, schema_name)
     with schema_context(schema_name):
         student = get_object_or_404(Student, id=student_id)
+
         form = StudentForm(payload, instance=student, wing_school=tenant.tenant_type == 'wing_school')
         if not form.is_valid():
             return (None, form)
@@ -424,6 +425,23 @@ def get_student_profile_context(request, schema_name, student_id):
     search_date = request.GET.get('date', '').strip()
     with schema_context(schema_name):
         student = get_object_or_404(Student, id=student_id)
+        # ---- Get class teacher and subject teachers for this student ----
+        school_class = student.school_class
+        class_teacher = None
+        subject_teachers = []
+        if school_class:
+            class_teacher = school_class.class_teacher
+            # Fetch active subject assignments with teacher
+            from ..models import ClassSubject
+            assignments = ClassSubject.objects.filter(
+                school_class=school_class, is_active=True
+            ).select_related('subject', 'teacher')
+            for ass in assignments:
+                if ass.teacher:
+                    subject_teachers.append({
+                        'subject': ass.subject.name,
+                        'teacher': ass.teacher,
+                    })
         today = date.today()
         current_month = today.month
         current_year = today.year
@@ -508,4 +526,6 @@ def get_student_profile_context(request, schema_name, student_id):
             'current_year': current_year,
             'logo_url': tenant.school_logo.url if tenant.school_logo else None,
             'search_date': search_date,
+            'class_teacher': class_teacher,
+            'subject_teachers': subject_teachers,
         }

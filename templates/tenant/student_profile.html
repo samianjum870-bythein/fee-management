@@ -1,464 +1,1295 @@
 {% extends 'tenant/base.html' %}
 {% block title %}{{ student.name }} | Profile{% endblock %}
+
 {% block body %}
-<div class="profile-header">
-    <div>
-        <h1 class="page-title">{{ student.name }}</h1>
-        <p class="page-desc">Roll No: {{ student.roll_number }} • {{ student.grade }} - {{ student.section }}</p>
-    
-<div style="display: flex; gap: 0.75rem; margin-bottom: 1.5rem; justify-content: flex-end;">
-    <button class="btn-primary" id="voucherBtnDesktop" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: 2rem; font-weight: 500; font-size: 0.85rem; background: var(--primary); color: white; border: none; cursor: pointer;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
-        Voucher
-    </button>
-</div>
-<div style="display: flex; gap: 0.75rem; margin-bottom: 1.5rem; justify-content: flex-end;">
-    <button class="btn-primary" id="voucherBtnDesktop" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: 2rem; font-weight: 500; font-size: 0.85rem; background: var(--primary); color: white; border: none; cursor: pointer;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
-        Voucher
-    </button>
-</div>
+<style>
+    /* ── Reset & Base ── */
+    .profile-wrapper {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 0.5rem 0;
+    }
 
+    /* ── Profile Header ── */
+    .profile-header-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg, 1.25rem);
+        padding: 1.5rem 2rem;
+        margin-bottom: 2rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.25rem 2rem;
+        box-shadow: var(--shadow-sm);
+    }
 
+    .profile-identity {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        flex: 1 1 280px;
+        min-width: 200px;
+    }
+
+    .profile-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark, #2563eb));
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    }
+
+    .profile-name-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .profile-name-group h1 {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0;
+        color: var(--text);
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+    }
+
+    .profile-class-link {
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    .profile-class-link a {
+        color: var(--primary);
+        text-decoration: none;
+        font-weight: 600;
+        transition: color 0.2s;
+    }
+    .profile-class-link a:hover {
+        color: var(--primary-dark, #1d4ed8);
+        text-decoration: underline;
+    }
+
+    .profile-roll {
+        font-size: 0.8rem;
+        color: var(--muted);
+        background: var(--surface-alt);
+        padding: 0.15rem 0.7rem;
+        border-radius: 2rem;
+        display: inline-block;
+        border: 1px solid var(--border);
+        font-weight: 500;
+    }
+
+    /* ── Header Actions ── */
+    .profile-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.6rem;
+        flex: 0 0 auto;
+    }
+
+    .profile-actions .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.5rem 1.1rem;
+        border-radius: 2rem;
+        font-weight: 500;
+        font-size: 0.82rem;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .btn-primary {
+        background: var(--primary);
+        color: #fff;
+    }
+    .btn-primary:hover {
+        background: var(--primary-dark, #1d4ed8);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+
+    .btn-secondary {
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+        background: var(--border);
+        transform: translateY(-1px);
+    }
+
+    .btn-outline {
+        background: transparent;
+        color: var(--primary);
+        border: 1.5px solid var(--primary);
+    }
+    .btn-outline:hover {
+        background: var(--primary);
+        color: #fff;
+        transform: translateY(-1px);
+    }
+
+    .btn-success {
+        background: #10b981;
+        color: #fff;
+    }
+    .btn-success:hover {
+        background: #059669;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    }
+
+    /* ── Info Grid ── */
+    .info-grid-modern {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .info-item {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius, 0.75rem);
+        padding: 1rem 1.1rem;
+        transition: border-color 0.2s;
+    }
+    .info-item:hover {
+        border-color: var(--primary);
+    }
+
+    .info-item .label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--muted);
+        font-weight: 600;
+        margin-bottom: 0.2rem;
+    }
+
+    .info-item .value {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--text);
+        word-break: break-word;
+    }
+
+    .info-item .value .status-badge {
+        display: inline-block;
+        padding: 0.15rem 0.7rem;
+        border-radius: 2rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+    .status-active {
+        background: #d1fae5;
+        color: #065f46;
+    }
+    .status-inactive {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+    .status-graduated {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+    .status-enrolled {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    /* ── Teacher Section ── */
+    .teacher-section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius, 0.75rem);
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 2rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem 3rem;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .teacher-section .teacher-block {
+        flex: 1 1 200px;
+        min-width: 150px;
+    }
+
+    .teacher-section .teacher-block .block-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+    }
+
+    .teacher-section .teacher-block .teacher-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--primary);
+        text-decoration: none;
+    }
+    .teacher-section .teacher-block .teacher-name:hover {
+        text-decoration: underline;
+    }
+
+    .teacher-section .subject-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1.5rem;
+    }
+
+    .teacher-section .subject-list li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.3rem;
+        font-size: 0.92rem;
+    }
+
+    .teacher-section .subject-list li .subject-name {
+        font-weight: 500;
+        color: var(--text);
+    }
+    .teacher-section .subject-list li .subject-teacher {
+        color: var(--primary);
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .teacher-section .subject-list li .subject-teacher:hover {
+        text-decoration: underline;
+    }
+    .teacher-section .subject-list li .unassigned {
+        color: var(--muted);
+        font-size: 0.85rem;
+    }
+
+    /* ── Fee Summary ── */
+    .fee-summary-modern {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .fee-summary-modern .fee-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius, 0.75rem);
+        padding: 1.1rem 1.2rem;
+        text-align: center;
+        transition: border-color 0.2s, transform 0.15s;
+    }
+    .fee-summary-modern .fee-card:hover {
+        border-color: var(--primary);
+        transform: translateY(-2px);
+    }
+
+    .fee-summary-modern .fee-card .fee-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 600;
+    }
+
+    .fee-summary-modern .fee-card .fee-value {
+        font-size: 1.7rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-top: 0.15rem;
+    }
+
+    .fee-summary-modern .fee-card .fee-value.pending {
+        color: var(--danger, #dc2626);
+    }
+    .fee-summary-modern .fee-card .fee-value.paid {
+        color: #10b981;
+    }
+
+    /* ── Table Cards ── */
+    .table-card-modern {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius, 0.75rem);
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .table-card-modern .table-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .table-card-modern .table-header h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text);
+    }
+
+    .table-card-modern .table-header .search-form {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    .table-card-modern .table-header .search-form input[type="date"] {
+        padding: 0.3rem 0.6rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: 0.82rem;
+    }
+
+    .table-card-modern .table-header .search-form .btn-filter {
+        padding: 0.3rem 0.9rem;
+        border-radius: 2rem;
+        background: var(--primary);
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 0.78rem;
+        transition: background 0.2s;
+    }
+    .table-card-modern .table-header .search-form .btn-filter:hover {
+        background: var(--primary-dark, #1d4ed8);
+    }
+
+    .table-card-modern .table-header .search-form .btn-reset {
+        padding: 0.3rem 0.9rem;
+        border-radius: 2rem;
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+        text-decoration: none;
+        font-size: 0.78rem;
+        font-weight: 500;
+        transition: background 0.2s;
+    }
+    .table-card-modern .table-header .search-form .btn-reset:hover {
+        background: var(--border);
+    }
+
+    /* ── Tables ── */
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table-modern {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+    }
+
+    .data-table-modern thead th {
+        text-align: left;
+        padding: 0.6rem 0.75rem;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 600;
+        border-bottom: 2px solid var(--border);
+        background: var(--surface-alt);
+    }
+
+    .data-table-modern tbody td {
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid var(--border-light, #f1f5f9);
+        color: var(--text);
+        vertical-align: middle;
+    }
+
+    .data-table-modern tbody tr:last-child td {
+        border-bottom: none;
+    }
+    .data-table-modern tbody tr:hover {
+        background: var(--surface-alt);
+    }
+
+    .data-table-modern .empty-row {
+        text-align: center;
+        padding: 1.5rem !important;
+        color: var(--muted);
+        font-style: italic;
+    }
+
+    /* ── Badges ── */
+    .badge {
+        display: inline-block;
+        padding: 0.15rem 0.7rem;
+        border-radius: 2rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+    .badge-pending {
+        background: #fed7aa;
+        color: #9a3412;
+    }
+    .badge-partial {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+    .badge-paid {
+        background: #d1fae5;
+        color: #065f46;
+    }
+    .badge-overdue {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .payment-type-badge {
+        display: inline-block;
+        padding: 0.1rem 0.6rem;
+        border-radius: 2rem;
+        font-size: 0.7rem;
+        font-weight: 500;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        color: var(--text);
+    }
+
+    .receipt-link {
+        color: var(--primary);
+        text-decoration: none;
+        font-family: 'SF Mono', 'Menlo', monospace;
+        font-size: 0.82rem;
+        font-weight: 500;
+    }
+    .receipt-link:hover {
+        text-decoration: underline;
+    }
+
+    /* ── Pagination ── */
+    .pagination-modern {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        margin-top: 1.25rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border);
+    }
+
+    .pagination-modern .page-link {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 2rem;
+        background: var(--surface-alt);
+        color: var(--text);
+        text-decoration: none;
+        font-size: 0.8rem;
+        font-weight: 500;
+        border: 1px solid var(--border);
+        transition: all 0.2s;
+    }
+    .pagination-modern .page-link:hover {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+    }
+
+    .pagination-modern .current-page {
+        padding: 0.3rem 0.8rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+        font-weight: 500;
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(3px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 1rem;
+    }
+
+    .modal-overlay .modal-box {
+        background: var(--surface);
+        border-radius: 1.25rem;
+        max-width: 460px;
+        width: 100%;
+        padding: 1.75rem 2rem;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        animation: modalIn 0.2s ease-out;
+    }
+
+    @keyframes modalIn {
+        from {
+            opacity: 0;
+            transform: scale(0.96) translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
+
+    .modal-box h2 {
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin-top: 0;
+        margin-bottom: 0.25rem;
+        color: var(--text);
+    }
+
+    .modal-box .modal-sub {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .modal-box label {
+        font-weight: 600;
+        font-size: 0.82rem;
+        color: var(--text);
+        display: block;
+        margin-bottom: 0.2rem;
+    }
+
+    .modal-box input,
+    .modal-box select,
+    .modal-box textarea {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.6rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: 0.95rem;
+        transition: border-color 0.2s;
+        margin-bottom: 0.5rem;
+    }
+    .modal-box input:focus,
+    .modal-box select:focus,
+    .modal-box textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .modal-box .default-fee-display {
+        font-size: 0.9rem;
+        color: var(--muted);
+        margin-bottom: 0.75rem;
+        padding: 0.3rem 0.6rem;
+        background: var(--surface-alt);
+        border-radius: 0.4rem;
+        display: inline-block;
+    }
+
+    .modal-box .modal-info-box {
+        background: var(--surface-alt);
+        border-radius: 0.6rem;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0 1rem;
+        border-left: 3px solid var(--primary);
+    }
+    .modal-box .modal-info-box p {
+        margin: 0.2rem 0;
+        font-size: 0.92rem;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.6rem;
+        justify-content: flex-end;
+        margin-top: 1.25rem;
+    }
+
+    .modal-actions .btn {
+        padding: 0.45rem 1.4rem;
+        border-radius: 2rem;
+        font-weight: 600;
+        font-size: 0.85rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .modal-actions .btn-primary {
+        background: var(--primary);
+        color: #fff;
+    }
+    .modal-actions .btn-primary:hover {
+        background: var(--primary-dark, #1d4ed8);
+    }
+    .modal-actions .btn-secondary {
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+    .modal-actions .btn-secondary:hover {
+        background: var(--border);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+        .profile-header-card {
+            flex-direction: column;
+            align-items: stretch;
+            padding: 1.25rem;
+        }
+        .profile-identity {
+            flex: 1 1 auto;
+        }
+        .profile-actions {
+            justify-content: flex-start;
+            flex-wrap: wrap;
+        }
+        .profile-actions .btn {
+            font-size: 0.78rem;
+            padding: 0.4rem 0.9rem;
+        }
+        .info-grid-modern {
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        }
+        .fee-summary-modern {
+            grid-template-columns: repeat(3, 1fr);
+        }
+        .fee-summary-modern .fee-card .fee-value {
+            font-size: 1.3rem;
+        }
+        .table-card-modern {
+            padding: 0.75rem 0.75rem;
+        }
+        .table-card-modern .table-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .teacher-section {
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .modal-box {
+            padding: 1.25rem;
+            margin: 0.5rem;
+        }
+        .profile-avatar {
+            width: 52px;
+            height: 52px;
+            font-size: 1.4rem;
+        }
+        .profile-name-group h1 {
+            font-size: 1.3rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .fee-summary-modern {
+            grid-template-columns: 1fr;
+        }
+        .info-grid-modern {
+            grid-template-columns: 1fr 1fr;
+        }
+        .profile-actions .btn {
+            flex: 1 1 auto;
+            justify-content: center;
+        }
+    }
+
+    /* ── Misc Helpers ── */
+    .hidden {
+        display: none !important;
+    }
+    .inline-icon {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+    }
+    .gap-1 {
+        gap: 0.25rem;
+    }
+    .mt-1 {
+        margin-top: 0.5rem;
+    }
+    .mb-1 {
+        margin-bottom: 0.5rem;
+    }
+    .text-muted {
+        color: var(--muted);
+    }
+    .fw-600 {
+        font-weight: 600;
+    }
+</style>
+
+<div class="profile-wrapper">
+
+    {# ─── HEADER ─── #}
+    <div class="profile-header-card">
+        <div class="profile-identity">
+            <div class="profile-avatar">
+                {{ student.name|slice:":1" }}
+            </div>
+            <div class="profile-name-group">
+                <h1>{{ student.name }}</h1>
+                <div class="profile-class-link">
+                    <span class="profile-roll">Roll: {{ student.roll_number }}</span>
+                    <span>•</span>
+                    {% if tenant.tenant_type == 'wing_school' and student.school_class.wing_category %}
+                        <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ student.school_class.id }}&category_id={{ student.school_class.wing_category.id }}">
+                            {{ student.school_class.wing_category.parent.name }} ({{ student.school_class.wing_category.name }}) — {{ student.school_class.name }} - {{ student.school_class.section }}
+                        </a>
+                    {% else %}
+                        <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ student.school_class.id }}">
+                            {{ student.grade }} - {{ student.section }}
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="profile-actions">
+            <button class="btn btn-outline" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
+                Voucher
+            </button>
+            <a href="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-secondary">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+                Edit
+            </a>
+            <a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-success">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8"/></svg>
+                Collect Pending
+            </a>
+            <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="btn btn-secondary">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg>
+                Back
+            </a>
+        </div>
     </div>
-    <div class="header-actions">
-                    
-                
-        <a href="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}" class="btn-secondary"><svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg> Edit</a>
-        <a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn-primary"><svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8"/></svg> Collect Pending</a>
-        <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="btn-secondary"><svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg> Back</a>
+
+    {# ─── INFO GRID ─── #}
+    <div class="info-grid-modern">
+        <div class="info-item">
+            <div class="label">Father Name</div>
+            <div class="value">{{ student.father_name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">Father CNIC</div>
+            <div class="value">{{ student.father_cnic }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">Mobile</div>
+            <div class="value">{{ student.parent_mobile }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">Admission Date</div>
+            <div class="value">{{ student.admission_date|date:"Y-m-d" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">Status</div>
+            <div class="value">
+                <span class="status-badge status-{{ student.status }}">
+                    {{ student.get_status_display }}
+                </span>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">Custom Fee</div>
+            <div class="value">₹{{ student.custom_fee }}</div>
+        </div>
     </div>
-</div>
 
-<div class="info-grid">
-    <div class="info-card"><div class="info-label">Father Name</div><div class="info-value">{{ student.father_name }}</div></div>
-    <div class="info-card"><div class="info-label">Father CNIC</div><div class="info-value">{{ student.father_cnic }}</div></div>
-    <div class="info-card"><div class="info-label">Mobile</div><div class="info-value">{{ student.parent_mobile }}</div></div>
-    <div class="info-card"><div class="info-label">Admission Date</div><div class="info-value">{{ student.admission_date|date:"Y-m-d" }}</div></div>
-    <div class="info-card"><div class="info-label">Status</div><div class="info-value"><span class="status-badge status-{{ student.status }}">{{ student.get_status_display }}</span></div></div>
-    <div class="info-card"><div class="info-label">Custom Fee</div><div class="info-value">₹{{ student.custom_fee }}</div></div>
-</div>
+    {# ─── TEACHER SECTION ─── #}
+    <div class="teacher-section">
+        <div class="teacher-block">
+            <div class="block-label">Class Teacher</div>
+            {% if class_teacher %}
+                <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="teacher-name">
+                    {{ class_teacher.full_name }}
+                </a>
+            {% else %}
+                <span class="text-muted" style="font-size:0.92rem;">Not assigned</span>
+            {% endif %}
+        </div>
 
-<div class="fee-summary" id="feeSummary">
-    <div class="summary-card"><div class="summary-label">Total Fee</div><div class="summary-value" id="totalFee">₹{{ total_fee|floatformat:2 }}</div></div>
-    <div class="summary-card"><div class="summary-label">Total Paid</div><div class="summary-value" id="totalPaid">₹{{ total_paid|floatformat:2 }}</div></div>
-    <div class="summary-card"><div class="summary-label">Pending</div><div class="summary-value pending" id="pendingTotal">₹{{ pending_total|floatformat:2 }}</div></div>
-    
-</div>
-
-<div class="table-card">
-    <div class="flex-header">
-        <h3 class="section-title"><svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> Fee History</h3>
+        <div class="teacher-block" style="flex: 2 1 300px;">
+            <div class="block-label">Subject Teachers</div>
+            {% if subject_teachers %}
+                <ul class="subject-list">
+                    {% for item in subject_teachers %}
+                        <li>
+                            <span class="subject-name">{{ item.subject }}:</span>
+                            {% if item.teacher %}
+                                <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="subject-teacher">
+                                    {{ item.teacher.full_name }}
+                                </a>
+                            {% else %}
+                                <span class="unassigned">Unassigned</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <span class="text-muted" style="font-size:0.9rem;">No subject assignments</span>
+            {% endif %}
+        </div>
     </div>
-    <div class="table-responsive">
-        <table class="data-table" id="feeTable">
-            <thead><tr><th>Month/Year</th><th>Amount</th><th>Paid</th><th>Status</th><th>Receipt</th></tr></thead>
-            <tbody id="feeTableBody">
-                {% for r in fee_records %}
-                <tr>
-                    <td>{{ r.month }}/{{ r.year }}</td>
-                    <td>₹{{ r.total_amount|floatformat:2 }}</td>
-                    <td>₹{{ r.paid_amount|floatformat:2 }}</td>
-                    <td><span class="status-badge status-{{ r.status|lower }}">{{ r.get_status_display }}</span></td>
-                    <td>{% if r.payments.exists %}{% for rc in r.payments.all %}<a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ rc.id }}/" class="receipt-link">{{ rc.receipt_number }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</td>
-                </tr>
-                {% empty %}
-                <tr><td colspan="5" class="empty-row">No fee records found. Use the "Voucher" or "Collect Pending" buttons above to manage fees.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+
+    {# ─── FEE SUMMARY ─── #}
+    <div class="fee-summary-modern" id="feeSummary">
+        <div class="fee-card">
+            <div class="fee-label">Total Fee</div>
+            <div class="fee-value" id="totalFee">₹{{ total_fee|floatformat:2 }}</div>
+        </div>
+        <div class="fee-card">
+            <div class="fee-label">Total Paid</div>
+            <div class="fee-value paid" id="totalPaid">₹{{ total_paid|floatformat:2 }}</div>
+        </div>
+        <div class="fee-card">
+            <div class="fee-label">Pending</div>
+            <div class="fee-value pending" id="pendingTotal">₹{{ pending_total|floatformat:2 }}</div>
+        </div>
     </div>
-</div>
 
+    {# ─── FEE HISTORY TABLE ─── #}
+    <div class="table-card-modern">
+        <div class="table-header">
+            <h3>
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                Fee History
+            </h3>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button class="btn btn-outline" id="genFeeBtn" style="font-size:0.78rem; padding:0.3rem 1rem;">
+                    <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+                    Generate Fee
+                </button>
+            </div>
+        </div>
 
-<div class="table-card">
-    <div class="flex-header">
-        <h3 class="section-title"><svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2" ry="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Payment History</h3>
-        <div class="payment-search-form">
-            <form method="get" action="" style="display: flex; gap: 0.5rem; align-items: center;">
-                <input type="date" name="date" value="{{ search_date }}" class="filter-input" style="padding: 0.3rem 0.6rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-                <button type="submit" class="btn-filter" style="padding: 0.3rem 0.8rem; border-radius: 2rem; background: var(--primary); color: white; border: none; cursor: pointer;">Search</button>
+        <div class="table-responsive">
+            <table class="data-table-modern" id="feeTable">
+                <thead>
+                    <tr>
+                        <th>Month / Year</th>
+                        <th>Amount</th>
+                        <th>Paid</th>
+                        <th>Status</th>
+                        <th>Receipt</th>
+                    </tr>
+                </thead>
+                <tbody id="feeTableBody">
+                    {% for r in fee_records %}
+                        <tr>
+                            <td>{{ r.month }}/{{ r.year }}</td>
+                            <td>₹{{ r.total_amount|floatformat:2 }}</td>
+                            <td>₹{{ r.paid_amount|floatformat:2 }}</td>
+                            <td><span class="badge badge-{{ r.status|lower }}">{{ r.get_status_display }}</span></td>
+                            <td>
+                                {% if r.payments.exists %}
+                                    {% for rc in r.payments.all %}
+                                        <a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ rc.id }}/" class="receipt-link">{{ rc.receipt_number }}</a>{% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5" class="empty-row">No fee records found. Use the "Generate Fee" button above to create one.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# ─── PAYMENT HISTORY TABLE ─── #}
+    <div class="table-card-modern">
+        <div class="table-header">
+            <h3>
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2" ry="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Payment History
+            </h3>
+            <form method="get" action="" class="search-form">
+                <input type="date" name="date" value="{{ search_date }}" placeholder="Filter by date">
+                <button type="submit" class="btn-filter">Search</button>
                 {% if search_date %}
-                    <a href="?page=1" class="btn-reset" style="padding: 0.3rem 0.8rem; border-radius: 2rem; background: var(--surface-alt); color: var(--text); border: 1px solid var(--border); text-decoration: none;">Clear</a>
+                    <a href="?page=1" class="btn-reset">Clear</a>
                 {% endif %}
             </form>
         </div>
-    </div>
-    <div class="table-responsive">
-        <table class="data-table" id="paymentTable">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Day</th>
-                    <th>Total Due</th>
-                    <th>Paid</th>
-                    <th>Remaining</th>
-                    <th>Mode</th>
-                    <th>Type</th>
-                    <th>Receipt</th>
-                </tr>
-            </thead>
-            <tbody id="paymentTableBody">
-                {% for item in payments %}
-                <tr>
-                    <td>{{ item.payment.payment_date|date:"Y-m-d" }}</td>
-                    <td>{{ item.payment.payment_date|date:"D" }}</td>
-                    <td>₹{{ item.total_due_before|floatformat:2 }}</td>
-                    <td>₹{{ item.payment.amount|floatformat:2 }}</td>
-                    <td>₹{{ item.remaining_balance|floatformat:2 }}</td>
-                    <td>{{ item.payment.get_payment_mode_display }}</td>
-                    <td><span class="payment-type-badge">{{ item.payment.payment_type_display }}</span></td>
-                    <td><a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ item.payment.id }}/" class="receipt-link" target="_blank">{{ item.payment.receipt_number }}</a></td>
-                </tr>
-                {% empty %}
-                <tr><td colspan="8" class="empty-row">No payments recorded yet.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+
+        <div class="table-responsive">
+            <table class="data-table-modern" id="paymentTable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Total Due</th>
+                        <th>Paid</th>
+                        <th>Remaining</th>
+                        <th>Mode</th>
+                        <th>Type</th>
+                        <th>Receipt</th>
+                    </tr>
+                </thead>
+                <tbody id="paymentTableBody">
+                    {% for item in payments %}
+                        <tr>
+                            <td>{{ item.payment.payment_date|date:"Y-m-d" }}</td>
+                            <td>{{ item.payment.payment_date|date:"D" }}</td>
+                            <td>₹{{ item.total_due_before|floatformat:2 }}</td>
+                            <td>₹{{ item.payment.amount|floatformat:2 }}</td>
+                            <td>₹{{ item.remaining_balance|floatformat:2 }}</td>
+                            <td>{{ item.payment.get_payment_mode_display }}</td>
+                            <td><span class="payment-type-badge">{{ item.payment.payment_type_display }}</span></td>
+                            <td><a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ item.payment.id }}/" class="receipt-link" target="_blank">{{ item.payment.receipt_number }}</a></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="8" class="empty-row">No payments recorded yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if payments.has_other_pages %}
+            <div class="pagination-modern">
+                {% if payments.has_previous %}
+                    <a href="?page=1{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">&laquo; First</a>
+                    <a href="?page={{ payments.previous_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Previous</a>
+                {% endif %}
+                <span class="current-page">Page {{ payments.number }} of {{ payments.paginator.num_pages }}</span>
+                {% if payments.has_next %}
+                    <a href="?page={{ payments.next_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Next</a>
+                    <a href="?page={{ payments.paginator.num_pages }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Last &raquo;</a>
+                {% endif %}
+            </div>
+        {% endif %}
     </div>
 
-    {% if payments.has_other_pages %}
-    <div class="pagination">
-        {% if payments.has_previous %}
-            <a href="?page=1{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">&laquo; First</a>
-            <a href="?page={{ payments.previous_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Previous</a>
-        {% endif %}
-        <span class="current-page">Page {{ payments.number }} of {{ payments.paginator.num_pages }}</span>
-        {% if payments.has_next %}
-            <a href="?page={{ payments.next_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Next</a>
-            <a href="?page={{ payments.paginator.num_pages }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Last &raquo;</a>
-        {% endif %}
-    </div>
-    {% endif %}
 </div>
 
+{# ─── MODAL ─── #}
+<div class="modal-overlay" id="customFeeModal" style="display:none;">
+    <div class="modal-box">
+        <h2 id="modalTitle">Generate Current Month Fee</h2>
+        <div class="modal-sub" id="modalSub">Create or update the fee record for this student.</div>
 
+        <div id="modalInfoContainer"></div>
 
+        <div id="feeAmountGroup">
+            <label for="customFeeAmount">Amount (₹)</label>
+            <input type="number" id="customFeeAmount" step="0.01" min="0" placeholder="Enter amount">
+            <div class="default-fee-display" id="defaultFeeDisplay">Default: ₹0.00</div>
+        </div>
 
-<style>
-.profile-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
-.page-title { font-size: 1.8rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.page-desc { color: var(--muted); }
-.header-actions { display: flex; gap: 0.75rem; }
-.btn-primary, .btn-secondary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: 2rem; font-weight: 500; font-size: 0.85rem; text-decoration: none; transition: all 0.2s; }
-.btn-primary { background: var(--primary); color: white; }
-.btn-secondary { background: var(--surface-alt); color: var(--text); border: 1px solid var(--border); }
-.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
-.info-label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 0.25rem; }
-.info-value { font-weight: 600; font-size: 1rem; }
-.fee-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-.summary-card { background: var(--surface); border-radius: var(--radius); padding: 1rem; text-align: center; border: 1px solid var(--border); }
-.summary-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
-.summary-value { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
-.summary-value.pending { color: var(--danger); }
-.table-card { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 1rem; margin-bottom: 1.5rem; }
-.flex-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.section-title { font-size: 1.2rem; font-weight: 600; margin: 0; }
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th, .data-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
-.data-table th { background: var(--surface-alt); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); }
-.status-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 2rem; font-size: 0.7rem; font-weight: 600; }
-.status-pending { background: #fed7aa; color: #9a3412; }
-.status-partial { background: #e0e7ff; color: #3730a3; }
-.status-paid { background: #d1fae5; color: #065f46; }
-.status-overdue { background: #fee2e2; color: #991b1b; }
-.receipt-link { color: var(--primary); text-decoration: none; font-family: monospace; }
-.loading-row { text-align: center; color: var(--muted); }
-.empty-row { text-align: center; padding: 1rem; color: var(--muted); }
-.modal { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index:1000; }
-.modal-content { background: var(--surface); border-radius: 1rem; padding: 1.5rem; max-width: 450px; width: 90%; }
-.modal-content input, .modal-content select, .modal-content textarea { width: 100%; padding: 0.5rem; margin: 0.5rem 0; border-radius: 0.5rem; border: 1px solid var(--border); background: var(--surface-alt); }
-.modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
-    .item-summary-box { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem; color: var(--text); }
-    .remark-chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.45rem; border-radius: 999px; background: rgba(14,165,233,0.12); color: var(--primary); font-size: 0.72rem; font-weight: 700; }
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="cancelFeeModalBtn">Cancel</button>
+            <button class="btn btn-primary" id="confirmFeeModalBtn">Confirm</button>
+        </div>
+    </div>
+</div>
 
-
+{# ─── SCRIPTS ─── #}
 <script>
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
+    (function() {
+        // ── Helpers ──
+        function getCookie(name) {
+            let v = null;
+            if (document.cookie && document.cookie !== '') {
+                const parts = document.cookie.split(';');
+                for (let p of parts) {
+                    const trimmed = p.trim();
+                    if (trimmed.substring(0, name.length + 1) === (name + '=')) {
+                        v = decodeURIComponent(trimmed.substring(name.length + 1));
+                        break;
+                    }
+                }
             }
+            return v;
         }
-    }
-    return cookieValue;
-}
-const csrfToken = getCookie('csrftoken');
-const schema = '{{ tenant.schema_name }}';
-const studentId = {{ student.id }};
-console.log('[DEBUG] student_profile loaded. schema=' + schema + ', studentId=' + studentId);
 
-async function refreshData() {
-    await loadFeeRecords();
-    await loadPayments();
-}
+        const csrfToken = getCookie('csrftoken');
+        const schema = '{{ tenant.schema_name }}';
+        const studentId = {{ student.id }};
 
-async function loadFeeRecords() {
-    try {
-        const resp = await fetch(`/portal/${schema}/api/student/${studentId}/fee-records/`);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        const tbody = document.getElementById('feeTableBody');
-        if (data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No fee records found. Use the "Voucher" or "Collect Pending" buttons above to manage fees.</td></tr>';
-            document.getElementById('totalFee').innerText = '₹0';
-            document.getElementById('totalPaid').innerText = '₹0';
-            document.getElementById('pendingTotal').innerText = '₹0';
-            return;
+        // ── DOM refs ──
+        const modal = document.getElementById('customFeeModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalSub = document.getElementById('modalSub');
+        const modalInfoContainer = document.getElementById('modalInfoContainer');
+        const feeAmountGroup = document.getElementById('feeAmountGroup');
+        const amountInput = document.getElementById('customFeeAmount');
+        const defaultFeeDisplay = document.getElementById('defaultFeeDisplay');
+        const confirmBtn = document.getElementById('confirmFeeModalBtn');
+        const cancelBtn = document.getElementById('cancelFeeModalBtn');
+
+        // ── API calls ──
+        async function getCurrentFeeStatus() {
+            const url = `/portal/${schema}/api/student/${studentId}/current-fee-status/`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return await resp.json();
         }
-        let totalFee = 0, totalPaid = 0;
-        let html = '';
-        for (let r of data) {
-            totalFee += r.total_amount;
-            totalPaid += r.paid_amount;
-            let receiptsHtml = '';
-            if (r.receipts && r.receipts.length) {
-                receiptsHtml = r.receipts.map(rc => `<a href="/portal/${schema}/fee/receipt/${rc.id}/" class="receipt-link">${rc.number}</a>`).join(', ');
-            } else {
-                receiptsHtml = '—';
-            }
-            html += `<tr>
+
+        async function loadFeeRecords() {
+            try {
+                const resp = await fetch(`/portal/${schema}/api/student/${studentId}/fee-records/`);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const data = await resp.json();
+                const tbody = document.getElementById('feeTableBody');
+                if (!data.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No fee records found. Use the "Generate Fee" button above to create one.</td></tr>';
+                    document.getElementById('totalFee').innerHTML = '₹0';
+                    document.getElementById('totalPaid').innerHTML = '₹0';
+                    document.getElementById('pendingTotal').innerHTML = '₹0';
+                    return;
+                }
+                let totalFee = 0, totalPaid = 0;
+                let html = '';
+                for (let r of data) {
+                    totalFee += r.total_amount;
+                    totalPaid += r.paid_amount;
+                    let receiptsHtml = '—';
+                    if (r.receipts && r.receipts.length) {
+                        receiptsHtml = r.receipts.map(rc =>
+                            `<a href="/portal/${schema}/fee/receipt/${rc.id}/" class="receipt-link">${rc.number}</a>`
+                        ).join(', ');
+                    }
+                    html += `<tr>
                         <td>${r.month}/${r.year}</td>
                         <td>₹${r.total_amount.toFixed(2)}</td>
                         <td>₹${r.paid_amount.toFixed(2)}</td>
-                        <td><span class="status-badge status-${r.status.toLowerCase()}">${r.status}</span></td>
+                        <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
                         <td>${receiptsHtml}</td>
-                     </tr>`;
-        }
-        tbody.innerHTML = html;
-        const pending = totalFee - totalPaid;
-        document.getElementById('totalFee').innerHTML = `₹${totalFee.toFixed(2)}`;
-        document.getElementById('totalPaid').innerHTML = `₹${totalPaid.toFixed(2)}`;
-        const pendingSpan = document.getElementById('pendingTotal');
-        pendingSpan.innerHTML = `₹${pending.toFixed(2)}`;
-        if (pending > 0) pendingSpan.classList.add('pending');
-        else pendingSpan.classList.remove('pending');
-    } catch(e) {
-        console.error('Fee load error:', e);
-        document.getElementById('feeTableBody').innerHTML = '<tr><td colspan="5" class="empty-row">Error loading fee records: ' + e.message + '</td></tr>';
-    }
-}
-
-async function loadPayments() {
-    try {
-        const resp = await fetch(`/portal/${schema}/api/student/${studentId}/payments/`);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        const tbody = document.getElementById('paymentTableBody');
-        const summaryBox = document.getElementById('itemPurchaseSummary');
-        if (data.length === 0) {
-            if (summaryBox) summaryBox.innerHTML = 'No item purchases yet.';
-            return;
-        }
-        let html = '';
-        const itemSummary = [];
-        for (let p of data) {
-            const remarks = p.remarks ? p.remarks.replace(/\n/g, '<br>') : '—';
-            if (p.remarks && p.remarks.toLowerCase().includes('items sold')) {
-                itemSummary.push(`<div class="remark-chip">${p.receipt_number}</div> ${remarks}`);
-            }
-            html += `<tr>
-                        <td>${p.date}</td>
-                        <td>₹${p.amount.toFixed(2)}</td>
-                        <td>${p.mode}</td>
-                        <td>${remarks}</td>
-                        <td><a href="${p.url}" class="receipt-link" target="_blank">${p.receipt_number}</a></td>
-                     </tr>`;
-        }
-        tbody.innerHTML = html;
-        if (summaryBox) {
-            summaryBox.innerHTML = itemSummary.length ? itemSummary.join('<br><br>') : 'No item purchases yet.';
-        }
-    } catch(e) {
-        console.error('Payment load error:', e);
-        // Keep the server-rendered data if the API is unavailable.
-    }
-}
-
-// Modal elements
-const modal = document.getElementById('customFeeModal');
-const confirmBtn = document.getElementById('confirmFeeModalBtn');
-const cancelBtn = document.getElementById('cancelFeeModalBtn');
-const amountInput = document.getElementById('customFeeAmount');
-const defaultFeeSpan = document.getElementById('defaultFeeDisplay');
-const modalTitle = document.getElementById('modalTitle');
-
-// Helper to get modal-actions div
-function getModalActionsDiv() {
-    return modal.querySelector('.modal-actions');
-}
-
-function openModal() {
-    modal.style.display = 'flex';
-}
-
-function closeModal() {
-    modal.style.display = 'none';
-    // Remove any dynamic info div if present
-    const infoDiv = document.getElementById('modalInfo');
-    if (infoDiv) infoDiv.remove();
-    // Ensure the custom amount input is visible again
-    const amountDiv = amountInput.closest('div');
-    if (amountDiv) amountDiv.style.display = 'block';
-    const actionsDiv = getModalActionsDiv();
-    if (actionsDiv) actionsDiv.style.display = 'flex';
-}
-
-async function getCurrentFeeStatus() {
-    const url = `/portal/${schema}/api/student/${studentId}/current-fee-status/`;
-    console.log('[DEBUG] Fetching current fee status from', url);
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return await resp.json();
-}
-
-async function showFeeModal() {
-    console.log('[DEBUG] showFeeModal called');
-    try {
-        const status = await getCurrentFeeStatus();
-        console.log('[DEBUG] Current fee status:', status);
-        const defaultFee = status.default_fee !== undefined ? status.default_fee : {{ student.custom_fee|default:0 }};
-        
-        // Reset modal UI
-        amountInput.value = '';
-        modalTitle.innerText = 'Generate Current Month Fee';
-        // Remove any old info div
-        const oldInfo = document.getElementById('modalInfo');
-        if (oldInfo) oldInfo.remove();
-        // Ensure amount input div is visible
-        const amountDiv = amountInput.closest('div');
-        if (amountDiv) amountDiv.style.display = 'block';
-        const actionsDiv = getModalActionsDiv();
-        if (actionsDiv) actionsDiv.style.display = 'flex';
-        
-        if (status.exists) {
-            if (status.paid_amount > 0) {
-                // Already paid, show read-only info
-                modalTitle.innerText = 'Fee Already Processed';
-                const infoDiv = document.createElement('div');
-                infoDiv.id = 'modalInfo';
-                infoDiv.innerHTML = `<p><strong>Amount:</strong> ₹${status.amount.toFixed(2)}</p>
-                                     <p><strong>Paid:</strong> ₹${status.paid_amount.toFixed(2)}</p>
-                                     <p><strong>Status:</strong> ${status.status}</p>`;
-                // Insert before the actions div
-                if (actionsDiv) {
-                    modal.querySelector('.modal-content').insertBefore(infoDiv, actionsDiv);
-                } else {
-                    modal.querySelector('.modal-content').appendChild(infoDiv);
+                    </tr>`;
                 }
-                if (amountDiv) amountDiv.style.display = 'none';
-                if (actionsDiv) actionsDiv.style.display = 'none';
-                openModal();
-                return;
-            } else {
-                // Exists but unpaid – allow update
-                modalTitle.innerText = 'Update Current Month Fee';
-                defaultFeeSpan.innerText = `Current fee: ₹${status.amount.toFixed(2)} (unpaid)`;
-                amountInput.placeholder = `New amount (₹) - leave empty to keep ₹${status.amount.toFixed(2)}`;
-                confirmBtn.innerText = 'Update Fee';
-                openModal();
-                return;
+                tbody.innerHTML = html;
+                const pending = totalFee - totalPaid;
+                document.getElementById('totalFee').innerHTML = `₹${totalFee.toFixed(2)}`;
+                document.getElementById('totalPaid').innerHTML = `₹${totalPaid.toFixed(2)}`;
+                const pendingEl = document.getElementById('pendingTotal');
+                pendingEl.innerHTML = `₹${pending.toFixed(2)}`;
+                pendingEl.className = 'fee-value' + (pending > 0 ? ' pending' : '');
+            } catch (e) {
+                console.error('Fee load error:', e);
             }
-        } else {
-            // No fee – show creation modal
-            if (defaultFee === 0) {
-                defaultFeeSpan.innerText = '₹0 (No fee structure set)';
-                amountInput.placeholder = 'Enter custom amount';
-            } else {
-                defaultFeeSpan.innerText = '₹' + defaultFee.toFixed(2);
-                amountInput.placeholder = 'Leave empty for default';
-            }
-            confirmBtn.innerText = 'Generate';
-            openModal();
         }
-    } catch(e) {
-        console.error('Error in showFeeModal:', e);
-        alert('Failed to load current fee status: ' + e.message);
-    }
-}
 
-async function generateWithCustom(customAmount) {
-    const btn = document.getElementById('genFeeBtn');
-    btn.disabled = true;
-    const originalText = btn.innerText;
-    btn.innerText = 'Processing...';
-    try {
-        const formData = new URLSearchParams();
-        formData.append('student_id', studentId);
-        if (customAmount !== undefined && customAmount !== null && customAmount !== '') {
-            formData.append('custom_amount', customAmount);
+        async function loadPayments() {
+            try {
+                const resp = await fetch(`/portal/${schema}/api/student/${studentId}/payments/`);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const data = await resp.json();
+                const tbody = document.getElementById('paymentTableBody');
+                if (!data.length) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No payments recorded yet.</td></tr>';
+                    return;
+                }
+                let html = '';
+                for (let p of data) {
+                    const remarks = p.remarks ? p.remarks.replace(/\n/g, '<br>') : '—';
+                    html += `<tr>
+                        <td>${p.date}</td>
+                        <td>${p.day || '—'}</td>
+                        <td>₹${(p.total_due_before || 0).toFixed(2)}</td>
+                        <td>₹${p.amount.toFixed(2)}</td>
+                        <td>₹${(p.remaining_balance || 0).toFixed(2)}</td>
+                        <td>${p.mode}</td>
+                        <td><span class="payment-type-badge">${p.type}</span></td>
+                        <td><a href="${p.url}" class="receipt-link" target="_blank">${p.receipt_number}</a></td>
+                    </tr>`;
+                }
+                tbody.innerHTML = html;
+            } catch (e) {
+                console.error('Payment load error:', e);
+            }
         }
-        console.log('[DEBUG] POST /api/manual-generate-single/ with data:', formData.toString());
-        const resp = await fetch('/api/manual-generate-single/', {
-            method: 'POST',
-            headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData.toString()
+
+        // ── Modal logic ──
+        function openModal() { modal.style.display = 'flex'; }
+        function closeModal() { modal.style.display = 'none'; }
+
+        async function showFeeModal() {
+            try {
+                const status = await getCurrentFeeStatus();
+                const defaultFee = status.default_fee !== undefined ? status.default_fee : {{ student.custom_fee|default:0 }};
+
+                // Reset UI
+                amountInput.value = '';
+                modalTitle.innerText = 'Generate Current Month Fee';
+                modalSub.innerText = 'Create or update the fee record for this student.';
+                modalInfoContainer.innerHTML = '';
+                feeAmountGroup.style.display = 'block';
+                confirmBtn.style.display = 'inline-block';
+                confirmBtn.innerText = 'Confirm';
+
+                if (status.exists) {
+                    if (status.paid_amount > 0) {
+                        // Already paid – read-only
+                        modalTitle.innerText = 'Fee Already Processed';
+                        modalSub.innerText = 'This month\'s fee has been paid.';
+                        modalInfoContainer.innerHTML = `
+                            <div class="modal-info-box">
+                                <p><strong>Amount:</strong> ₹${status.amount.toFixed(2)}</p>
+                                <p><strong>Paid:</strong> ₹${status.paid_amount.toFixed(2)}</p>
+                                <p><strong>Status:</strong> ${status.status}</p>
+                            </div>
+                        `;
+                        feeAmountGroup.style.display = 'none';
+                        confirmBtn.style.display = 'none';
+                        openModal();
+                        return;
+                    } else {
+                        // Exists but unpaid – allow update
+                        modalTitle.innerText = 'Update Current Month Fee';
+                        modalSub.innerText = 'This month\'s fee is unpaid. You can update the amount.';
+                        defaultFeeDisplay.innerText = `Current fee: ₹${status.amount.toFixed(2)} (unpaid)`;
+                        amountInput.placeholder = `Leave empty to keep ₹${status.amount.toFixed(2)}`;
+                        confirmBtn.innerText = 'Update Fee';
+                        openModal();
+                        return;
+                    }
+                }
+
+                // No fee – create
+                if (defaultFee === 0) {
+                    defaultFeeDisplay.innerText = 'No fee structure set — enter a custom amount';
+                    amountInput.placeholder = 'Enter custom amount';
+                } else {
+                    defaultFeeDisplay.innerText = `Default fee: ₹${defaultFee.toFixed(2)}`;
+                    amountInput.placeholder = 'Leave empty for default';
+                }
+                confirmBtn.innerText = 'Generate';
+                openModal();
+
+            } catch (e) {
+                console.error('showFeeModal error:', e);
+                alert('Failed to load fee status: ' + e.message);
+            }
+        }
+
+        async function generateWithCustom(customAmount) {
+            confirmBtn.disabled = true;
+            const originalText = confirmBtn.innerText;
+            confirmBtn.innerText = 'Processing…';
+            try {
+                const formData = new URLSearchParams();
+                formData.append('student_id', studentId);
+                if (customAmount !== undefined && customAmount !== null && customAmount !== '') {
+                    formData.append('custom_amount', customAmount);
+                }
+                const resp = await fetch('/api/manual-generate-single/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData.toString()
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    alert(data.message || 'Fee processed successfully.');
+                    await loadFeeRecords();
+                    await loadPayments();
+                    window.location.href = `/portal/${schema}/fee/collection/${studentId}/`;
+                }
+            } catch (e) {
+                console.error('Generation error:', e);
+                alert('Error: ' + e.message);
+            } finally {
+                confirmBtn.disabled = false;
+                confirmBtn.innerText = originalText;
+                closeModal();
+            }
+        }
+
+        // ── Event bindings ──
+        document.getElementById('genFeeBtn').addEventListener('click', showFeeModal);
+
+        confirmBtn.addEventListener('click', function() {
+            const raw = amountInput.value.trim();
+            if (raw === '') {
+                generateWithCustom(undefined);
+            } else {
+                const num = parseFloat(raw);
+                if (isNaN(num) || num <= 0) {
+                    alert('Please enter a valid positive amount.');
+                    return;
+                }
+                generateWithCustom(num);
+            }
         });
-        const data = await resp.json();
-        if (data.error) {
-            alert('Error: ' + data.error);
-        } else {
-            alert(data.message);
-            await refreshData();
-            // Redirect to fee collection page for this student
-            window.location.href = `/portal/${schema}/fee/collection/${studentId}/`;
+
+        cancelBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) closeModal();
+        });
+
+        // ── Mobile redirect ──
+        if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+            const currentPath = window.location.pathname.replace(/\/+$|\?.*$/, '');
+            const mobilePath = "{% url 'mobile_student_profile' schema_name=tenant.schema_name student_id=student.id %}";
+            if (currentPath !== mobilePath) {
+                window.location.replace(mobilePath);
+            }
         }
-    } catch(e) {
-        console.error('Generation error:', e);
-        alert('Error generating fee: ' + e.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerText = originalText;
-        closeModal();
-    }
-}
 
-confirmBtn.onclick = function() {
-    let customAmount = amountInput.value.trim();
-    if (customAmount === '') {
-        generateWithCustom(undefined);
-    } else {
-        let num = parseFloat(customAmount);
-        if (isNaN(num) || num <= 0) {
-            alert('Please enter a valid positive amount');
-            return;
-        }
-        generateWithCustom(num);
-    }
-};
-cancelBtn.onclick = closeModal;
-window.onclick = function(event) {
-    if (event.target === modal) closeModal();
-};
+        // ── Initial load ──
+        loadFeeRecords();
+        loadPayments();
 
-// Attach click handler to generate button
-const genBtn = document.getElementById('genFeeBtn');
-if (genBtn) {
-    genBtn.addEventListener('click', showFeeModal);
-    console.log('[DEBUG] Generate button event attached');
-} else {
-    console.error('[ERROR] Button with id "genFeeBtn" not found!');
-}
+        // Expose for any inline onclick (voucher)
+        window.openVoucherModal = function(studentId, schema) {
+            // Voucher modal logic – placeholder
+            alert('Voucher modal for student ' + studentId + ' (schema: ' + schema + ')');
+        };
 
-// Load initial data
-loadFeeRecords();
-loadPayments();
-</script>
-
-<script>
-    if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
-        const currentPath = window.location.pathname.replace(/\/+$|\?.*$/, '');
-        const mobilePath = "{% url 'mobile_student_profile' schema_name=tenant.schema_name student_id=student.id %}";
-        if (currentPath !== mobilePath) {
-            window.location.replace(mobilePath);
-        }
-    }
+    })();
 </script>
 
 {% endblock %}
