@@ -61,21 +61,13 @@ def get_staff_list_context(request, schema_name):
     query = request.GET.get('q', '')
     department = request.GET.get('department', '')
     status = request.GET.get('status', '')
-
     page_number = request.GET.get('page', 1)
 
     with schema_context(schema_name):
         staff_qs = Staff.objects.all()
         if class_id:
             staff_qs = staff_qs.filter(Q(class_teacher_of__id=class_id) | Q(class_subjects__school_class_id=class_id)).distinct()
-        if class_id:
-            # Filter staff who are either class teacher or subject teacher for this class
-            staff_qs = staff_qs.filter(
-                Q(class_teacher_of__id=class_id) |
-                Q(class_subjects__school_class_id=class_id)
-            ).distinct()
         if section:
-            # If section provided, filter further via classes with that section
             class_ids_with_section = SchoolClass.objects.filter(section=section).values_list('id', flat=True)
             staff_qs = staff_qs.filter(
                 Q(class_teacher_of__id__in=class_ids_with_section) |
@@ -97,16 +89,13 @@ def get_staff_list_context(request, schema_name):
 
         staff_qs = staff_qs.order_by('-created_on')
 
-        # Get all classes for filter dropdown
         classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section')
         sections = classes.values_list('section', flat=True).distinct().order_by('section')
-
         paginator = Paginator(staff_qs, 20)
         page_obj = paginator.get_page(page_number)
 
         departments = list(Staff.objects.values_list('department', flat=True).distinct().order_by('department'))
         status_choices = Staff.STATUS_CHOICES
-        classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section')
         total_active = Staff.objects.filter(status='active').count()
 
     return {
@@ -115,7 +104,6 @@ def get_staff_list_context(request, schema_name):
         'sections': sections,
         'selected_class_id': class_id,
         'selected_section': section,
-
         'staff': page_obj,
         'departments': departments,
         'status_choices': status_choices,
@@ -124,7 +112,6 @@ def get_staff_list_context(request, schema_name):
         'total_active': total_active,
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
     }
-
 # ========== STAFF PROFILE ==========
 
 @require_tenant_type(['school'])
@@ -159,6 +146,34 @@ def get_staff_profile_context(request, schema_name, staff_id):
         else:
             credential.visible_password = None
             credential.raw_password = None
+
+    # ---- Compute assigned classes and class-teacher classes ----
+    assigned_classes = ClassSubject.objects.filter(
+        teacher=staff, is_active=True
+    ).select_related('school_class__wing_category').order_by('school_class__name', 'school_class__section')
+    class_teacher_classes = SchoolClass.objects.filter(
+        class_teacher=staff, is_active=True
+    ).select_related('wing_category').order_by('name', 'section')
+
+    # Add formatted display names based on tenant type
+    tenant = get_tenant(request, schema_name)
+    for cls in assigned_classes:
+        school_class = cls.school_class
+        if tenant.tenant_type == 'wing_school' and school_class.wing_category:
+            main = school_class.wing_category.parent
+            sub = school_class.wing_category
+            cls.display_name = f"{main.name} ({sub.name}) - {school_class.name} - {school_class.section}" if school_class.section else f"{main.name} ({sub.name}) - {school_class.name}"
+        else:
+            cls.display_name = f"{school_class.name} - {school_class.section}" if school_class.section else school_class.name
+
+    for cls in class_teacher_classes:
+        if tenant.tenant_type == 'wing_school' and cls.wing_category:
+            main = cls.wing_category.parent
+            sub = cls.wing_category
+            cls.display_name = f"{main.name} ({sub.name}) - {cls.name} - {cls.section}" if cls.section else f"{main.name} ({sub.name}) - {cls.name}"
+        else:
+            cls.display_name = f"{cls.name} - {cls.section}" if cls.section else cls.name
+
     return {
         'tenant': tenant,
         'classes': classes,
@@ -168,8 +183,9 @@ def get_staff_profile_context(request, schema_name, staff_id):
         'staff': staff,
         'credential': credential,
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
+        'assigned_classes': assigned_classes,
+        'class_teacher_classes': class_teacher_classes,
     }
-
 @require_tenant_type(['school'])
 @require_school_feature('staff_management')
 @require_http_methods(['POST'])
@@ -260,8 +276,7 @@ def staff_add(request, schema_name):
         'tenant': tenant,
         'form': form,
         'departments': departments,
-        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
-    }
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None}
     return render(request, 'tenant/staff_form.html', context)
 
 @require_tenant_type(['school'])
@@ -282,8 +297,7 @@ def staff_add_mobile(request, schema_name):
         'tenant': tenant,
         'form': form,
         'departments': departments,
-        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
-    }
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None}
     return render(request, 'mobile/staff_form.html', context)
 
 @require_tenant_type(['school'])
@@ -308,8 +322,7 @@ def staff_edit(request, schema_name, staff_id):
         'form': form,
         'staff': staff,
         'departments': departments,
-        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
-    }
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None}
     return render(request, 'tenant/staff_form.html', context)
 
 # ========== STAFF SEARCH API ==========

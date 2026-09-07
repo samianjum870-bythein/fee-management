@@ -24,7 +24,22 @@
         <span>{{ staff.full_name|slice:":1"|upper }}</span>
     </div>
     <div class="profile-meta">
-        <div class="meta-item"><span class="label">Staff ID</span><span class="value">{{ staff.staff_id }}</span></div>
+        <div class="meta-item"><span class="label">Staff ID</span><span class="value">{{ staff.staff_id }}</span>
+                <div class="meta-item">
+            <span class="label">Class Teacher Of</span>
+            <span class="value">
+                {% if class_teacher_classes %}
+                    {% for cls in class_teacher_classes %}
+                        <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ cls.id }}{% if tenant.tenant_type == 'wing_school' and cls.wing_category %}&category_id={{ cls.wing_category.id }}{% endif %}" style="color: var(--text); text-decoration: none; font-weight: 600;">
+                            {{ cls.display_name }}
+                        </a>{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </span>
+        </div>
+    </div>
         <div class="meta-item"><span class="label">Job Title</span><span class="value">{{ staff.job_title }}</span></div>
         <div class="meta-item"><span class="label">Department</span><span class="value">{{ staff.get_department_display }}</span></div>
         <div class="meta-item"><span class="label">Status</span><span class="value"><span class="status-badge status-{{ staff.status }}">{{ staff.get_status_display }}</span></span></div>
@@ -44,6 +59,28 @@
 </div>
 
 {% if credential %}
+
+<div class="card" style="background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 1rem; box-shadow: var(--shadow-sm); margin-top: 1.5rem;">
+    <h3 style="font-size: 1.1rem; font-weight: 600; margin-top: 0; margin-bottom: 0.75rem; border-bottom: 2px solid var(--border); padding-bottom: 0.4rem;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 0.3rem;"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        Assigned Subjects
+    </h3>
+    {% if assigned_classes %}
+        <ul style="list-style: none; padding: 0; margin: 0;">
+        {% for cls in assigned_classes %}
+            <li style="padding: 0.3rem 0; border-bottom: 1px solid var(--border-alt, #f0f0f0);">
+                <a href="{% url 'student_list' schema_name=tenant.schema_name %}?class_id={{ cls.school_class.id }}{% if tenant.tenant_type == 'wing_school' and cls.school_class.wing_category %}&category_id={{ cls.school_class.wing_category.id }}{% endif %}" style="color: var(--primary); text-decoration: none; font-weight: 500;">
+                    {{ cls.display_name }}
+                </a>
+                <span style="color: var(--muted); font-size: 0.8rem; margin-left: 0.5rem;">({{ cls.subject.name }})</span>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p style="color: var(--muted);">No subject assignments yet.</p>
+    {% endif %}
+</div>
+
 <div class="info-card" style="margin-top:1.5rem;">
     <h3>Portal Credentials</h3>
     <div style="display:grid; gap:0.75rem; margin-top:1rem;">
@@ -176,4 +213,6 @@
     color: var(--text);
 }
 </style>
+
+
 {% endblock %}

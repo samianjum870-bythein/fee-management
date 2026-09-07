@@ -12,6 +12,19 @@
     --card-shadow: 0 8px 24px rgba(0,0,0,0.06);
   }
 
+  /* ---- Blinking animation for pending amount ---- */
+  @keyframes blinkPulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.05); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .pending-blink {
+    animation: blinkPulse 1.2s ease-in-out infinite;
+    color: #b91c1c;  /* dark red */
+    font-weight: 800;
+    display: inline-block;
+  }
+
   .profile-hero {
     background: var(--accent);
     border-radius: var(--card-radius);
@@ -55,11 +68,21 @@
     z-index: 2;
   }
   .profile-hero-text h1 {
-    font-size: 1.5rem;
-    font-weight: 700;
+    font-size: 1.8rem;          /* bigger student name */
+    font-weight: 800;
     margin: 0;
     line-height: 1.2;
     letter-spacing: -0.02em;
+  }
+  .profile-hero-text .father-line {
+    font-size: 1.1rem;          /* father name also bigger */
+    font-weight: 500;
+    opacity: 0.9;
+    margin-top: 2px;
+  }
+  .profile-hero-text .father-line .relation-prefix {
+    opacity: 0.75;
+    font-weight: 400;
   }
   .profile-hero-text .sub {
     font-size: 0.9rem;
@@ -94,7 +117,6 @@
     transition: all 0.2s;
     background: rgba(255,255,255,0.12);
     color: white;
-    ;
     border: 1px solid rgba(255,255,255,0.08);
     display: inline-flex;
     align-items: center;
@@ -151,6 +173,10 @@
     font-weight: 700;
     margin-top: 6px;
     color: var(--text);
+  }
+  /* ensure the blink class overrides colour */
+  .stat-card .value .pending-blink {
+    color: #b91c1c !important;
   }
 
   /* Info Grid */
@@ -286,7 +312,6 @@
     align-items: center;
     justify-content: center;
     z-index: 999;
-    ;
     padding: 16px;
   }
   .modal-overlay.active {
@@ -425,6 +450,17 @@
     <div class="profile-avatar">{{ student.name|slice:":1"|upper }}</div>
     <div class="profile-hero-text">
       <h1>{{ student.name }}</h1>
+      <!-- Father's name with "Son of" / "Daughter of" based on gender -->
+      <div class="father-line">
+        {% if student.gender == 'male' %}
+          <span class="relation-prefix">Son of</span>
+        {% elif student.gender == 'female' %}
+          <span class="relation-prefix">Daughter of</span>
+        {% else %}
+          <span class="relation-prefix">Child of</span>
+        {% endif %}
+        <strong>{{ student.father_name }}</strong>
+      </div>
       <div class="sub">
         <span>{{ student.grade }}</span>
         <span>•</span>
@@ -486,7 +522,13 @@
       </svg>
       Pending
     </div>
-    <div class="value">₹{{ pending_total|floatformat:2 }}</div>
+    <div class="value">
+      {% if pending_total > 0 %}
+        <span class="pending-blink">₹{{ pending_total|floatformat:2 }}</span>
+      {% else %}
+        ₹{{ pending_total|floatformat:2 }}
+      {% endif %}
+    </div>
   </div>
   <div class="stat-card">
     <div class="label">
