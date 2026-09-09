@@ -55,6 +55,10 @@
         .timetable-grid table { font-size: 0.75rem; }
         .timetable-grid th, .timetable-grid td { padding: 0.3rem; }
     }
+    /* Day schedule rows */
+    .day-schedule-row { display: inline-flex; align-items: center; gap: 0.5rem; background: var(--surface-alt); padding: 0.2rem 0.6rem; border-radius: 2rem; margin: 0.2rem; }
+    .day-schedule-row .day-label { font-weight: 500; }
+    .empty-row { color: var(--muted); text-align: center; padding: 1rem; }
 </style>
 {% endblock %}
 
@@ -72,36 +76,75 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <h3>Academic Calendar</h3>
     </div>
-    <form id="calendarForm" class="grid-2">
+    <div class="grid-2">
         <div>
-            <label class="mb-1" style="font-weight:600;">Working Days</label>
-            <div class="flex" id="workingDaysCheckboxes">
-                {% for val, label in days_of_week %}
-                <label style="display:flex; align-items:center; gap:0.2rem; font-size:0.8rem;">
-                    <input type="checkbox" name="working_day" value="{{ val }}" {% if val in working_days %}checked{% endif %}>
-                    {{ label }}
-                </label>
+            <label style="font-weight:600;">Add Working Days</label>
+            <div class="flex">
+                <select id="daySelector" class="form-control" style="width:auto;">
+                    <option value="">-- Select Day --</option>
+                    {% for val, label in days_of_week %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" id="addDayBtn" class="btn-primary btn-sm">Add Day</button>
+            </div>
+            <div id="workingDaysList" class="mt-1">
+                {% for day, schedule in day_schedules.items %}
+                <div class="day-schedule-row" data-day="{{ day }}">
+                    <span class="day-label">{{ schedule.get_day_of_week_display }}</span>
+                    <button type="button" class="btn-danger btn-sm remove-day-btn" data-day="{{ day }}">×</button>
+                </div>
                 {% endfor %}
             </div>
         </div>
         <div>
             <div class="flex" style="justify-content:space-between;">
                 <div>
-                    <label style="font-weight:600;">School Start</label>
-                    <input type="time" name="school_start" value="{{ calendar.school_start_time|time:'H:i' }}" class="form-control">
+                    <label style="font-weight:600;">Universal Start</label>
+                    <input type="time" id="universalStart" value="{{ calendar.school_start_time|time:'H:i' }}" class="form-control">
                 </div>
                 <div>
-                    <label style="font-weight:600;">School End</label>
-                    <input type="time" name="school_end" value="{{ calendar.school_end_time|time:'H:i' }}" class="form-control">
+                    <label style="font-weight:600;">Universal End</label>
+                    <input type="time" id="universalEnd" value="{{ calendar.school_end_time|time:'H:i' }}" class="form-control">
                 </div>
                 <div>
-                    <label style="font-weight:600;">Period Duration (min)</label>
-                    <input type="number" name="period_duration" value="{{ calendar.period_duration }}" class="form-control" style="width:80px;">
+                    <label style="font-weight:600;">Universal Periods</label>
+                    <input type="number" id="universalPeriods" value="{{ calendar.period_duration }}" class="form-control" style="width:80px;">
                 </div>
+                <button type="button" id="applyUniversalBtn" class="btn-secondary btn-sm">Apply to All</button>
             </div>
-            <button type="submit" class="btn-primary mt-1">Save Calendar</button>
         </div>
-    </form>
+    </div>
+    <div id="dayScheduleTable" class="mt-2">
+        <table class="data-table" style="width:100%;">
+            <thead>
+                <tr>
+                    <th>Day</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Periods</th>
+                    <th>Duration (min)</th>
+                </tr>
+            </thead>
+            <tbody id="dayScheduleBody">
+                {% for day, schedule in day_schedules.items %}
+                <tr data-day="{{ day }}">
+                    <td>{{ schedule.get_day_of_week_display }}</td>
+                    <td><input type="time" name="start" value="{{ schedule.start_time|time:'H:i' }}" class="form-control schedule-input" data-day="{{ day }}" data-field="start"></td>
+                    <td><input type="time" name="end" value="{{ schedule.end_time|time:'H:i' }}" class="form-control schedule-input" data-day="{{ day }}" data-field="end"></td>
+                    <td><input type="number" name="periods" value="{{ schedule.periods }}" class="form-control schedule-input" data-day="{{ day }}" data-field="periods" min="1"></td>
+                    <td><input type="number" name="duration" value="{{ schedule.duration }}" class="form-control schedule-input" data-day="{{ day }}" data-field="duration" min="1"></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5" class="empty-row">No days added yet. Select a day and click "Add Day".</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="form-actions mt-2">
+        <button type="button" id="saveCalendarBtn" class="btn-primary">Save Calendar</button>
+        <button type="button" id="resetCalendarBtn" class="btn-secondary">Reset Calendar</button>
+    </div>
 </div>
 
 <!-- ====== HOLIDAYS ====== -->
@@ -230,34 +273,202 @@
         }
         return cookieValue;
     }
+
     const csrf = getCsrfToken();
     const schema = '{{ tenant.schema_name }}';
 
-    // ====== CALENDAR ======
-    document.getElementById('calendarForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const workingDays = Array.from(document.querySelectorAll('input[name="working_day"]:checked')).map(el => parseInt(el.value));
-        const data = {
-            working_days: workingDays,
-            school_start_time: this.school_start.value,
-            school_end_time: this.school_end.value,
-            period_duration: parseInt(this.period_duration.value)
-        };
-        fetch(`/portal/${schema}/api/timetable/calendar/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-            body: JSON.stringify(data)
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                alert('Calendar updated successfully.');
-            } else {
-                alert('Error: ' + (data.error || 'Unknown error'));
+    // ====== ACADEMIC CALENDAR JS ======
+    (function() {
+        'use strict';
+
+        const daySelector = document.getElementById('daySelector');
+        const addDayBtn = document.getElementById('addDayBtn');
+        const workingDaysList = document.getElementById('workingDaysList');
+        const dayScheduleBody = document.getElementById('dayScheduleBody');
+        const universalStart = document.getElementById('universalStart');
+        const universalEnd = document.getElementById('universalEnd');
+        const universalPeriods = document.getElementById('universalPeriods');
+        const applyUniversalBtn = document.getElementById('applyUniversalBtn');
+        const saveCalendarBtn = document.getElementById('saveCalendarBtn');
+        const resetCalendarBtn = document.getElementById('resetCalendarBtn');
+
+        // Helper: calculate duration
+        function calculateDuration(startStr, endStr, periods) {
+            if (!startStr || !endStr || !periods) return 45;
+            const start = new Date('1970-01-01T' + startStr + ':00');
+            const end = new Date('1970-01-01T' + endStr + ':00');
+            const diff = (end - start) / 60000;
+            if (diff <= 0) return 45;
+            return Math.round(diff / periods);
+        }
+
+        function updateDuration(row) {
+            const start = row.querySelector('input[name="start"]');
+            const end = row.querySelector('input[name="end"]');
+            const periods = row.querySelector('input[name="periods"]');
+            const duration = row.querySelector('input[name="duration"]');
+            if (start && end && periods && duration) {
+                const val = calculateDuration(start.value, end.value, periods.value);
+                if (val > 0) duration.value = val;
             }
-        })
-        .catch(err => alert('Error: ' + err.message));
-    });
+        }
+
+        function removeDay(day) {
+            if (!confirm('Remove this day from schedule?')) return;
+            const row = document.querySelector(`.day-schedule-row[data-day="${day}"]`);
+            if (row) row.remove();
+            const tr = document.querySelector(`#dayScheduleBody tr[data-day="${day}"]`);
+            if (tr) tr.remove();
+            if (dayScheduleBody.children.length === 0) {
+                dayScheduleBody.innerHTML = '<tr><td colspan="5" class="empty-row">No days added yet. Select a day and click "Add Day".</td></tr>';
+            }
+        }
+
+        // Add day
+        if (addDayBtn) {
+            addDayBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const day = parseInt(daySelector.value);
+                if (isNaN(day) || day === '') {
+                    alert('Please select a day.');
+                    return;
+                }
+                if (document.querySelector(`.day-schedule-row[data-day="${day}"]`)) {
+                    alert('Day already added.');
+                    return;
+                }
+                const dayLabel = daySelector.options[daySelector.selectedIndex].text;
+                // Add to working days list
+                const row = document.createElement('div');
+                row.className = 'day-schedule-row';
+                row.dataset.day = day;
+                row.innerHTML = `<span class="day-label">${dayLabel}</span><button type="button" class="btn-danger btn-sm remove-day-btn" data-day="${day}">×</button>`;
+                workingDaysList.appendChild(row);
+
+                // Add to table
+                const tr = document.createElement('tr');
+                tr.dataset.day = day;
+                const startVal = universalStart.value || '08:00';
+                const endVal = universalEnd.value || '14:00';
+                const periodsVal = universalPeriods.value || 8;
+                tr.innerHTML = `
+                    <td>${dayLabel}</td>
+                    <td><input type="time" name="start" value="${startVal}" class="form-control schedule-input" data-day="${day}" data-field="start"></td>
+                    <td><input type="time" name="end" value="${endVal}" class="form-control schedule-input" data-day="${day}" data-field="end"></td>
+                    <td><input type="number" name="periods" value="${periodsVal}" class="form-control schedule-input" data-day="${day}" data-field="periods" min="1"></td>
+                    <td><input type="number" name="duration" value="${calculateDuration(startVal, endVal, periodsVal)}" class="form-control schedule-input" data-day="${day}" data-field="duration" min="1"></td>
+                `;
+                dayScheduleBody.appendChild(tr);
+                const emptyRow = dayScheduleBody.querySelector('.empty-row');
+                if (emptyRow) emptyRow.remove();
+
+                // Attach remove event to the new remove button
+                tr.querySelector('.remove-day-btn').addEventListener('click', function() {
+                    const d = parseInt(this.dataset.day);
+                    removeDay(d);
+                });
+
+                updateDuration(tr);
+                daySelector.value = '';
+            });
+        }
+
+        // Remove day - delegate to existing buttons
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('remove-day-btn')) {
+                const day = parseInt(e.target.dataset.day);
+                removeDay(day);
+            }
+        });
+
+        // Auto-update duration on change
+        document.addEventListener('change', function(e) {
+            const target = e.target;
+            if (target.classList.contains('schedule-input')) {
+                const row = target.closest('tr');
+                if (row) {
+                    const field = target.dataset.field;
+                    if (field === 'start' || field === 'end' || field === 'periods') {
+                        updateDuration(row);
+                    }
+                }
+            }
+        });
+
+        // Apply universal settings
+        if (applyUniversalBtn) {
+            applyUniversalBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const start = universalStart.value;
+                const end = universalEnd.value;
+                const periods = universalPeriods.value;
+                const rows = dayScheduleBody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const startInput = row.querySelector('input[name="start"]');
+                    const endInput = row.querySelector('input[name="end"]');
+                    const periodsInput = row.querySelector('input[name="periods"]');
+                    if (startInput) startInput.value = start;
+                    if (endInput) endInput.value = end;
+                    if (periodsInput) periodsInput.value = periods;
+                    updateDuration(row);
+                });
+            });
+        }
+
+        // Save calendar
+        if (saveCalendarBtn) {
+            saveCalendarBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const rows = dayScheduleBody.querySelectorAll('tr');
+                const schedules = [];
+                rows.forEach(row => {
+                    const day = parseInt(row.dataset.day);
+                    const start = row.querySelector('input[name="start"]').value;
+                    const end = row.querySelector('input[name="end"]').value;
+                    const periods = parseInt(row.querySelector('input[name="periods"]').value);
+                    const duration = parseInt(row.querySelector('input[name="duration"]').value);
+                    if (day && start && end && periods && duration) {
+                        schedules.push({ day, start, end, periods, duration });
+                    }
+                });
+                if (schedules.length === 0) {
+                    alert('No day schedules to save.');
+                    return;
+                }
+                if (!confirm('Save these schedules? This will overwrite existing data.')) return;
+                fetch(`/portal/${schema}/api/timetable/day-schedules/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+                    body: JSON.stringify({ schedules: schedules })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Calendar saved successfully.');
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(err => alert('Error: ' + err.message));
+            });
+        }
+
+        // Reset calendar
+        if (resetCalendarBtn) {
+            resetCalendarBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (!confirm('Reset all day schedules? This action cannot be undone.')) return;
+                dayScheduleBody.querySelectorAll('tr').forEach(tr => {
+                    if (!tr.classList.contains('empty-row')) tr.remove();
+                });
+                workingDaysList.querySelectorAll('.day-schedule-row').forEach(row => row.remove());
+                dayScheduleBody.innerHTML = '<tr><td colspan="5" class="empty-row">No days added yet. Select a day and click "Add Day".</td></tr>';
+                alert('Reset done. Click "Save Calendar" to apply changes to the server.');
+            });
+        }
+    })();
+
 
     // ====== HOLIDAYS ======
     document.getElementById('addHolidayBtn').addEventListener('click', function() {
@@ -407,6 +618,26 @@
     let currentClassId = null;
     let currentDay = null;
 
+    // Get subject and teacher data from Django context (serialized as JSON)
+    const subjectData = {{ subjects_json|safe }};
+    const teacherData = {{ teachers_json|safe }};
+
+    function buildSubjectOptions(selectedId) {
+        let html = '<option value="">-- Select --</option>';
+        subjectData.forEach(s => {
+            html += `<option value="${s.id}" ${s.id == selectedId ? 'selected' : ''}>${s.name}</option>`;
+        });
+        return html;
+    }
+
+    function buildTeacherOptions(selectedId) {
+        let html = '<option value="">-- Select --</option>';
+        teacherData.forEach(t => {
+            html += `<option value="${t.id}" ${t.id == selectedId ? 'selected' : ''}>${t.full_name}</option>`;
+        });
+        return html;
+    }
+
     loadBtn.addEventListener('click', function() {
         const classId = document.getElementById('timetableClass').value;
         const day = document.getElementById('timetableDay').value;
@@ -423,16 +654,13 @@
                 timetableContainer.innerHTML = '<div class="text-muted">Error: ' + data.error + '</div>';
                 return;
             }
-            // Build table
             const entries = data.entries || [];
-            // Get list of periods for this tenant
-            // We'll fetch periods from the existing list (we have them in the page)
+            // Get periods from the page
             const periodItems = document.querySelectorAll('.period-item');
             if (periodItems.length === 0) {
                 timetableContainer.innerHTML = '<div class="text-muted">No periods defined. Please add periods first.</div>';
                 return;
             }
-            let html = '<div class="timetable-grid"><table><thead><tr><th>Period</th><th>Subject</th><th>Teacher</th><th>Academic Year</th></tr></thead><tbody>';
             const periodMap = {};
             periodItems.forEach(el => {
                 const id = parseInt(el.dataset.id);
@@ -440,82 +668,38 @@
                 const time = el.querySelector('.time').textContent;
                 periodMap[id] = { order, time };
             });
-            // Sort periods by order
             const sortedPeriods = Object.values(periodMap).sort((a, b) => a.order - b.order);
-            // Map entries by period_id
             const entryMap = {};
             entries.forEach(e => {
                 entryMap[e.period_id] = e;
             });
-            // Get subject and teacher options from the page
-            const subjectOptions = document.querySelectorAll('#timetableContainer select[name="subject"]');
-            // We'll generate dropdowns on the fly
-            const subjects = Array.from(document.querySelectorAll('select[name="subject"]')?.[0]?.options || []);
-            const teachers = Array.from(document.querySelectorAll('select[name="teacher"]')?.[0]?.options || []);
-            // Actually we don't have those selects in the page. We'll build them from the server-side context.
-            // We'll use the same lists from the template: classes, subjects, teachers are available in context.
-            // We'll generate selects using JS with data from the page.
-            // We'll create hidden data from Django template.
-            const subjectData = JSON.parse('{{ subjects|safe }}'.replace(/&quot;/g, '"'));
-            const teacherData = JSON.parse('{{ teachers|safe }}'.replace(/&quot;/g, '"'));
-            // But subjects and teachers are model objects, not JSON. We need to pass them as JSON.
-            // We'll embed them as JSON in the template.
-            // For simplicity, we'll use the server-side to render the options via Django template.
-            // Instead, we'll send a separate request to get subject/teacher lists? Or we can include in the page as JS variables.
-            // We'll just hard-code the options using Django template tags? But we are in the template, we can render them.
-            // We'll create two hidden selects for options.
-    </script>
-    <!-- Hidden selects for options -->
-    <select id="subjectOptions" style="display:none;">
-        {% for subj in subjects %}
-        <option value="{{ subj.id }}">{{ subj.name }}</option>
-        {% endfor %}
-    </select>
-    <select id="teacherOptions" style="display:none;">
-        {% for t in teachers %}
-        <option value="{{ t.id }}">{{ t.full_name }}</option>
-        {% endfor %}
-    </select>
-    <script>
-            // Continue building timetable
-            const subjectOpts = document.getElementById('subjectOptions').innerHTML;
-            const teacherOpts = document.getElementById('teacherOptions').innerHTML;
+
+            let html = '<div class="timetable-grid"><table><thead><tr><th>Period</th><th>Subject</th><th>Teacher</th><th>Academic Year</th></tr></thead><tbody>';
             for (let p of sortedPeriods) {
-                const entry = entryMap[p.order] || {};
                 const periodId = Object.keys(periodMap).find(key => periodMap[key].order === p.order);
+                const entry = entryMap[parseInt(periodId)] || {};
+                const subjectId = entry.subject_id || '';
+                const teacherId = entry.teacher_id || '';
+                const academicYear = entry.academic_year || '';
                 html += `<tr>
                     <td class="period-label">${p.time}</td>
                     <td>
                         <select name="subject" data-period="${periodId}" class="form-control">
-                            <option value="">-- Select --</option>
-                            ${subjectOpts}
+                            ${buildSubjectOptions(subjectId)}
                         </select>
                     </td>
                     <td>
                         <select name="teacher" data-period="${periodId}" class="form-control">
-                            <option value="">-- Select --</option>
-                            ${teacherOpts}
+                            ${buildTeacherOptions(teacherId)}
                         </select>
                     </td>
                     <td>
-                        <input type="text" name="academic_year" data-period="${periodId}" value="${entry.academic_year || ''}" class="form-control" placeholder="e.g., 2024-2025">
+                        <input type="text" name="academic_year" data-period="${periodId}" value="${academicYear}" class="form-control" placeholder="e.g., 2024-2025">
                     </td>
                 </tr>`;
             }
             html += '</tbody></table></div>';
             timetableContainer.innerHTML = html;
-            // Pre-fill existing values
-            entries.forEach(e => {
-                const row = timetableContainer.querySelector(`tr`); // We need to map by period order
-                // We'll use the period_id to identify row? We can map by period ID.
-                const periodId = e.period_id;
-                const rowEl = timetableContainer.querySelector(`select[name="subject"][data-period="${periodId}"]`);
-                if (rowEl) rowEl.value = e.subject_id;
-                const teacherEl = timetableContainer.querySelector(`select[name="teacher"][data-period="${periodId}"]`);
-                if (teacherEl) teacherEl.value = e.teacher_id;
-                const yearEl = timetableContainer.querySelector(`input[name="academic_year"][data-period="${periodId}"]`);
-                if (yearEl) yearEl.value = e.academic_year;
-            });
         })
         .catch(err => {
             timetableContainer.innerHTML = '<div class="text-muted">Error loading timetable: ' + err.message + '</div>';

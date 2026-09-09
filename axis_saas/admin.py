@@ -480,3 +480,10 @@ class PeriodAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
 class TimetableEntryAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('school_class', 'day_of_week', 'period', 'subject', 'teacher', 'academic_year')
     list_filter = ('school_class', 'day_of_week', 'teacher')
+
+# Register DaySchedule
+from .models import DaySchedule
+@admin.register(DaySchedule)
+class DayScheduleAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('academic_calendar', 'day_of_week', 'start_time', 'end_time', 'periods', 'duration')
+    list_filter = ('academic_calendar', 'day_of_week')

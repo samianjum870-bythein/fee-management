@@ -840,3 +840,36 @@ class TimetableEntry(models.Model):
     def __str__(self):
         return f"{self.school_class} - {self.get_day_of_week_display()} - {self.period} - {self.subject} ({self.teacher})"
 
+
+class DaySchedule(models.Model):
+    """Per‑day schedule for a tenant's academic calendar."""
+    DAY_CHOICES = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+    academic_calendar = models.ForeignKey(
+        'AcademicCalendar', on_delete=models.CASCADE,
+        related_name='day_schedules'
+    )
+    day_of_week = models.IntegerField(choices=DAY_CHOICES)
+    start_time = models.TimeField(default='08:00:00')
+    end_time = models.TimeField(default='14:00:00')
+    periods = models.PositiveIntegerField(default=8, help_text="Number of periods on this day.")
+    duration = models.PositiveIntegerField(default=45, help_text="Duration per period in minutes.")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [('academic_calendar', 'day_of_week')]
+        ordering = ['day_of_week']
+
+    def __str__(self):
+        return f"{self.get_day_of_week_display()} - {self.start_time} to {self.end_time} ({self.periods} periods)"
+
+
+# Update AcademicCalendar to keep universal defaults but remove direct fields
+# The existing fields school_start_time, school_end_time, period_duration will be kept as universal fallbacks.

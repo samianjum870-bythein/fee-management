@@ -12,7 +12,7 @@ from django_tenants.utils import schema_context
 from .models import SchoolClient
 
 from .views import mobile_fee_structure, add_student, add_student_mobile, dashboard, debug_payments_api, defaulters, edit_student, family_payment, fee_collection, mobile_fee_collection, fee_receipt, mobile_fee_receipt, fee_settings, fee_status_api, fee_structure, manual_generate_api, manual_generate_single_api, reports, settings, student_fee_records_api, student_list, student_payments_api, student_current_fee_status_api, student_profile, student_search_api, stock_management, product_detail, mobile_stock_management, mobile_product_detail, add_category, delete_category, add_product, delete_product, sell_separately, mobile_sell_separately, mobile_dashboard, mobile_more, mobile_student_list, mobile_student_profile, mobile_defaulters, mobile_reports, mobile_fee_settings, mobile_settings, vouchers_list, mobile_vouchers_list, dismiss_notification, notifications_list_api, mark_notification_read_api, mark_all_notifications_read_api, global_search_api, product_list_api, student_list_api, receipt_list_api, fee_collection_list_api, sync_offline_student_api, class_management, mobile_class_management, add_class, edit_class, delete_class, add_subject, edit_subject, delete_subject, assign_subject, edit_assignment, delete_assignment
-from .views.timetable import timetable_management, api_update_calendar, api_add_holiday, api_delete_holiday, api_add_period, api_delete_period, api_update_period, api_get_timetable, api_save_timetable
+from .views.timetable import timetable_management, api_update_calendar, api_add_holiday, api_delete_holiday, api_add_period, api_delete_period, api_update_period, api_get_timetable, api_save_timetable, api_save_day_schedules
 from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
 from .views.staff_portal import staff_login, staff_logout
 from .views.classes import class_strength_api, assign_class_teacher
@@ -304,4 +304,6 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/timetable/get/', portal_wrapper(login_required_for_schema(api_get_timetable)), name='api_timetable_get'),
     path('portal/<slug:schema_name>/api/timetable/save/', portal_wrapper(login_required_for_schema(api_save_timetable)), name='api_timetable_save'),
 
+
+    path('portal/<slug:schema_name>/api/timetable/day-schedules/', portal_wrapper(login_required_for_schema(api_save_day_schedules)), name='api_timetable_day_schedules'),
 ]

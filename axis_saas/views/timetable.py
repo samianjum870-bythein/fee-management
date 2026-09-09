@@ -1,46 +1,52 @@
-"""
-AXIS views – timetable module.
-"""
-
+# axis_saas/views/timetable.py
 import json
 import logging
-from datetime import datetime, time
+from datetime import datetime
 
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse, Http404
-from django.contrib import messages
+from django.shortcuts import render, get_object_or_404
+from django.http import JsonResponse
 from django.db import transaction, IntegrityError
-from django.db.models import Q
 from django.core.exceptions import ValidationError
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
+from django.core.serializers import serialize
 
 from ..models import (
     AcademicCalendar, Holiday, Period, TimetableEntry,
-    SchoolClass, Subject, Staff
+    SchoolClass, Subject, Staff, DaySchedule
 )
 from .helpers import get_tenant, require_tenant_type, require_school_feature
-from django.core.serializers.json import DjangoJSONEncoder
 
 logger = logging.getLogger(__name__)
+
 
 # ========== MAIN PAGE ==========
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
 def timetable_management(request, schema_name):
-    """Main timetable management page."""
     tenant = get_tenant(request, schema_name)
     with schema_context(schema_name):
-        calendar, created = AcademicCalendar.objects.get_or_create(pk=1)
+        calendar, _ = AcademicCalendar.objects.get_or_create(pk=1)
         periods = Period.objects.filter(academic_calendar=calendar).order_by('order')
         holidays = Holiday.objects.all().order_by('date')
         classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section')
         subjects = Subject.objects.filter(is_active=True).order_by('name')
         teachers = Staff.objects.filter(status='active').order_by('full_name')
 
-        # Pre-fill working days as list
-        working_days = calendar.working_days or []
+        # Serialize subjects and teachers for JavaScript
+        subjects_json = [
+            {'id': s.id, 'name': s.name}
+            for s in subjects
+        ]
+        teachers_json = [
+            {'id': t.id, 'full_name': t.full_name}
+            for t in teachers
+        ]
+
+        day_schedules = {
+            ds.day_of_week: ds for ds in DaySchedule.objects.filter(academic_calendar=calendar)
+        }
 
     context = {
         'tenant': tenant,
@@ -50,7 +56,9 @@ def timetable_management(request, schema_name):
         'classes': classes,
         'subjects': subjects,
         'teachers': teachers,
-        'working_days': working_days,
+        'subjects_json': subjects_json,
+        'teachers_json': teachers_json,
+        'day_schedules': day_schedules,
         'days_of_week': TimetableEntry.DAY_CHOICES,
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
     }
@@ -64,7 +72,6 @@ def timetable_management(request, schema_name):
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
 def api_update_calendar(request, schema_name):
-    """Update Academic Calendar settings."""
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -81,7 +88,16 @@ def api_update_calendar(request, schema_name):
         if 'period_duration' in data:
             calendar.period_duration = int(data['period_duration'])
         calendar.save()
-        return JsonResponse({'success': True, 'calendar': {'id': calendar.pk, 'working_days': calendar.working_days, 'school_start_time': calendar.school_start_time.isoformat(), 'school_end_time': calendar.school_end_time.isoformat(), 'period_duration': calendar.period_duration}})
+        return JsonResponse({
+            'success': True,
+            'calendar': {
+                'id': calendar.pk,
+                'working_days': calendar.working_days,
+                'school_start_time': calendar.school_start_time.isoformat(),
+                'school_end_time': calendar.school_end_time.isoformat(),
+                'period_duration': calendar.period_duration
+            }
+        })
 
 
 @csrf_exempt
@@ -107,10 +123,21 @@ def api_add_holiday(request, schema_name):
         return JsonResponse({'error': 'Invalid date format'}, status=400)
 
     with schema_context(schema_name):
-        holiday, created = Holiday.objects.get_or_create(date=holiday_date, defaults={'name': name, 'is_recurring': is_recurring})
+        holiday, created = Holiday.objects.get_or_create(
+            date=holiday_date,
+            defaults={'name': name, 'is_recurring': is_recurring}
+        )
         if not created:
             return JsonResponse({'error': 'Holiday already exists on this date'}, status=400)
-        return JsonResponse({'success': True, 'holiday': {'id': holiday.pk, 'date': holiday.date.isoformat(), 'name': holiday.name, 'is_recurring': holiday.is_recurring}})
+        return JsonResponse({
+            'success': True,
+            'holiday': {
+                'id': holiday.pk,
+                'date': holiday.date.isoformat(),
+                'name': holiday.name,
+                'is_recurring': holiday.is_recurring
+            }
+        })
 
 
 @csrf_exempt
@@ -200,7 +227,6 @@ def api_delete_period(request, schema_name):
 
     with schema_context(schema_name):
         period = get_object_or_404(Period, pk=period_id)
-        # Check if any timetable entries use this period
         if TimetableEntry.objects.filter(period=period).exists():
             return JsonResponse({'error': 'Cannot delete period that is used in timetable'}, status=400)
         period.delete()
@@ -240,7 +266,6 @@ def api_update_period(request, schema_name):
 
     with schema_context(schema_name):
         period = get_object_or_404(Period, pk=period_id)
-        # Check if order change causes conflict
         if period.order != order:
             if Period.objects.filter(academic_calendar=period.academic_calendar, order=order).exists():
                 return JsonResponse({'error': 'A period with this order already exists'}, status=400)
@@ -265,7 +290,6 @@ def api_update_period(request, schema_name):
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
 def api_get_timetable(request, schema_name):
-    """Fetch timetable entries for a given class and day."""
     class_id = request.GET.get('class_id')
     day = request.GET.get('day')
     if not class_id or day is None:
@@ -303,10 +327,6 @@ def api_get_timetable(request, schema_name):
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
 def api_save_timetable(request, schema_name):
-    """
-    Save timetable entries for a class and day.
-    Expects JSON: { class_id, day, entries: [ { period_id, subject_id, teacher_id, academic_year } ] }
-    """
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -327,18 +347,14 @@ def api_save_timetable(request, schema_name):
     with schema_context(schema_name):
         school_class = get_object_or_404(SchoolClass, pk=class_id)
 
-        # Validate that we have all required fields
         for entry in entries_data:
             if not all(k in entry for k in ('period_id', 'subject_id', 'teacher_id')):
                 return JsonResponse({'error': 'Each entry must have period_id, subject_id, teacher_id'}, status=400)
 
-        # Use transaction to ensure consistency
         try:
             with transaction.atomic():
-                # Delete existing entries for this class and day
                 TimetableEntry.objects.filter(school_class=school_class, day_of_week=day).delete()
 
-                # Create new entries
                 new_entries = []
                 for entry_data in entries_data:
                     period = get_object_or_404(Period, pk=entry_data['period_id'])
@@ -346,20 +362,17 @@ def api_save_timetable(request, schema_name):
                     teacher = get_object_or_404(Staff, pk=entry_data['teacher_id'])
                     academic_year = entry_data.get('academic_year', '')
 
-                    # Clash detection: check if teacher is already assigned to another class at the same day and period
+                    # Clash detection
                     clash = TimetableEntry.objects.filter(
                         teacher=teacher,
                         day_of_week=day,
                         period=period
-                    ).exclude(school_class=school_class)  # exclude current class
+                    ).exclude(school_class=school_class)
                     if clash.exists():
-                        # Return error with details
                         clash_class = clash.first().school_class
                         return JsonResponse({
-                            'error': f"Teacher '{teacher.full_name}' is already assigned to {clash_class} at this period."
+                            'error': f"Teacher '{teacher.full_name}' already assigned to {clash_class} at this period."
                         }, status=400)
-
-                    # Check if subject is already assigned to another class? Not necessary, but we can allow multiple classes same subject.
 
                     new_entries.append(
                         TimetableEntry(
@@ -373,7 +386,6 @@ def api_save_timetable(request, schema_name):
                     )
 
                 TimetableEntry.objects.bulk_create(new_entries)
-
             return JsonResponse({'success': True})
         except ValidationError as e:
             return JsonResponse({'error': str(e)}, status=400)
@@ -381,3 +393,58 @@ def api_save_timetable(request, schema_name):
             logger.exception("Error saving timetable")
             return JsonResponse({'error': 'Internal server error'}, status=500)
 
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_save_day_schedules(request, schema_name):
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    schedules_data = data.get('schedules', [])
+    if not isinstance(schedules_data, list):
+        return JsonResponse({'error': 'schedules must be a list'}, status=400)
+
+    with schema_context(schema_name):
+        calendar, _ = AcademicCalendar.objects.get_or_create(pk=1)
+        existing = {ds.day_of_week: ds for ds in DaySchedule.objects.filter(academic_calendar=calendar)}
+
+        for item in schedules_data:
+            day = item.get('day')
+            if day is None:
+                continue
+            start = item.get('start')
+            end = item.get('end')
+            periods = item.get('periods')
+            duration = item.get('duration')
+            if start is None or end is None or periods is None or duration is None:
+                continue
+            try:
+                start_time = datetime.strptime(start, '%H:%M').time()
+                end_time = datetime.strptime(end, '%H:%M').time()
+                periods = int(periods)
+                duration = int(duration)
+            except (ValueError, TypeError):
+                continue
+
+            if day in existing:
+                schedule = existing[day]
+                schedule.start_time = start_time
+                schedule.end_time = end_time
+                schedule.periods = periods
+                schedule.duration = duration
+                schedule.save()
+            else:
+                DaySchedule.objects.create(
+                    academic_calendar=calendar,
+                    day_of_week=day,
+                    start_time=start_time,
+                    end_time=end_time,
+                    periods=periods,
+                    duration=duration
+                )
+
+    return JsonResponse({'success': True})
