@@ -873,3 +873,61 @@ class DaySchedule(models.Model):
     def __str__(self):
         label_part = f" ({self.label})" if self.label else ""
         return f"{self.get_day_of_week_display()}{label_part} - {self.start_time} to {self.end_time} ({self.periods} periods)"
+
+
+
+# ========== HOLIDAY MANAGEMENT MODELS ==========
+
+class WeeklyHoliday(models.Model):
+    """A holiday that repeats every week on a specific day."""
+    DAY_CHOICES = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+    day_of_week = models.IntegerField(choices=DAY_CHOICES, unique=True)
+    label = models.CharField(max_length=100, help_text="e.g., 'Weekend'")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['day_of_week']
+
+    def __str__(self):
+        return f"{self.get_day_of_week_display()} - {self.label}"
+
+
+class AnnualHoliday(models.Model):
+    """A holiday that repeats annually on a specific month/day (e.g., 14 August)."""
+    month = models.PositiveSmallIntegerField(help_text="Month (1-12)")
+    day = models.PositiveSmallIntegerField(help_text="Day (1-31)")
+    label = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['month', 'day']
+        unique_together = [['month', 'day']]
+
+    def __str__(self):
+        return f"{self.label} ({self.month}/{self.day})"
+
+
+class Vacation(models.Model):
+    """A vacation period with start and end dates (e.g., Summer/Winter vacations)."""
+    name = models.CharField(max_length=100)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['start_date']
+
+    def __str__(self):
+        return f"{self.name} ({self.start_date} - {self.end_date})"

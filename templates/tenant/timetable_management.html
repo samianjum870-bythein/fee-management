@@ -289,12 +289,108 @@
     </div>
 </div>
 
-<!-- ====== NOTE: OTHER SECTIONS (Holidays, Periods, Timetable Assignments) will be added later ====== -->
+
+<!-- ====== HOLIDAYS SECTION ====== -->
 <div class="card">
     <div class="card-header">
-        <h3>⚠️ Under Construction</h3>
+        <h3>📅 Weekly Holidays</h3>
+        <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Days that repeat every week</span>
     </div>
-    <p>The Holidays, Periods, and Timetable Assignment sections will be added in the next phase. Stay tuned.</p>
+    <div class="flex mb-1">
+        <button type="button" class="btn-primary btn-sm" id="addWeeklyHolidayBtn">+ Add Weekly Holiday</button>
+    </div>
+    <table class="schedule-table" id="weeklyHolidayTable">
+        <thead>
+            <tr>
+                <th>Day</th>
+                <th>Label</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="weeklyHolidayBody">
+            {% for holiday in weekly_holidays %}
+            <tr data-id="{{ holiday.id }}">
+                <td>{{ holiday.get_day_of_week_display }}</td>
+                <td>{{ holiday.label }}</td>
+                <td>
+                    <button class="btn-danger btn-sm delete-holiday-btn" data-type="weekly" data-id="{{ holiday.id }}">×</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="empty-row">No weekly holidays set.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>📅 Annual Holidays</h3>
+        <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Repeat every year on specific date</span>
+    </div>
+    <div class="flex mb-1">
+        <button type="button" class="btn-primary btn-sm" id="addAnnualHolidayBtn">+ Add Annual Holiday</button>
+    </div>
+    <table class="schedule-table" id="annualHolidayTable">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Label</th>
+                <th>Next Occurrence</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="annualHolidayBody">
+            {% for holiday in annual_holidays %}
+            <tr data-id="{{ holiday.id }}">
+                <td>{{ holiday.month }}/{{ holiday.day }}</td>
+                <td>{{ holiday.label }}</td>
+                <td>{{ holiday.next_occurrence|date:"Y-m-d" }}</td>
+                <td>
+                    <button class="btn-danger btn-sm delete-holiday-btn" data-type="annual" data-id="{{ holiday.id }}">×</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="empty-row">No annual holidays set.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>🏖️ Vacations</h3>
+        <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Date ranges when school is closed</span>
+    </div>
+    <div class="flex mb-1">
+        <button type="button" class="btn-primary btn-sm" id="addVacationBtn">+ Add Vacation</button>
+    </div>
+    <table class="schedule-table" id="vacationTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Description</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="vacationBody">
+            {% for vacation in vacations %}
+            <tr data-id="{{ vacation.id }}">
+                <td>{{ vacation.name }}</td>
+                <td>{{ vacation.start_date|date:'Y-m-d' }}</td>
+                <td>{{ vacation.end_date|date:'Y-m-d' }}</td>
+                <td>{{ vacation.description|default:'' }}</td>
+                <td>
+                    <button class="btn-danger btn-sm delete-holiday-btn" data-type="vacation" data-id="{{ vacation.id }}">×</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="empty-row">No vacations set.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 
 <!-- ===== SLOT MODAL ===== -->
@@ -306,7 +402,7 @@
                 <label for="modalDay">Day</label>
                 <select id="modalDay" class="form-control" required>
                     <option value="">-- Select Day --</option>
-                    {% for val, label in days_of_week %}
+                    {% for val, label in available_days %}
                     <option value="{{ val }}">{{ label }}</option>
                     {% endfor %}
                 </select>
@@ -358,6 +454,97 @@
             <button class="btn-yes" id="confirmYesBtn">Yes</button>
             <button class="btn-no" id="confirmNoBtn">No</button>
         </div>
+    </div>
+</div>
+
+<!-- ===== HOLIDAY ADD MODALS ===== -->
+<!-- Weekly Holiday Modal -->
+<div id="weeklyHolidayModal" class="slot-modal-overlay">
+    <div class="slot-modal-box">
+        <h3>Add Weekly Holiday</h3>
+        <form id="weeklyHolidayForm" autocomplete="off">
+            <div class="form-group">
+                <label for="weeklyDay">Day</label>
+                <select id="weeklyDay" class="form-control" required>
+                    <option value="">-- Select --</option>
+                    {% for val, label in days_of_week %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="weeklyLabel">Label</label>
+                <input type="text" id="weeklyLabel" class="form-control" placeholder="e.g., Weekend" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="weeklyModalCancelBtn">Cancel</button>
+                <button type="button" class="btn-save" id="weeklyModalSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Annual Holiday Modal -->
+<div id="annualHolidayModal" class="slot-modal-overlay">
+    <div class="slot-modal-box">
+        <h3>Add Annual Holiday</h3>
+        <form id="annualHolidayForm" autocomplete="off">
+            <div class="form-group">
+                <label for="annualMonth">Month</label>
+                <select id="annualMonth" class="form-control" required>
+                    <option value="">-- Month --</option>
+                    {% for m in months %}
+                    <option value="{{ m }}">{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="annualDay">Day</label>
+                <select id="annualDay" class="form-control" required>
+                    <option value="">-- Day --</option>
+                    {% for d in days %}
+                    <option value="{{ d }}">{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="annualLabel">Label</label>
+                <input type="text" id="annualLabel" class="form-control" placeholder="e.g., Independence Day" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="annualModalCancelBtn">Cancel</button>
+                <button type="button" class="btn-save" id="annualModalSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Vacation Modal -->
+<div id="vacationModal" class="slot-modal-overlay">
+    <div class="slot-modal-box">
+        <h3>Add Vacation</h3>
+        <form id="vacationForm" autocomplete="off">
+            <div class="form-group">
+                <label for="vacationName">Name</label>
+                <input type="text" id="vacationName" class="form-control" placeholder="e.g., Summer Vacation" required>
+            </div>
+            <div class="form-group">
+                <label for="vacationStart">Start Date</label>
+                <input type="date" id="vacationStart" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="vacationEnd">End Date</label>
+                <input type="date" id="vacationEnd" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="vacationDescription">Description</label>
+                <textarea id="vacationDescription" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="vacationModalCancelBtn">Cancel</button>
+                <button type="button" class="btn-save" id="vacationModalSaveBtn">Save</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -718,6 +905,139 @@
         }
         setStatus('Ready', 'info');
         console.log('[Timetable] Initialization complete.');
-    });
+    
+        // ====== HOLIDAY MANAGEMENT ======
+        // --- Helper to add holiday ---
+        async function addHoliday(type, data) {
+            try {
+                const res = await fetch(`/portal/${schema}/api/timetable/holiday/add/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ type, ...data })
+                });
+                const result = await res.json();
+                if (!res.ok) {
+                    await showAlert(result.error || 'Error adding holiday', 'Error');
+                    return false;
+                }
+                return result;
+            } catch (err) {
+                console.error(err);
+                await showAlert('Network error', 'Error');
+                return false;
+            }
+        }
+
+        // --- Helper to delete holiday ---
+        async function deleteHoliday(type, id) {
+            try {
+                const res = await fetch(`/portal/${schema}/api/timetable/holiday/delete/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ type, id })
+                });
+                const result = await res.json();
+                if (!res.ok) {
+                    await showAlert(result.error || 'Error deleting holiday', 'Error');
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                console.error(err);
+                await showAlert('Network error', 'Error');
+                return false;
+            }
+        }
+
+        // --- Weekly Holiday ---
+        document.getElementById('addWeeklyHolidayBtn').addEventListener('click', function() {
+            document.getElementById('weeklyHolidayModal').classList.add('active');
+        });
+        document.getElementById('weeklyModalCancelBtn').addEventListener('click', function() {
+            document.getElementById('weeklyHolidayModal').classList.remove('active');
+        });
+        document.getElementById('weeklyModalSaveBtn').addEventListener('click', async function() {
+            const day = parseInt(document.getElementById('weeklyDay').value);
+            const label = document.getElementById('weeklyLabel').value.trim();
+            if (!day || !label) {
+                await showAlert('Please select a day and enter a label.', 'Missing Data');
+                return;
+            }
+            const result = await addHoliday('weekly', { day_of_week: day, label });
+            if (result && result.success) {
+                document.getElementById('weeklyHolidayModal').classList.remove('active');
+                window.location.reload(); // simple refresh
+            }
+        });
+
+        // --- Annual Holiday ---
+        document.getElementById('addAnnualHolidayBtn').addEventListener('click', function() {
+            document.getElementById('annualHolidayModal').classList.add('active');
+        });
+        document.getElementById('annualModalCancelBtn').addEventListener('click', function() {
+            document.getElementById('annualHolidayModal').classList.remove('active');
+        });
+        document.getElementById('annualModalSaveBtn').addEventListener('click', async function() {
+            const month = parseInt(document.getElementById('annualMonth').value);
+            const day = parseInt(document.getElementById('annualDay').value);
+            const label = document.getElementById('annualLabel').value.trim();
+            if (!month || !day || !label) {
+                await showAlert('Please fill all fields.', 'Missing Data');
+                return;
+            }
+            const result = await addHoliday('annual', { month, day, label });
+            if (result && result.success) {
+                document.getElementById('annualHolidayModal').classList.remove('active');
+                window.location.reload();
+            }
+        });
+
+        // --- Vacation ---
+        document.getElementById('addVacationBtn').addEventListener('click', function() {
+            document.getElementById('vacationModal').classList.add('active');
+        });
+        document.getElementById('vacationModalCancelBtn').addEventListener('click', function() {
+            document.getElementById('vacationModal').classList.remove('active');
+        });
+        document.getElementById('vacationModalSaveBtn').addEventListener('click', async function() {
+            const name = document.getElementById('vacationName').value.trim();
+            const start_date = document.getElementById('vacationStart').value;
+            const end_date = document.getElementById('vacationEnd').value;
+            const description = document.getElementById('vacationDescription').value.trim();
+            if (!name || !start_date || !end_date) {
+                await showAlert('Please fill name, start, and end dates.', 'Missing Data');
+                return;
+            }
+            const result = await addHoliday('vacation', { name, start_date, end_date, description });
+            if (result && result.success) {
+                document.getElementById('vacationModal').classList.remove('active');
+                window.location.reload();
+            }
+        });
+
+        // --- Delete buttons (attach to existing rows) ---
+        document.querySelectorAll('.delete-holiday-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const type = this.dataset.type;
+                const id = this.dataset.id;
+                const confirmed = await showConfirm('Delete this holiday?', 'Confirm Deletion');
+                if (confirmed) {
+                    const success = await deleteHoliday(type, id);
+                    if (success) {
+                        window.location.reload();
+                    }
+                }
+            });
+        });
+
+        // Close modals on overlay click
+        document.querySelectorAll('.slot-modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    this.classList.remove('active');
+                }
+            });
+        });
+});
 </script>
 {% endblock %}

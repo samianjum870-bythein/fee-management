@@ -13,6 +13,11 @@ from django_tenants.utils import schema_context
 from django.core.serializers import serialize
 
 from ..models import (
+
+from ..models import WeeklyHoliday, AnnualHoliday, Vacation
+from django.views.decorators.http import require_http_methods
+from django.core.exceptions import ValidationError
+import json
     AcademicCalendar, Holiday, Period, TimetableEntry,
     SchoolClass, Subject, Staff, DaySchedule
 )
@@ -60,6 +65,10 @@ def timetable_management(request, schema_name):
         'subjects_json': subjects_json,
         'teachers_json': teachers_json,
         'day_schedules': day_schedules,   # dict: day_of_week -> list of DaySchedule objects
+
+        'weekly_holidays': weekly_holidays,
+        'annual_holidays': annual_holidays,
+        'vacations': vacations,
         'days_of_week': TimetableEntry.DAY_CHOICES,
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
     }
@@ -88,68 +97,55 @@ def api_save_day_schedules(request, schema_name):
         if created:
             logger.info(f"Created new AcademicCalendar for schema {schema_name}")
 
-        # Group incoming schedules by day_of_week
-        day_groups = {}
-        for item in schedules_data:
-            day = item.get('day')
-            if day is None:
-                continue
-            day_groups.setdefault(day, []).append(item)
+        # ----- FIX: Delete ALL existing schedules for this calendar -----
+        deleted_all, _ = DaySchedule.objects.filter(academic_calendar=calendar).delete()
+        logger.info(f"Deleted {deleted_all} existing schedules for calendar {calendar.pk}")
 
-        # For each day, delete existing schedules and recreate
+        # Now recreate only the ones we received
         total_created = 0
-        total_deleted = 0
-        for day, items in day_groups.items():
-            # Delete existing schedules for this day
-            deleted_count, _ = DaySchedule.objects.filter(
-                academic_calendar=calendar,
-                day_of_week=day
-            ).delete()
-            total_deleted += deleted_count
-            logger.info(f"Deleted {deleted_count} schedules for day {day}")
+        for idx, item in enumerate(schedules_data):
+            day = item.get('day')
+            start = item.get('start')
+            end = item.get('end')
+            periods = item.get('periods')
+            duration = item.get('duration')
+            label = item.get('label', '')
 
-            # Create new schedules with proper order
-            for idx, item in enumerate(items):
-                start = item.get('start')
-                end = item.get('end')
-                periods = item.get('periods')
-                duration = item.get('duration')
-                label = item.get('label', '')
-                if start is None or end is None or periods is None or duration is None:
-                    logger.warning(f"Skipping incomplete schedule for day {day}, index {idx}")
-                    continue
-                try:
-                    start_time = datetime.strptime(start, '%H:%M').time()
-                    end_time = datetime.strptime(end, '%H:%M').time()
-                    periods_int = int(periods)
-                    duration_int = int(duration)
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid data for day {day}, index {idx}: {e}")
-                    continue
+            if day is None or start is None or end is None or periods is None or duration is None:
+                logger.warning(f"Skipping incomplete schedule at index {idx}")
+                continue
 
-                # Label is mandatory
-                if not label:
-                    return JsonResponse({"error": "Label is required"}, status=400)
+            try:
+                start_time = datetime.strptime(start, '%H:%M').time()
+                end_time = datetime.strptime(end, '%H:%M').time()
+                periods_int = int(periods)
+                duration_int = int(duration)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid data at index {idx}: {e}")
+                continue
 
-                try:
-                    DaySchedule.objects.create(
-                        academic_calendar=calendar,
-                        day_of_week=day,
-                        order=idx,
-                        label=label,
-                        start_time=start_time,
-                        end_time=end_time,
-                        periods=periods_int,
-                        duration=duration_int
-                    )
-                    total_created += 1
-                except Exception as e:
-                    logger.exception(f"Error creating DaySchedule for day {day}, index {idx}: {e}")
-                    return JsonResponse({'error': f'Failed to save day {day} slot {idx}: {str(e)}'}, status=500)
+            if not label:
+                return JsonResponse({"error": "Label is required"}, status=400)
 
-        logger.info(f"Successfully created {total_created} day schedules (deleted {total_deleted}) for schema {schema_name}")
+            try:
+                DaySchedule.objects.create(
+                    academic_calendar=calendar,
+                    day_of_week=day,
+                    order=idx,  # we can use idx as order, but you might want to group by day separately
+                    label=label,
+                    start_time=start_time,
+                    end_time=end_time,
+                    periods=periods_int,
+                    duration=duration_int
+                )
+                total_created += 1
+            except Exception as e:
+                logger.exception(f"Error creating DaySchedule for day {day}, index {idx}: {e}")
+                return JsonResponse({'error': f'Failed to save day {day} slot {idx}: {str(e)}'}, status=500)
 
-    return JsonResponse({'success': True, 'created': total_created, 'deleted': total_deleted})
+        logger.info(f"Successfully created {total_created} day schedules for schema {schema_name}")
+
+    return JsonResponse({'success': True, 'created': total_created, 'deleted': deleted_all})
 
 
 # ====== OTHER API ENDPOINTS (stubs for future use) ======
