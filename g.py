@@ -1,4 +1,51 @@
-{% extends 'tenant/base.html' %}
+#!/usr/bin/env python3
+"""
+axis_patcher_fix_addday.py – Fix the "Add Day" button in Time‑Table Management.
+
+The existing HTML has a JS syntax error (unescaped newline in alert) that prevents
+all JavaScript from running. This patcher overwrites the template with a corrected
+version and adds the sidebar link if missing.
+
+Usage:
+    python axis_patcher_fix_addday.py [--dry-run] [--verbose] [--target-dir /path/to/project]
+"""
+
+import os
+import re
+import sys
+import argparse
+from datetime import datetime
+
+VERBOSE = False
+DRY_RUN = False
+
+def log(msg, level="INFO"):
+    prefix = {"ERROR": "❌", "WARNING": "⚠️", "SUCCESS": "✅"}.get(level, "ℹ️")
+    if VERBOSE or level in ("ERROR", "SUCCESS"):
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {prefix} {msg}")
+
+def error_exit(msg):
+    log(msg, "ERROR")
+    sys.exit(1)
+
+def read_file(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+def write_file(path, content):
+    if DRY_RUN:
+        log(f"Would write {path}", "INFO")
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    log(f"Written {path}", "SUCCESS")
+
+# ========== CORRECTED TIMETABLE HTML ==========
+FIXED_HTML = """{% extends 'tenant/base.html' %}
 {% load static %}
 {% load fee_extras %}
 {% block title %}Time‑Table Management | {{ tenant.name }}{% endblock %}
@@ -251,7 +298,7 @@
                 console.error('Save error:', err);
                 setStatus('⚠️ Save failed – see console', 'error');
                 if (err.message && (err.message.includes('relation') || err.message.includes('does not exist'))) {
-                    alert('Database table for day schedules is missing.\nPlease run migrations for this tenant.\nContact your system administrator.');
+                    alert('Database table for day schedules is missing.\\nPlease run migrations for this tenant.\\nContact your system administrator.');
                 }
             })
             .finally(() => {
@@ -410,3 +457,74 @@
     });
 </script>
 {% endblock %}
+"""
+
+def patch_sidebar(target_dir):
+    """Add Time‑Table Management link to the sidebar if not present."""
+    base_path = os.path.join(target_dir, "templates", "tenant", "base.html")
+    if not os.path.exists(base_path):
+        log("base.html not found; skipping sidebar injection", "WARNING")
+        return
+
+    content = read_file(base_path)
+    if content is None:
+        return
+
+    if re.search(r'Time[- ]Table|timetable', content, re.I):
+        log("Sidebar link already exists, skipping", "INFO")
+        return
+
+    # Inject before the closing </nav> of sidebar-nav
+    pattern = r'(<nav class="sidebar-nav">.*?)(</nav>)'
+    match = re.search(pattern, content, re.DOTALL | re.I)
+    if match:
+        nav_content = match.group(1)
+        closing = match.group(2)
+        new_link = '''                <a href="{% url 'timetable_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'timetable' in request.resolver_match.url_name %}active{% endif %}">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span>Time‑Table</span>
+                </a>
+'''
+        new_content = content.replace(match.group(0), nav_content + new_link + closing)
+        write_file(base_path, new_content)
+        log("Added sidebar link to Time‑Table Management", "SUCCESS")
+    else:
+        log("Could not find sidebar nav; please add link manually.", "WARNING")
+
+def main():
+    parser = argparse.ArgumentParser(description="Fix Add Day button in Time‑Table Management")
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    parser.add_argument("--verbose", action="store_true", help="Show detailed output")
+    parser.add_argument("--target-dir", default=".", help="Project root directory (default: current)")
+    args = parser.parse_args()
+
+    global VERBOSE, DRY_RUN
+    VERBOSE = args.verbose
+    DRY_RUN = args.dry_run
+
+    target_dir = os.path.abspath(args.target_dir)
+    if not os.path.isdir(target_dir):
+        error_exit(f"Target directory does not exist: {target_dir}")
+
+    log(f"Starting patcher (dry-run={DRY_RUN})", "INFO")
+    log(f"Target directory: {target_dir}")
+
+    # 1. Overwrite timetable HTML with fixed version
+    html_path = os.path.join(target_dir, "templates", "tenant", "timetable_management.html")
+    write_file(html_path, FIXED_HTML)
+
+    # 2. Add sidebar link if missing
+    patch_sidebar(target_dir)
+
+    # 3. Reminder about migrations
+    log("\n⚠️  IMPORTANT: If the DaySchedule table is missing in tenant schemas,\n"
+        "run migrations for all tenants:\n"
+        "   python manage.py migrate_schemas\n"
+        "or for a specific tenant:\n"
+        "   python manage.py migrate --schema=your_schema\n"
+        "This patcher does not run migrations.\n", "WARNING")
+
+    log("Patcher completed. The 'Add Day' button should now work.", "SUCCESS")
+
+if __name__ == "__main__":
+    main()
