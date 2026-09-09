@@ -13,6 +13,7 @@ from .biometric_models import StaffBiometricCredential
 from axis_saas.utils.display_grade import get_student_display_grade
 
 SCHOOL_FEATURE_CHOICES = [
+
     ('class_management', 'Class & Subject Management'),
     ('dashboard', 'Dashboard'),
     ('students', 'Students'),
@@ -24,6 +25,7 @@ SCHOOL_FEATURE_CHOICES = [
     ('fee_settings', 'Fee Settings'),
     ('family_payment', 'Family Payment'),
     ('staff_management', 'Staff Management'),
+    ('timetable_management', 'Time‑Table Management'),
 ]
 
 STAFF_PORTAL_FEATURE_CHOICES = [
@@ -756,3 +758,85 @@ class ClassSubject(models.Model):
     class Meta:
         unique_together = ['school_class', 'subject']
         ordering = ['school_class', 'subject']
+# ========== TIME-TABLE MANAGEMENT MODELS ==========
+
+class AcademicCalendar(models.Model):
+    """Defines working days, school timings, and period settings for a tenant."""
+    working_days = models.JSONField(default=list, help_text="List of integers 0-6 (Monday=0 to Sunday=6) representing working days.")
+    school_start_time = models.TimeField(default='08:00:00')
+    school_end_time = models.TimeField(default='14:00:00')
+    period_duration = models.PositiveIntegerField(default=45, help_text="Duration in minutes for each period.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Academic Calendars"
+
+    def __str__(self):
+        return f"Calendar (working days: {self.working_days})"
+
+    @classmethod
+    def get_calendar(cls):
+        """Return the single calendar instance for the tenant, create if not exists."""
+        calendar, _ = cls.objects.get_or_create(pk=1)
+        return calendar
+
+
+class Holiday(models.Model):
+    """Holidays and vacations."""
+    date = models.DateField()
+    name = models.CharField(max_length=100)
+    is_recurring = models.BooleanField(default=False, help_text="If true, this holiday repeats every year.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f"{self.name} ({self.date})"
+
+
+class Period(models.Model):
+    """A time slot (lecture period) within the school day."""
+    order = models.PositiveIntegerField(help_text="Order of the period in the day (1, 2, 3, ...).")
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    name = models.CharField(max_length=50, blank=True, help_text="Optional name, e.g., 'Period 1'")
+    academic_calendar = models.ForeignKey(AcademicCalendar, on_delete=models.CASCADE, related_name='periods')
+
+    class Meta:
+        ordering = ['order']
+        unique_together = [('academic_calendar', 'order')]
+
+    def __str__(self):
+        return f"Period {self.order} ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})"
+
+
+class TimetableEntry(models.Model):
+    """Assigns a subject and teacher to a specific period, day, and class."""
+    DAY_CHOICES = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+    school_class = models.ForeignKey('SchoolClass', on_delete=models.CASCADE, related_name='timetable_entries')
+    day_of_week = models.IntegerField(choices=DAY_CHOICES)
+    period = models.ForeignKey(Period, on_delete=models.CASCADE, related_name='timetable_entries')
+    subject = models.ForeignKey('Subject', on_delete=models.CASCADE, related_name='timetable_entries')
+    teacher = models.ForeignKey('Staff', on_delete=models.CASCADE, related_name='timetable_entries')
+    academic_year = models.CharField(max_length=20, blank=True, help_text="e.g., 2024-2025")
+
+    class Meta:
+        unique_together = [('school_class', 'day_of_week', 'period')]  # One subject per period per class
+        indexes = [
+            models.Index(fields=['school_class', 'day_of_week']),
+            models.Index(fields=['teacher', 'day_of_week', 'period']),
+        ]
+
+    def __str__(self):
+        return f"{self.school_class} - {self.get_day_of_week_display()} - {self.period} - {self.subject} ({self.teacher})"
+

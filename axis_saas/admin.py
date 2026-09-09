@@ -458,3 +458,25 @@ class ProductAdmin(admin.ModelAdmin):
     list_display = ('sku', 'name', 'category', 'selling_price', 'quantity')
     list_filter = ('category',)
     search_fields = ('name', 'sku')
+# ===== TIME-TABLE MANAGEMENT ADMIN =====
+from .models import AcademicCalendar, Holiday, Period, TimetableEntry
+
+@admin.register(AcademicCalendar)
+class AcademicCalendarAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('pk', 'working_days', 'school_start_time', 'school_end_time', 'period_duration')
+    fields = ('working_days', 'school_start_time', 'school_end_time', 'period_duration')
+
+@admin.register(Holiday)
+class HolidayAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('date', 'name', 'is_recurring')
+    list_filter = ('is_recurring',)
+
+@admin.register(Period)
+class PeriodAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('order', 'start_time', 'end_time', 'name', 'academic_calendar')
+    list_filter = ('academic_calendar',)
+
+@admin.register(TimetableEntry)
+class TimetableEntryAdmin(TenantOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('school_class', 'day_of_week', 'period', 'subject', 'teacher', 'academic_year')
+    list_filter = ('school_class', 'day_of_week', 'teacher')
