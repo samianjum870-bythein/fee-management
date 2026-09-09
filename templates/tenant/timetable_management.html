@@ -130,7 +130,7 @@
         top: 0; left: 0;
         width: 100%; height: 100%;
         background: rgba(0,0,0,0.6);
-        z-index: 99999;
+        z-index: 100000 !important;
         display: none;
         align-items: center;
         justify-content: center;
@@ -196,6 +196,56 @@
         background: var(--border);
     }
 
+    /* Vacation row states */
+    .vacation-row-past {
+        background-color: #e5e7eb !important;
+        opacity: 0.6;
+        color: #6b7280;
+    }
+    .vacation-row-current {
+        background-color: #ffffff !important;
+        animation: blink-white 1s step-end infinite;
+        border-left: 4px solid #10b981;
+    }
+    .vacation-row-upcoming {
+        background-color: #fee2e2 !important;
+        animation: blink-red 1s step-end infinite;
+        border-left: 4px solid #dc2626;
+    }
+    .vacation-row-future {
+        background-color: #dbeafe !important;
+        border-left: 4px solid #3b82f6;
+    }
+
+    @keyframes blink-white {
+        50% { background-color: #f3f4f6; }
+    }
+    @keyframes blink-red {
+        50% { background-color: #fca5a5; }
+    }
+
+    .vacation-tag {
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.1rem 0.5rem;
+        border-radius: 1rem;
+        text-transform: uppercase;
+        margin-left: 0.5rem;
+    }
+    .vacation-tag-current {
+        background: #10b981;
+        color: white;
+    }
+    .vacation-tag-upcoming {
+        background: #dc2626;
+        color: white;
+        animation: pulse-tag 1s step-end infinite;
+    }
+    @keyframes pulse-tag {
+        50% { opacity: 0.4; }
+    }
+
     @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -223,7 +273,7 @@
         <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Changes are saved automatically</span>
     </div>
 
-    <!-- Universal settings row (only for quick fill) -->
+    <!-- Universal settings row -->
     <div class="universal-row" style="padding:0.5rem; border-radius:0.5rem; margin-bottom:1rem; background:var(--surface-alt);">
         <div class="flex" style="justify-content:space-between; align-items:center;">
             <div class="flex">
@@ -289,8 +339,7 @@
     </div>
 </div>
 
-
-<!-- ====== HOLIDAYS SECTION ====== -->
+<!-- ====== WEEKLY HOLIDAYS ====== -->
 <div class="card">
     <div class="card-header">
         <h3>📅 Weekly Holidays</h3>
@@ -323,6 +372,7 @@
     </table>
 </div>
 
+<!-- ====== ANNUAL HOLIDAYS ====== -->
 <div class="card">
     <div class="card-header">
         <h3>📅 Annual Holidays</h3>
@@ -357,6 +407,7 @@
     </table>
 </div>
 
+<!-- ====== VACATIONS ====== -->
 <div class="card">
     <div class="card-header">
         <h3>🏖️ Vacations</h3>
@@ -371,26 +422,65 @@
                 <th>Name</th>
                 <th>Start</th>
                 <th>End</th>
+                <th>Total Days</th>
                 <th>Description</th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody id="vacationBody">
             {% for vacation in vacations %}
-            <tr data-id="{{ vacation.id }}">
-                <td>{{ vacation.name }}</td>
+            <tr data-id="{{ vacation.id }}" class="vacation-row-{{ vacation.status }}">
+                <td>
+                    {{ vacation.name }}
+                    {% if vacation.status == 'current' %}
+                        <span class="vacation-tag vacation-tag-current">Current</span>
+                    {% elif vacation.status == 'upcoming' %}
+                        <span class="vacation-tag vacation-tag-upcoming">Upcoming</span>
+                    {% endif %}
+                </td>
                 <td>{{ vacation.start_date|date:'Y-m-d' }}</td>
                 <td>{{ vacation.end_date|date:'Y-m-d' }}</td>
+                <td>{{ vacation.total_days }}</td>
                 <td>{{ vacation.description|default:'' }}</td>
                 <td>
-                    <button class="btn-danger btn-sm delete-holiday-btn" data-type="vacation" data-id="{{ vacation.id }}">×</button>
+                    {% if vacation.status == 'past' %}
+                        <button class="btn-danger btn-sm delete-holiday-btn" data-type="vacation" data-id="{{ vacation.id }}">× Delete</button>
+                    {% elif vacation.status == 'current' %}
+                        <button class="btn-secondary btn-sm edit-vacation-btn" data-type="vacation" data-id="{{ vacation.id }}" data-name="{{ vacation.name }}" data-start="{{ vacation.start_date|date:'Y-m-d' }}" data-end="{{ vacation.end_date|date:'Y-m-d' }}" data-desc="{{ vacation.description|default:'' }}">✎ Edit End Date</button>
+                    {% elif vacation.status == 'upcoming' or vacation.status == 'future' %}
+                        <button class="btn-secondary btn-sm edit-vacation-btn" data-type="vacation" data-id="{{ vacation.id }}" data-name="{{ vacation.name }}" data-start="{{ vacation.start_date|date:'Y-m-d' }}" data-end="{{ vacation.end_date|date:'Y-m-d' }}" data-desc="{{ vacation.description|default:'' }}">✎ Edit</button>
+                        <button class="btn-danger btn-sm delete-holiday-btn" data-type="vacation" data-id="{{ vacation.id }}">× Delete</button>
+                    {% endif %}
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="empty-row">No vacations set.</td></tr>
+            <tr><td colspan="6" class="empty-row">No vacations set.</td></tr>
             {% endfor %}
         </tbody>
     </table>
+
+    <!-- ===== NEXT VACATION SUMMARY ===== -->
+    {% if next_vacation %}
+    <div class="card" style="border-left: 4px solid #10b981; margin-top: 1rem;">
+        <div class="card-header">
+            <h3>📅 Next Upcoming Vacation</h3>
+            <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">{{ next_vacation.name }}</span>
+        </div>
+        <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+            <div><strong>Start:</strong> {{ next_vacation.start_date|date:'Y-m-d' }}</div>
+            <div><strong>End:</strong> {{ next_vacation.end_date|date:'Y-m-d' }}</div>
+            <div><strong>Duration:</strong> {{ next_vacation.total_days }} days</div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card" style="border-left: 4px solid #f59e0b; margin-top: 1rem;">
+        <div class="card-header">
+            <h3>📅 Next Upcoming Vacation</h3>
+            <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">No upcoming vacations scheduled</span>
+        </div>
+        <p style="color: var(--muted); margin: 0;">All vacations are in the past or none defined.</p>
+    </div>
+    {% endif %}
 </div>
 
 <!-- ===== SLOT MODAL ===== -->
@@ -467,7 +557,7 @@
                 <label for="weeklyDay">Day</label>
                 <select id="weeklyDay" class="form-control" required>
                     <option value="">-- Select --</option>
-                    {% for val, label in days_of_week %}
+                    {% for val, label in available_weekly_days %}
                     <option value="{{ val }}">{{ label }}</option>
                     {% endfor %}
                 </select>
@@ -543,6 +633,35 @@
             <div class="modal-actions">
                 <button type="button" class="btn-cancel" id="vacationModalCancelBtn">Cancel</button>
                 <button type="button" class="btn-save" id="vacationModalSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Vacation Modal -->
+<div id="editVacationModal" class="slot-modal-overlay">
+    <div class="slot-modal-box">
+        <h3>Edit Vacation</h3>
+        <form id="editVacationForm" autocomplete="off">
+            <div class="form-group">
+                <label for="editVacationName">Name</label>
+                <input type="text" id="editVacationName" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="editVacationStart">Start Date</label>
+                <input type="date" id="editVacationStart" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="editVacationEnd">End Date</label>
+                <input type="date" id="editVacationEnd" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="editVacationDescription">Description</label>
+                <textarea id="editVacationDescription" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="editVacationModalCancelBtn">Cancel</button>
+                <button type="button" class="btn-save" id="editVacationModalSaveBtn">Save</button>
             </div>
         </form>
     </div>
@@ -861,7 +980,6 @@
                     if (dayScheduleBody.children.length === 0) {
                         dayScheduleBody.innerHTML = '<tr><td colspan="7" class="empty-row">No slots added yet. Click "Add Slot" to create one.</td></tr>';
                     }
-                    // ----- FIX: Save immediately after deletion (bypass debounce) -----
                     await performSave();
                 }
             });
@@ -891,7 +1009,7 @@
                 cells[4].textContent = periods;
                 cells[5].textContent = duration;
             });
-            autoSave(); // debounced
+            autoSave();
             setStatus('Universal values applied and saved.', 'success');
         });
 
@@ -905,9 +1023,8 @@
         }
         setStatus('Ready', 'info');
         console.log('[Timetable] Initialization complete.');
-    
+
         // ====== HOLIDAY MANAGEMENT ======
-        // --- Helper to add holiday ---
         async function addHoliday(type, data) {
             try {
                 const res = await fetch(`/portal/${schema}/api/timetable/holiday/add/`, {
@@ -928,7 +1045,6 @@
             }
         }
 
-        // --- Helper to delete holiday ---
         async function deleteHoliday(type, id) {
             try {
                 const res = await fetch(`/portal/${schema}/api/timetable/holiday/delete/`, {
@@ -949,7 +1065,7 @@
             }
         }
 
-        // --- Weekly Holiday ---
+        // Weekly Holiday
         document.getElementById('addWeeklyHolidayBtn').addEventListener('click', function() {
             document.getElementById('weeklyHolidayModal').classList.add('active');
         });
@@ -959,18 +1075,18 @@
         document.getElementById('weeklyModalSaveBtn').addEventListener('click', async function() {
             const day = parseInt(document.getElementById('weeklyDay').value);
             const label = document.getElementById('weeklyLabel').value.trim();
-            if (!day || !label) {
+            if (isNaN(day) || !label) {
                 await showAlert('Please select a day and enter a label.', 'Missing Data');
                 return;
             }
             const result = await addHoliday('weekly', { day_of_week: day, label });
             if (result && result.success) {
                 document.getElementById('weeklyHolidayModal').classList.remove('active');
-                window.location.reload(); // simple refresh
+                window.location.reload();
             }
         });
 
-        // --- Annual Holiday ---
+        // Annual Holiday
         document.getElementById('addAnnualHolidayBtn').addEventListener('click', function() {
             document.getElementById('annualHolidayModal').classList.add('active');
         });
@@ -981,7 +1097,7 @@
             const month = parseInt(document.getElementById('annualMonth').value);
             const day = parseInt(document.getElementById('annualDay').value);
             const label = document.getElementById('annualLabel').value.trim();
-            if (!month || !day || !label) {
+            if (isNaN(month) || isNaN(day) || !label) {
                 await showAlert('Please fill all fields.', 'Missing Data');
                 return;
             }
@@ -992,7 +1108,7 @@
             }
         });
 
-        // --- Vacation ---
+        // Vacation
         document.getElementById('addVacationBtn').addEventListener('click', function() {
             document.getElementById('vacationModal').classList.add('active');
         });
@@ -1008,6 +1124,21 @@
                 await showAlert('Please fill name, start, and end dates.', 'Missing Data');
                 return;
             }
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = tomorrow.toISOString().split('T')[0];
+            if (start_date < tomorrowStr) {
+                await showAlert('Start date must be a future date (from tomorrow onward).', 'Invalid Date');
+                return;
+            }
+            if (end_date < start_date) {
+                await showAlert('End date must be after start date.', 'Invalid Date');
+                return;
+            }
+            if (end_date === start_date) {
+                await showAlert('End date must be different from start date (at least one day).', 'Invalid Date');
+                return;
+            }
             const result = await addHoliday('vacation', { name, start_date, end_date, description });
             if (result && result.success) {
                 document.getElementById('vacationModal').classList.remove('active');
@@ -1015,7 +1146,7 @@
             }
         });
 
-        // --- Delete buttons (attach to existing rows) ---
+        // Delete buttons
         document.querySelectorAll('.delete-holiday-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const type = this.dataset.type;
@@ -1038,6 +1169,115 @@
                 }
             });
         });
-});
+
+        // Vacation date validation
+        const vacationStart = document.getElementById('vacationStart');
+        const vacationEnd = document.getElementById('vacationEnd');
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        vacationStart.setAttribute('min', tomorrowStr);
+        vacationEnd.setAttribute('min', tomorrowStr);
+        vacationStart.addEventListener('change', function() {
+            vacationEnd.setAttribute('min', this.value);
+        });
+
+        // ====== EDIT VACATION ======
+        const editVacationModal = document.getElementById('editVacationModal');
+        const editName = document.getElementById('editVacationName');
+        const editStart = document.getElementById('editVacationStart');
+        const editEnd = document.getElementById('editVacationEnd');
+        const editDesc = document.getElementById('editVacationDescription');
+        let editingVacationId = null;
+        let editingVacationType = 'vacation';
+
+        document.querySelectorAll('.edit-vacation-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                editingVacationId = this.dataset.id;
+                editingVacationType = this.dataset.type;
+                editName.value = this.dataset.name || '';
+                editStart.value = this.dataset.start || '';
+                editEnd.value = this.dataset.end || '';
+                editDesc.value = this.dataset.desc || '';
+                const row = this.closest('tr');
+                if (row && row.classList.contains('vacation-row-current')) {
+                    editStart.disabled = true;
+                } else {
+                    editStart.disabled = false;
+                }
+                editStart.setAttribute('min', tomorrowStr);
+                editEnd.setAttribute('min', tomorrowStr);
+                if (editStart.value) {
+                    editEnd.setAttribute('min', editStart.value);
+                }
+                editVacationModal.classList.add('active');
+            });
+        });
+
+        document.getElementById('editVacationModalCancelBtn').addEventListener('click', function() {
+            editVacationModal.classList.remove('active');
+        });
+
+        document.getElementById('editVacationModalSaveBtn').addEventListener('click', async function() {
+            const name = editName.value.trim();
+            const start_date = editStart.value;
+            const end_date = editEnd.value;
+            const description = editDesc.value.trim();
+            if (!name || !start_date || !end_date) {
+                await showAlert('Please fill all fields.', 'Missing Data');
+                return;
+            }
+            if (start_date < tomorrowStr) {
+                await showAlert('Start date must be a future date (from tomorrow onward).', 'Invalid Date');
+                return;
+            }
+            if (end_date < start_date) {
+                await showAlert('End date must be after start date.', 'Invalid Date');
+                return;
+            }
+            if (end_date === start_date) {
+                await showAlert('End date must be different from start date (at least one day).', 'Invalid Date');
+                return;
+            }
+            try {
+                const res = await fetch(`/portal/${schema}/api/timetable/holiday/update/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({
+                        type: editingVacationType,
+                        id: editingVacationId,
+                        name: name,
+                        start_date: start_date,
+                        end_date: end_date,
+                        description: description
+                    })
+                });
+                const result = await res.json();
+                if (!res.ok) {
+                    await showAlert(result.error || 'Error updating vacation', 'Error');
+                    return;
+                }
+                if (result.success) {
+                    editVacationModal.classList.remove('active');
+                    window.location.reload();
+                } else {
+                    await showAlert(result.error || 'Update failed', 'Error');
+                }
+            } catch (err) {
+                console.error(err);
+                await showAlert('Network error', 'Error');
+            }
+        });
+
+        editVacationModal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                this.classList.remove('active');
+            }
+        });
+
+        editStart.addEventListener('change', function() {
+            editEnd.setAttribute('min', this.value);
+        });
+    });
 </script>
 {% endblock %}
