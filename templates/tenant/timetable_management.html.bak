@@ -236,6 +236,7 @@
                 <input type="number" id="universalPeriods" value="8" class="form-control" style="width:70px;" min="1">
                 <button type="button" id="applyUniversalBtn" class="btn-secondary btn-sm">Apply to All</button>
             </div>
+            <!-- Save and Reset buttons removed as requested -->
         </div>
     </div>
 
@@ -244,7 +245,7 @@
         <button type="button" id="addSlotBtn" class="btn-primary btn-lg">+ Add Slot</button>
     </div>
 
-    <!-- Day schedule table -->
+    <!-- Day schedule table (read-only, with Edit/Delete actions) -->
     <div id="dayScheduleContainer">
         <table class="schedule-table" id="dayScheduleTable">
             <thead>
@@ -415,6 +416,7 @@
         const confirmYesBtn = document.getElementById('confirmYesBtn');
         const confirmNoBtn = document.getElementById('confirmNoBtn');
 
+        // State: editing mode (null = add, row = tr element for edit)
         let editingRow = null;
 
         // ====== CUSTOM ALERT & CONFIRM FUNCTIONS ======
@@ -454,6 +456,7 @@
             });
         }
 
+        // Close alert on outside click
         alertModal.addEventListener('click', (e) => {
             if (e.target === alertModal) {
                 alertModal.classList.remove('active');
@@ -479,12 +482,13 @@
             modalDuration.value = duration;
         }
 
+        // Attach events to modal fields for auto-calc
         modalStart.addEventListener('change', updateModalDuration);
         modalEnd.addEventListener('change', updateModalDuration);
         modalPeriods.addEventListener('change', updateModalDuration);
         modalPeriods.addEventListener('input', updateModalDuration);
 
-        // ====== AUTO-SAVE (debounced for add/edit) ======
+        // ====== AUTO-SAVE (debounced) ======
         let saveTimeout = null;
         function autoSave() {
             if (saveTimeout) clearTimeout(saveTimeout);
@@ -509,6 +513,12 @@
                     schedules.push({ day, label, start, end, periods, duration });
                 }
             });
+
+            if (schedules.length === 0) {
+                // If no slots, we might want to delete all? Not needed, just skip.
+                setStatus('No slots to save', 'info');
+                return;
+            }
 
             setStatus('Saving…', 'info');
             saveSpinner.style.display = 'inline';
@@ -590,6 +600,7 @@
             const periods = parseInt(modalPeriods.value);
             const duration = parseInt(modalDuration.value);
 
+            // === FIX: Check if day is selected ===
             if (isNaN(day) || day === 0) {
                 await showAlert('Please select a valid day.', 'Missing Day');
                 return;
@@ -606,6 +617,7 @@
             const dayLabel = modalDay.options[modalDay.selectedIndex].text;
 
             if (editingRow) {
+                // Update existing row
                 const cells = editingRow.querySelectorAll('td');
                 cells[0].textContent = dayLabel;
                 cells[1].textContent = label;
@@ -615,6 +627,7 @@
                 cells[5].textContent = duration;
                 editingRow.dataset.day = day;
             } else {
+                // Add new row
                 const tr = document.createElement('tr');
                 tr.dataset.day = day;
                 tr.innerHTML = `
@@ -638,7 +651,7 @@
             }
 
             closeModal();
-            autoSave(); // debounced save
+            autoSave(); // trigger auto-save after change
         });
 
         // ====== ATTACH EVENTS TO ROW BUTTONS ======
@@ -674,8 +687,7 @@
                     if (dayScheduleBody.children.length === 0) {
                         dayScheduleBody.innerHTML = '<tr><td colspan="7" class="empty-row">No slots added yet. Click "Add Slot" to create one.</td></tr>';
                     }
-                    // ----- FIX: Save immediately after deletion (bypass debounce) -----
-                    await performSave();
+                    autoSave(); // trigger auto-save after deletion
                 }
             });
         }
@@ -690,7 +702,7 @@
             openModal();
         });
 
-        // ====== APPLY UNIVERSAL ======
+        // ====== APPLY UNIVERSAL (quick fill) ======
         applyUniversalBtn.addEventListener('click', function() {
             const start = universalStart.value;
             const end = universalEnd.value;
@@ -704,7 +716,7 @@
                 cells[4].textContent = periods;
                 cells[5].textContent = duration;
             });
-            autoSave(); // debounced
+            autoSave(); // auto-save after apply
             setStatus('Universal values applied and saved.', 'success');
         });
 

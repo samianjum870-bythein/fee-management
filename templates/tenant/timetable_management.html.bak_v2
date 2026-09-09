@@ -1,0 +1,739 @@
+{% extends 'tenant/base.html' %}
+{% load static %}
+{% load fee_extras %}
+{% block title %}Time‑Table Management | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* ----- General ----- */
+    .page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .page-title { font-size: 1.8rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .page-desc { color: var(--muted); }
+    .card { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 1rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
+    .card-header { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+    .card-header h3 { flex: 1; font-size: 1.1rem; font-weight: 600; margin: 0; }
+    .btn-primary, .btn-secondary, .btn-danger, .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 2rem; font-weight: 500; font-size: 0.85rem; text-decoration: none; border: none; cursor: pointer; transition: 0.2s; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-secondary { background: var(--surface-alt); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-lg { padding: 0.6rem 1.4rem; font-size: 1rem; font-weight: 600; }
+    .btn-sm { padding: 0.2rem 0.6rem; font-size: 0.75rem; }
+    .form-control { width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--border); background: var(--surface-alt); color: var(--text); }
+    .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+    .form-control-sm { width: auto; display: inline-block; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .flex { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .mt-1 { margin-top: 0.5rem; }
+    .mb-1 { margin-bottom: 0.5rem; }
+    .text-muted { color: var(--muted); }
+
+    /* ----- Day schedule table ----- */
+    .schedule-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .schedule-table th, .schedule-table td { border: 1px solid var(--border); padding: 0.5rem; text-align: center; vertical-align: middle; }
+    .schedule-table th { background: var(--surface-alt); font-weight: 600; }
+    .schedule-table input[type="time"], .schedule-table input[type="number"] { width: 90px; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.3rem; background: var(--surface); }
+    .schedule-table .day-label { font-weight: 600; }
+    .schedule-table .slot-label { font-size: 0.8rem; color: var(--muted); }
+    .remove-slot-btn { cursor: pointer; color: #dc2626; background: none; border: none; font-size: 1.2rem; }
+    .empty-row { color: var(--muted); text-align: center; padding: 1rem; }
+
+    /* ----- Universal row ----- */
+    .universal-row { background: #f0f7ff; }
+    .universal-row input { background: white; }
+
+    /* ----- Status ----- */
+    #saveStatus { font-size: 0.9rem; color: var(--muted); }
+    #saveSpinner { display: none; font-size: 1.2rem; }
+
+    /* ----- Custom Alert & Confirm Modals ----- */
+    .custom-modal-overlay {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.6);
+        z-index: 99999;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        animation: fadeIn 0.2s ease;
+    }
+    .custom-modal-overlay.active {
+        display: flex;
+    }
+    .custom-modal-box {
+        background: var(--surface, #fff);
+        border-radius: 1rem;
+        padding: 1.5rem 2rem;
+        max-width: 450px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        text-align: center;
+        animation: scaleIn 0.2s ease;
+    }
+    .custom-modal-box h3 {
+        margin-top: 0;
+        font-size: 1.3rem;
+        color: var(--text);
+    }
+    .custom-modal-box p {
+        color: var(--muted);
+        margin: 0.5rem 0 1.5rem 0;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+    .custom-modal-box .modal-actions {
+        display: flex;
+        gap: 0.8rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .custom-modal-box .modal-actions button {
+        border: none;
+        padding: 0.6rem 1.4rem;
+        border-radius: 2rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 0.9rem;
+    }
+    .custom-modal-box .modal-actions .btn-ok {
+        background: var(--primary);
+        color: white;
+    }
+    .custom-modal-box .modal-actions .btn-ok:hover {
+        background: var(--primary-dark);
+    }
+    .custom-modal-box .modal-actions .btn-yes {
+        background: #10b981;
+        color: white;
+    }
+    .custom-modal-box .modal-actions .btn-no {
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+    .custom-modal-box .modal-actions .btn-no:hover {
+        background: var(--border);
+    }
+    .custom-modal-box .modal-actions .btn-cancel {
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+    .custom-modal-box .modal-actions .btn-cancel:hover {
+        background: var(--border);
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes scaleIn {
+        from { transform: scale(0.9); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Time‑Table Management</h1>
+        <p class="page-desc">Define working days, timings, and periods for your school</p>
+    </div>
+</div>
+
+<!-- ====== ACADEMIC CALENDAR ====== -->
+<div class="card">
+    <div class="card-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <h3>Academic Calendar</h3>
+        <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">All changes auto‑saved</span>
+    </div>
+
+    <!-- Universal settings row -->
+    <div class="universal-row" style="padding:0.5rem; border-radius:0.5rem; margin-bottom:1rem; background:var(--surface-alt);">
+        <div class="flex" style="justify-content:space-between; align-items:center;">
+            <div class="flex">
+                <span style="font-weight:600;">Universal:</span>
+                <label>Start</label>
+                <input type="time" id="universalStart" value="08:00" class="form-control form-control-sm" style="width:100px;">
+                <label>End</label>
+                <input type="time" id="universalEnd" value="14:00" class="form-control form-control-sm" style="width:100px;">
+                <label>Periods</label>
+                <input type="number" id="universalPeriods" value="8" class="form-control form-control-sm" style="width:70px;" min="1">
+                <button type="button" id="applyUniversalBtn" class="btn-secondary btn-sm">Apply to All</button>
+            </div>
+            <div>
+                <button type="button" id="resetCalendarBtn" class="btn-danger btn-lg">Reset Calendar</button>
+                <button type="button" id="saveCalendarBtn" class="btn-success btn-lg">Save Calendar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add slot: dropdown to select day and button -->
+    <div class="flex mb-1">
+        <select id="daySelector" class="form-control" style="width:200px;">
+            <option value="">-- Select Day --</option>
+            {% for val, label in days_of_week %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" id="addSlotBtn" class="btn-primary btn-sm">+ Add Slot</button>
+    </div>
+
+    <!-- Day schedule table (multiple rows per day) -->
+    <div id="dayScheduleContainer">
+        <table class="schedule-table" id="dayScheduleTable">
+            <thead>
+                <tr>
+                    <th>Day</th>
+                    <th>Label</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Periods</th>
+                    <th>Duration (min)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="dayScheduleBody">
+                {% for day, slots in day_schedules.items %}
+                    {% for slot in slots %}
+                    <tr data-day="{{ day }}" data-slot-id="{{ slot.id }}">
+                        <td class="day-label">{{ slot.get_day_of_week_display }}</td>
+                        <td><input type="text" name="label" value="{{ slot.label }}" class="form-control schedule-input" data-day="{{ day }}" data-field="label" style="width:100px;" required></td>
+                        <td><input type="time" name="start" value="{{ slot.start_time|time:'H:i' }}" class="form-control schedule-input" data-day="{{ day }}" data-field="start"></td>
+                        <td><input type="time" name="end" value="{{ slot.end_time|time:'H:i' }}" class="form-control schedule-input" data-day="{{ day }}" data-field="end"></td>
+                        <td><input type="number" name="periods" value="{{ slot.periods }}" class="form-control schedule-input" data-day="{{ day }}" data-field="periods" min="1"></td>
+                        <td><input type="number" name="duration" value="{{ slot.duration }}" class="form-control schedule-input" data-day="{{ day }}" data-field="duration" min="1"></td>
+                        <td><button type="button" class="btn-danger btn-sm remove-slot-btn" data-day="{{ day }}" data-slot-id="{{ slot.id }}">×</button></td>
+                    </tr>
+                    {% endfor %}
+                {% empty %}
+                <tr><td colspan="7" class="empty-row">No slots added yet. Select a day and click "Add Slot".</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-1" style="display: flex; align-items: center; gap: 1rem;">
+        <span id="saveStatus">All changes saved</span>
+        <span id="saveSpinner">⏳</span>
+    </div>
+</div>
+
+<!-- ====== NOTE: OTHER SECTIONS (Holidays, Periods, Timetable Assignments) will be added later ====== -->
+<div class="card">
+    <div class="card-header">
+        <h3>⚠️ Under Construction</h3>
+    </div>
+    <p>The Holidays, Periods, and Timetable Assignment sections will be added in the next phase. Stay tuned.</p>
+</div>
+
+<!-- ===== CUSTOM UNSAVED CHANGES MODAL ===== -->
+<div id="unsavedModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99999; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
+    <div style="background:var(--surface, #fff); border-radius:1rem; padding:1.5rem 2rem; max-width:450px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;">
+        <h3 style="margin-top:0; font-size:1.3rem; color:var(--text);">⚠️ Unsaved Changes</h3>
+        <p style="color:var(--muted); margin:0.5rem 0 1.5rem 0; font-size:0.95rem;">You have unsaved changes. What would you like to do?</p>
+        <div style="display:flex; gap:0.8rem; justify-content:center; flex-wrap:wrap;">
+            <button id="unsavedSaveBtn" class="btn-success btn-lg" style="border:none; cursor:pointer;">💾 Save &amp; Leave</button>
+            <button id="unsavedDiscardBtn" class="btn-danger btn-lg" style="border:none; cursor:pointer;">🗑️ Leave Without Saving</button>
+            <button id="unsavedCancelBtn" class="btn-secondary btn-lg" style="border:1px solid var(--border); cursor:pointer;">❌ Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== CUSTOM ALERT & CONFIRM MODALS ===== -->
+<div id="customAlertModal" class="custom-modal-overlay">
+    <div class="custom-modal-box">
+        <h3 id="alertTitle">Notice</h3>
+        <p id="alertMessage">Message</p>
+        <div class="modal-actions">
+            <button class="btn-ok" id="alertOkBtn">OK</button>
+        </div>
+    </div>
+</div>
+
+<div id="customConfirmModal" class="custom-modal-overlay">
+    <div class="custom-modal-box">
+        <h3 id="confirmTitle">Confirm</h3>
+        <p id="confirmMessage">Are you sure?</p>
+        <div class="modal-actions">
+            <button class="btn-yes" id="confirmYesBtn">Yes</button>
+            <button class="btn-no" id="confirmNoBtn">No</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Timetable] DOM loaded, initializing...');
+
+        // ====== CSRF TOKEN ======
+        function getCsrfToken() {
+            let name = 'csrftoken';
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        const csrfToken = getCsrfToken();
+        const schema = '{{ tenant.schema_name }}';
+
+        // DOM refs
+        const daySelector = document.getElementById('daySelector');
+        const addSlotBtn = document.getElementById('addSlotBtn');
+        const dayScheduleBody = document.getElementById('dayScheduleBody');
+        const universalStart = document.getElementById('universalStart');
+        const universalEnd = document.getElementById('universalEnd');
+        const universalPeriods = document.getElementById('universalPeriods');
+        const applyUniversalBtn = document.getElementById('applyUniversalBtn');
+        const resetCalendarBtn = document.getElementById('resetCalendarBtn');
+        const saveCalendarBtn = document.getElementById('saveCalendarBtn');
+        const saveStatus = document.getElementById('saveStatus');
+        const saveSpinner = document.getElementById('saveSpinner');
+
+        // Modal buttons
+        const unsavedModal = document.getElementById('unsavedModal');
+        const unsavedSaveBtn = document.getElementById('unsavedSaveBtn');
+        const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn');
+        const unsavedCancelBtn = document.getElementById('unsavedCancelBtn');
+
+        // Custom Alert & Confirm modals
+        const alertModal = document.getElementById('customAlertModal');
+        const alertMessage = document.getElementById('alertMessage');
+        const alertOkBtn = document.getElementById('alertOkBtn');
+        const confirmModal = document.getElementById('customConfirmModal');
+        const confirmMessage = document.getElementById('confirmMessage');
+        const confirmYesBtn = document.getElementById('confirmYesBtn');
+        const confirmNoBtn = document.getElementById('confirmNoBtn');
+
+        let unsavedChanges = false;
+        let pendingNavigation = null; // can be 'refresh' or a URL string
+
+        // ====== CUSTOM ALERT & CONFIRM FUNCTIONS ======
+        function showAlert(message, title = 'Notice') {
+            return new Promise((resolve) => {
+                alertMessage.textContent = message;
+                document.getElementById('alertTitle').textContent = title;
+                alertModal.classList.add('active');
+                const handler = () => {
+                    alertModal.classList.remove('active');
+                    alertOkBtn.removeEventListener('click', handler);
+                    resolve();
+                };
+                alertOkBtn.addEventListener('click', handler);
+            });
+        }
+
+        function showConfirm(message, title = 'Confirm') {
+            return new Promise((resolve) => {
+                confirmMessage.textContent = message;
+                document.getElementById('confirmTitle').textContent = title;
+                confirmModal.classList.add('active');
+                const yesHandler = () => {
+                    confirmModal.classList.remove('active');
+                    confirmYesBtn.removeEventListener('click', yesHandler);
+                    confirmNoBtn.removeEventListener('click', noHandler);
+                    resolve(true);
+                };
+                const noHandler = () => {
+                    confirmModal.classList.remove('active');
+                    confirmYesBtn.removeEventListener('click', yesHandler);
+                    confirmNoBtn.removeEventListener('click', noHandler);
+                    resolve(false);
+                };
+                confirmYesBtn.addEventListener('click', yesHandler);
+                confirmNoBtn.addEventListener('click', noHandler);
+            });
+        }
+
+        // Close modals when clicking outside (optional)
+        alertModal.addEventListener('click', (e) => {
+            if (e.target === alertModal) {
+                alertModal.classList.remove('active');
+                alertOkBtn.click();
+            }
+        });
+        confirmModal.addEventListener('click', (e) => {
+            if (e.target === confirmModal) {
+                // Do nothing, require explicit yes/no
+            }
+        });
+
+        console.log('[Timetable] Refs:', { daySelector, addSlotBtn, dayScheduleBody });
+
+        // ====== HELPERS ======
+        function calculateDuration(startStr, endStr, periods) {
+            if (!startStr || !endStr || !periods) return 45;
+            const start = new Date('1970-01-01T' + startStr + ':00');
+            const end = new Date('1970-01-01T' + endStr + ':00');
+            const diff = (end - start) / 60000;
+            if (diff <= 0) return 45;
+            return Math.round(diff / periods);
+        }
+
+        function updateDuration(row) {
+            const start = row.querySelector('input[name="start"]');
+            const end = row.querySelector('input[name="end"]');
+            const periods = row.querySelector('input[name="periods"]');
+            const duration = row.querySelector('input[name="duration"]');
+            if (start && end && periods && duration) {
+                const val = calculateDuration(start.value, end.value, periods.value);
+                if (val > 0) duration.value = val;
+            }
+        }
+
+        // ====== UNSAVED CHANGES TRACKING ======
+        function markUnsaved() {
+            if (!unsavedChanges) {
+                unsavedChanges = true;
+                console.log('[Timetable] Unsaved changes detected');
+            }
+        }
+
+        function markSaved() {
+            unsavedChanges = false;
+            console.log('[Timetable] Changes saved, flag reset');
+        }
+
+        // ====== PERFORM SAVE ======
+        let saveTimeout = null;
+        function autoSave() {
+            if (saveTimeout) clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                saveTimeout = null;
+                performSave();
+            }, 800);
+        }
+
+        async function performSave() {
+            const rows = dayScheduleBody.querySelectorAll('tr:not(.empty-row)');
+            const schedules = [];
+            let hasEmptyLabel = false;
+            rows.forEach(row => {
+                const day = parseInt(row.dataset.day);
+                const label = row.querySelector('input[name="label"]')?.value || '';
+                const start = row.querySelector('input[name="start"]')?.value;
+                const end = row.querySelector('input[name="end"]')?.value;
+                const periods = parseInt(row.querySelector('input[name="periods"]')?.value);
+                const duration = parseInt(row.querySelector('input[name="duration"]')?.value);
+                if (day && start && end && periods && duration) {
+                    if (!label) {
+                        hasEmptyLabel = true;
+                        row.style.border = '2px solid #dc2626';
+                    }
+                    schedules.push({ day, label, start, end, periods, duration });
+                }
+            });
+            if (hasEmptyLabel) {
+                setStatus('⚠️ Label is required for all slots', 'error');
+                await showAlert('Please fill in the Label for all slots. Labels help identify which class/group this slot is for.', 'Missing Label');
+                return;
+            }
+            if (schedules.length === 0) {
+                setStatus('No slots to save', 'info');
+                return;
+            }
+            setStatus('Saving…', 'info');
+            saveSpinner.style.display = 'inline';
+
+            try {
+                const res = await fetch(`/portal/${schema}/api/timetable/day-schedules/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ schedules: schedules })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    const errorMsg = data.error || `HTTP ${res.status}`;
+                    setStatus('⚠️ ' + errorMsg, 'error');
+                    await showAlert('Error: ' + errorMsg, 'Save Failed');
+                    return;
+                }
+                if (data && data.success) {
+                    setStatus('All changes saved ✓', 'success');
+                    markSaved();
+                } else {
+                    throw new Error(data?.error || 'Unknown error');
+                }
+            } catch (err) {
+                console.error('Save error:', err);
+                if (!saveStatus.textContent.includes('⚠️')) {
+                    setStatus('⚠️ Save failed – see console', 'error');
+                }
+                if (err.message && (err.message.includes('relation') || err.message.includes('does not exist'))) {
+                    await showAlert(
+                        'Database table for day schedules is missing.\nPlease run migrations for this tenant.\nContact your system administrator.',
+                        'Database Error'
+                    );
+                } else {
+                    await showAlert('An error occurred while saving. Please check the console for details.', 'Error');
+                }
+            } finally {
+                saveSpinner.style.display = 'none';
+            }
+        }
+
+        function setStatus(msg, type) {
+            saveStatus.textContent = msg;
+            saveStatus.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#10b981' : 'var(--muted)';
+        }
+
+        // ====== CUSTOM UNSAVED MODAL ======
+        function showUnsavedModal(navTarget) {
+            pendingNavigation = navTarget;
+            unsavedModal.style.display = 'flex';
+        }
+
+        function hideUnsavedModal() {
+            unsavedModal.style.display = 'none';
+            pendingNavigation = null;
+        }
+
+        unsavedSaveBtn.addEventListener('click', function() {
+            hideUnsavedModal();
+            performSave().then(() => {
+                if (pendingNavigation === 'refresh') {
+                    location.reload();
+                } else if (pendingNavigation) {
+                    window.location.href = pendingNavigation;
+                } else {
+                    location.reload();
+                }
+            }).catch(() => {
+                console.log('[Timetable] Save failed, navigation cancelled');
+            });
+        });
+
+        unsavedDiscardBtn.addEventListener('click', function() {
+            hideUnsavedModal();
+            unsavedChanges = false;
+            if (pendingNavigation === 'refresh') {
+                location.reload();
+            } else if (pendingNavigation) {
+                window.location.href = pendingNavigation;
+            } else {
+                location.reload();
+            }
+        });
+
+        unsavedCancelBtn.addEventListener('click', function() {
+            hideUnsavedModal();
+        });
+
+        // ====== INTERCEPT LINK CLICKS ======
+        document.addEventListener('click', function(e) {
+            const target = e.target.closest('a');
+            if (!target) return;
+            const href = target.getAttribute('href');
+            if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:')) return;
+            if (unsavedChanges) {
+                e.preventDefault();
+                showUnsavedModal(href);
+            }
+        });
+
+        // ====== INTERCEPT REFRESH (F5, Ctrl+R, Cmd+R) ======
+        document.addEventListener('keydown', function(e) {
+            if (unsavedChanges) {
+                // F5 key or Ctrl+R or Cmd+R
+                if (e.key === 'F5' || (e.ctrlKey && e.key === 'r') || (e.metaKey && e.key === 'r')) {
+                    e.preventDefault();
+                    showUnsavedModal('refresh');
+                }
+            }
+        });
+
+        // ====== BEFOREUNLOAD (fallback for tab close / browser refresh button) ======
+        window.addEventListener('beforeunload', function(e) {
+            if (unsavedChanges) {
+                e.preventDefault();
+                e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+                return e.returnValue;
+            }
+        });
+
+        // ====== ADD SLOT ======
+        if (addSlotBtn) {
+            addSlotBtn.addEventListener('click', async function(e) {
+                e.preventDefault();
+                console.log('[Timetable] Add Slot button clicked');
+                const day = parseInt(daySelector.value);
+                if (isNaN(day) || day === '') {
+                    await showAlert('Please select a day.', 'Selection Required');
+                    return;
+                }
+                const dayLabel = daySelector.options[daySelector.selectedIndex].text;
+                const startVal = universalStart.value || '08:00';
+                const endVal = universalEnd.value || '14:00';
+                const periodsVal = universalPeriods.value || 8;
+                const durationVal = calculateDuration(startVal, endVal, periodsVal);
+
+                const tr = document.createElement('tr');
+                tr.dataset.day = day;
+                tr.innerHTML = `
+                    <td class="day-label">${dayLabel}</td>
+                    <td><input type="text" name="label" value="" class="form-control schedule-input" data-day="${day}" data-field="label" style="width:100px;" required></td>
+                    <td><input type="time" name="start" value="${startVal}" class="form-control schedule-input" data-day="${day}" data-field="start"></td>
+                    <td><input type="time" name="end" value="${endVal}" class="form-control schedule-input" data-day="${day}" data-field="end"></td>
+                    <td><input type="number" name="periods" value="${periodsVal}" class="form-control schedule-input" data-day="${day}" data-field="periods" min="1"></td>
+                    <td><input type="number" name="duration" value="${durationVal}" class="form-control schedule-input" data-day="${day}" data-field="duration" min="1"></td>
+                    <td><button type="button" class="btn-danger btn-sm remove-slot-btn" data-day="${day}">×</button></td>
+                `;
+                dayScheduleBody.appendChild(tr);
+                const emptyRow = dayScheduleBody.querySelector('.empty-row');
+                if (emptyRow) emptyRow.remove();
+
+                tr.querySelector('.remove-slot-btn').addEventListener('click', function() {
+                    removeSlot(tr);
+                });
+
+                tr.querySelectorAll('.schedule-input').forEach(input => {
+                    input.addEventListener('change', function() {
+                        const row = this.closest('tr');
+                        if (row) {
+                            const field = this.dataset.field;
+                            if (field === 'start' || field === 'end' || field === 'periods') {
+                                updateDuration(row);
+                            }
+                            markUnsaved();
+                            autoSave();
+                        }
+                    });
+                    input.addEventListener('input', function() {
+                        if (this.type === 'number' || this.type === 'time') {
+                            const row = this.closest('tr');
+                            if (row && this.dataset.field === 'periods') {
+                                updateDuration(row);
+                            }
+                            markUnsaved();
+                            autoSave();
+                        }
+                    });
+                });
+
+                daySelector.value = '';
+                markUnsaved();
+                autoSave();
+                console.log('[Timetable] Slot added for day:', dayLabel);
+            });
+        } else {
+            console.error('[Timetable] addSlotBtn not found');
+        }
+
+        // ====== REMOVE SLOT ======
+        async function removeSlot(row) {
+            const confirmed = await showConfirm('Remove this time slot?', 'Confirm Deletion');
+            if (!confirmed) return;
+            row.remove();
+            if (dayScheduleBody.children.length === 0) {
+                dayScheduleBody.innerHTML = '<tr><td colspan="7" class="empty-row">No slots added yet. Select a day and click "Add Slot".</td></tr>';
+            }
+            markUnsaved();
+            autoSave();
+        }
+
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('remove-slot-btn')) {
+                const row = e.target.closest('tr');
+                if (row) removeSlot(row);
+            }
+        });
+
+        // ====== AUTO-UPDATE DURATION ON CHANGE ======
+        document.addEventListener('change', function(e) {
+            const target = e.target;
+            if (target.classList.contains('schedule-input')) {
+                const row = target.closest('tr');
+                if (row) {
+                    const field = target.dataset.field;
+                    if (field === 'start' || field === 'end' || field === 'periods') {
+                        updateDuration(row);
+                    }
+                    markUnsaved();
+                    autoSave();
+                }
+            }
+        });
+
+        document.addEventListener('input', function(e) {
+            const target = e.target;
+            if (target.classList.contains('schedule-input') && (target.type === 'number' || target.type === 'time')) {
+                const row = target.closest('tr');
+                if (row && target.dataset.field === 'periods') {
+                    updateDuration(row);
+                }
+                markUnsaved();
+                autoSave();
+            }
+        });
+
+        // ====== APPLY UNIVERSAL ======
+        applyUniversalBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('[Timetable] Apply Universal clicked');
+            const start = universalStart.value;
+            const end = universalEnd.value;
+            const periods = universalPeriods.value;
+            const rows = dayScheduleBody.querySelectorAll('tr:not(.empty-row)');
+            rows.forEach(row => {
+                const startInput = row.querySelector('input[name="start"]');
+                const endInput = row.querySelector('input[name="end"]');
+                const periodsInput = row.querySelector('input[name="periods"]');
+                if (startInput) startInput.value = start;
+                if (endInput) endInput.value = end;
+                if (periodsInput) periodsInput.value = periods;
+                updateDuration(row);
+            });
+            markUnsaved();
+            autoSave();
+        });
+
+        // ====== SAVE CALENDAR (manual) ======
+        saveCalendarBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            const confirmed = await showConfirm('Save current calendar settings to database?', 'Confirm Save');
+            if (confirmed) {
+                await performSave();
+            }
+        });
+
+        // ====== RESET CALENDAR ======
+        resetCalendarBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            const confirmed = await showConfirm('Are you sure you want to reset the calendar? All unsaved changes will be lost.', 'Confirm Reset');
+            if (confirmed) {
+                location.reload();
+            }
+        });
+
+        // ====== INITIAL LOAD ======
+        const firstRow = dayScheduleBody.querySelector('tr:not(.empty-row)');
+        if (firstRow) {
+            const start = firstRow.querySelector('input[name="start"]')?.value;
+            const end = firstRow.querySelector('input[name="end"]')?.value;
+            const periods = firstRow.querySelector('input[name="periods"]')?.value;
+            if (start) universalStart.value = start;
+            if (end) universalEnd.value = end;
+            if (periods) universalPeriods.value = periods;
+        }
+        setStatus('Ready', 'info');
+        console.log('[Timetable] Initialization complete.');
+    });
+</script>
+{% endblock %}

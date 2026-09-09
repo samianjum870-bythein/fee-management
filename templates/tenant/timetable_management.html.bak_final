@@ -220,7 +220,7 @@
     <div class="card-header">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <h3>Academic Calendar</h3>
-        <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Changes are saved automatically</span>
+        <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Changes are saved manually</span>
     </div>
 
     <!-- Universal settings row (only for quick fill) -->
@@ -236,6 +236,10 @@
                 <input type="number" id="universalPeriods" value="8" class="form-control" style="width:70px;" min="1">
                 <button type="button" id="applyUniversalBtn" class="btn-secondary btn-sm">Apply to All</button>
             </div>
+            <div>
+                <button type="button" id="resetCalendarBtn" class="btn-danger btn-lg">Reset Calendar</button>
+                <button type="button" id="saveCalendarBtn" class="btn-success btn-lg">Save Calendar</button>
+            </div>
         </div>
     </div>
 
@@ -244,7 +248,7 @@
         <button type="button" id="addSlotBtn" class="btn-primary btn-lg">+ Add Slot</button>
     </div>
 
-    <!-- Day schedule table -->
+    <!-- Day schedule table (read-only, with Edit/Delete actions) -->
     <div id="dayScheduleContainer">
         <table class="schedule-table" id="dayScheduleTable">
             <thead>
@@ -391,6 +395,8 @@
         const universalEnd = document.getElementById('universalEnd');
         const universalPeriods = document.getElementById('universalPeriods');
         const applyUniversalBtn = document.getElementById('applyUniversalBtn');
+        const resetCalendarBtn = document.getElementById('resetCalendarBtn');
+        const saveCalendarBtn = document.getElementById('saveCalendarBtn');
         const saveStatus = document.getElementById('saveStatus');
         const saveSpinner = document.getElementById('saveSpinner');
 
@@ -415,6 +421,7 @@
         const confirmYesBtn = document.getElementById('confirmYesBtn');
         const confirmNoBtn = document.getElementById('confirmNoBtn');
 
+        // State: editing mode (null = add, row = tr element for edit)
         let editingRow = null;
 
         // ====== CUSTOM ALERT & CONFIRM FUNCTIONS ======
@@ -454,6 +461,7 @@
             });
         }
 
+        // Close alert on outside click
         alertModal.addEventListener('click', (e) => {
             if (e.target === alertModal) {
                 alertModal.classList.remove('active');
@@ -479,78 +487,19 @@
             modalDuration.value = duration;
         }
 
+        // Attach events to modal fields for auto-calc
         modalStart.addEventListener('change', updateModalDuration);
         modalEnd.addEventListener('change', updateModalDuration);
         modalPeriods.addEventListener('change', updateModalDuration);
         modalPeriods.addEventListener('input', updateModalDuration);
 
-        // ====== AUTO-SAVE (debounced for add/edit) ======
-        let saveTimeout = null;
-        function autoSave() {
-            if (saveTimeout) clearTimeout(saveTimeout);
-            saveTimeout = setTimeout(() => {
-                saveTimeout = null;
-                performSave();
-            }, 800);
-        }
-
-        async function performSave() {
-            const rows = dayScheduleBody.querySelectorAll('tr:not(.empty-row)');
-            const schedules = [];
-            rows.forEach(row => {
-                const cells = row.querySelectorAll('td');
-                const day = parseInt(row.dataset.day);
-                const label = cells[1].textContent;
-                const start = cells[2].textContent;
-                const end = cells[3].textContent;
-                const periods = parseInt(cells[4].textContent);
-                const duration = parseInt(cells[5].textContent);
-                if (day && label && start && end && periods && duration) {
-                    schedules.push({ day, label, start, end, periods, duration });
-                }
-            });
-
-            setStatus('Saving…', 'info');
-            saveSpinner.style.display = 'inline';
-
-            try {
-                const res = await fetch(`/portal/${schema}/api/timetable/day-schedules/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify({ schedules: schedules })
-                });
-                const data = await res.json();
-                if (!res.ok) {
-                    const errorMsg = data.error || `HTTP ${res.status}`;
-                    setStatus('⚠️ ' + errorMsg, 'error');
-                    await showAlert('Error: ' + errorMsg, 'Save Failed');
-                    return;
-                }
-                if (data && data.success) {
-                    setStatus('All changes saved ✓', 'success');
-                } else {
-                    throw new Error(data?.error || 'Unknown error');
-                }
-            } catch (err) {
-                console.error('Save error:', err);
-                setStatus('⚠️ Save failed – see console', 'error');
-                await showAlert('An error occurred while saving. Please check the console.', 'Error');
-            } finally {
-                saveSpinner.style.display = 'none';
-            }
-        }
-
-        function setStatus(msg, type) {
-            saveStatus.textContent = msg;
-            saveStatus.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#10b981' : 'var(--muted)';
-        }
-
         // ====== MODAL OPEN/CLOSE ======
         function openModal(rowData = null) {
+            // rowData: { day, label, start, end, periods, duration, rowElement? }
             if (rowData) {
                 modalTitle.textContent = 'Edit Slot';
                 modalDay.value = rowData.day;
-                modalDay.disabled = true;
+                modalDay.disabled = true; // day cannot be changed for edit
                 modalLabel.value = rowData.label;
                 modalStart.value = rowData.start;
                 modalEnd.value = rowData.end;
@@ -559,13 +508,14 @@
                 editingRow = rowData.rowElement;
             } else {
                 modalTitle.textContent = 'Add Slot';
+                // Reset fields (use universal values if available)
                 modalDay.value = '';
                 modalDay.disabled = false;
                 modalLabel.value = '';
                 modalStart.value = universalStart.value || '08:00';
                 modalEnd.value = universalEnd.value || '14:00';
                 modalPeriods.value = universalPeriods.value || 8;
-                updateModalDuration();
+                updateModalDuration(); // auto-calc
                 editingRow = null;
             }
             slotModal.classList.add('active');
@@ -576,13 +526,19 @@
             editingRow = null;
         }
 
+        // Cancel button
         modalCancelBtn.addEventListener('click', closeModal);
+
+        // Close on outside click
         slotModal.addEventListener('click', (e) => {
-            if (e.target === slotModal) closeModal();
+            if (e.target === slotModal) {
+                closeModal();
+            }
         });
 
         // ====== SAVE SLOT FROM MODAL ======
         modalSaveBtn.addEventListener('click', async function() {
+            // Gather data
             const day = parseInt(modalDay.value);
             const label = modalLabel.value.trim();
             const start = modalStart.value;
@@ -590,15 +546,16 @@
             const periods = parseInt(modalPeriods.value);
             const duration = parseInt(modalDuration.value);
 
-            if (isNaN(day) || day === 0) {
-                await showAlert('Please select a valid day.', 'Missing Day');
+            // Validation
+            if (!day) {
+                await showAlert('Please select a day.', 'Missing Day');
                 return;
             }
             if (!label) {
                 await showAlert('Label is required.', 'Missing Label');
                 return;
             }
-            if (!start || !end || isNaN(periods) || isNaN(duration)) {
+            if (!start || !end || !periods || !duration) {
                 await showAlert('Please fill all fields correctly.', 'Invalid Data');
                 return;
             }
@@ -606,15 +563,20 @@
             const dayLabel = modalDay.options[modalDay.selectedIndex].text;
 
             if (editingRow) {
+                // === EDIT EXISTING ROW ===
+                // Update the row content
                 const cells = editingRow.querySelectorAll('td');
-                cells[0].textContent = dayLabel;
+                cells[0].textContent = dayLabel; // day (should be same)
                 cells[1].textContent = label;
                 cells[2].textContent = start;
                 cells[3].textContent = end;
                 cells[4].textContent = periods;
                 cells[5].textContent = duration;
+                // Update data attributes if needed
                 editingRow.dataset.day = day;
+                // Note: slot-id remains unchanged
             } else {
+                // === ADD NEW ROW ===
                 const tr = document.createElement('tr');
                 tr.dataset.day = day;
                 tr.innerHTML = `
@@ -632,13 +594,17 @@
                     </td>
                 `;
                 dayScheduleBody.appendChild(tr);
+
+                // Remove empty row if present
                 const emptyRow = dayScheduleBody.querySelector('.empty-row');
                 if (emptyRow) emptyRow.remove();
+
+                // Attach event listeners to the new buttons
                 attachRowEvents(tr);
             }
 
             closeModal();
-            autoSave(); // debounced save
+            setStatus('Slot saved locally. Click "Save Calendar" to persist.', 'info');
         });
 
         // ====== ATTACH EVENTS TO ROW BUTTONS ======
@@ -648,6 +614,7 @@
 
             editBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
+                // Gather row data
                 const cells = row.querySelectorAll('td');
                 const day = parseInt(row.dataset.day);
                 const label = cells[1].textContent;
@@ -674,8 +641,7 @@
                     if (dayScheduleBody.children.length === 0) {
                         dayScheduleBody.innerHTML = '<tr><td colspan="7" class="empty-row">No slots added yet. Click "Add Slot" to create one.</td></tr>';
                     }
-                    // ----- FIX: Save immediately after deletion (bypass debounce) -----
-                    await performSave();
+                    setStatus('Slot deleted locally. Click "Save Calendar" to persist.', 'info');
                 }
             });
         }
@@ -690,31 +656,106 @@
             openModal();
         });
 
-        // ====== APPLY UNIVERSAL ======
+        // ====== APPLY UNIVERSAL (quick fill) ======
         applyUniversalBtn.addEventListener('click', function() {
             const start = universalStart.value;
             const end = universalEnd.value;
             const periods = universalPeriods.value;
+            // Update all existing rows
             const rows = dayScheduleBody.querySelectorAll('tr:not(.empty-row)');
             rows.forEach(row => {
                 const cells = row.querySelectorAll('td');
+                const day = parseInt(row.dataset.day);
                 const duration = calculateDuration(start, end, periods);
+                // Update start, end, periods, duration
                 cells[2].textContent = start;
                 cells[3].textContent = end;
                 cells[4].textContent = periods;
                 cells[5].textContent = duration;
             });
-            autoSave(); // debounced
-            setStatus('Universal values applied and saved.', 'success');
+            setStatus('Universal values applied to all slots. Click "Save Calendar" to persist.', 'info');
         });
+
+        // ====== SAVE CALENDAR (manual) ======
+        saveCalendarBtn.addEventListener('click', async function() {
+            const confirmed = await showConfirm('Save all current slots to database?', 'Confirm Save');
+            if (!confirmed) return;
+
+            const rows = dayScheduleBody.querySelectorAll('tr:not(.empty-row)');
+            const schedules = [];
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const day = parseInt(row.dataset.day);
+                const label = cells[1].textContent;
+                const start = cells[2].textContent;
+                const end = cells[3].textContent;
+                const periods = parseInt(cells[4].textContent);
+                const duration = parseInt(cells[5].textContent);
+                if (day && label && start && end && periods && duration) {
+                    schedules.push({ day, label, start, end, periods, duration });
+                }
+            });
+
+            if (schedules.length === 0) {
+                await showAlert('No slots to save.', 'Empty');
+                return;
+            }
+
+            setStatus('Saving…', 'info');
+            saveSpinner.style.display = 'inline';
+
+            try {
+                const res = await fetch(`/portal/${schema}/api/timetable/day-schedules/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ schedules: schedules })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    const errorMsg = data.error || `HTTP ${res.status}`;
+                    setStatus('⚠️ ' + errorMsg, 'error');
+                    await showAlert('Error: ' + errorMsg, 'Save Failed');
+                    return;
+                }
+                if (data && data.success) {
+                    setStatus('All changes saved ✓', 'success');
+                    // Optionally refresh row data? Not needed as we keep local.
+                } else {
+                    throw new Error(data?.error || 'Unknown error');
+                }
+            } catch (err) {
+                console.error('Save error:', err);
+                setStatus('⚠️ Save failed – see console', 'error');
+                await showAlert('An error occurred while saving. Please check the console.', 'Error');
+            } finally {
+                saveSpinner.style.display = 'none';
+            }
+        });
+
+        // ====== RESET CALENDAR (reload page) ======
+        resetCalendarBtn.addEventListener('click', async function() {
+            const confirmed = await showConfirm('Reset calendar? All unsaved changes will be lost.', 'Confirm Reset');
+            if (confirmed) {
+                location.reload();
+            }
+        });
+
+        // ====== SET STATUS ======
+        function setStatus(msg, type) {
+            saveStatus.textContent = msg;
+            saveStatus.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#10b981' : 'var(--muted)';
+        }
 
         // ====== INITIAL LOAD ======
         const firstRow = dayScheduleBody.querySelector('tr:not(.empty-row)');
         if (firstRow) {
             const cells = firstRow.querySelectorAll('td');
-            universalStart.value = cells[2]?.textContent || '08:00';
-            universalEnd.value = cells[3]?.textContent || '14:00';
-            universalPeriods.value = parseInt(cells[4]?.textContent) || 8;
+            const start = cells[2]?.textContent || '08:00';
+            const end = cells[3]?.textContent || '14:00';
+            const periods = parseInt(cells[4]?.textContent) || 8;
+            universalStart.value = start;
+            universalEnd.value = end;
+            universalPeriods.value = periods;
         }
         setStatus('Ready', 'info');
         console.log('[Timetable] Initialization complete.');

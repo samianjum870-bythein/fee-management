@@ -841,8 +841,9 @@ class TimetableEntry(models.Model):
         return f"{self.school_class} - {self.get_day_of_week_display()} - {self.period} - {self.subject} ({self.teacher})"
 
 
+
 class DaySchedule(models.Model):
-    """Per‑day schedule for a tenant's academic calendar."""
+    """Per‑day schedule for a tenant's academic calendar, supporting multiple slots per day."""
     DAY_CHOICES = [
         (0, 'Monday'),
         (1, 'Tuesday'),
@@ -857,6 +858,8 @@ class DaySchedule(models.Model):
         related_name='day_schedules'
     )
     day_of_week = models.IntegerField(choices=DAY_CHOICES)
+    order = models.PositiveIntegerField(default=0, help_text="Order of this slot within the day")
+    label = models.CharField(max_length=50, blank=False, default='', help_text="Optional label, e.g., 'Senior', 'Junior'")
     start_time = models.TimeField(default='08:00:00')
     end_time = models.TimeField(default='14:00:00')
     periods = models.PositiveIntegerField(default=8, help_text="Number of periods on this day.")
@@ -864,12 +867,9 @@ class DaySchedule(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = [('academic_calendar', 'day_of_week')]
-        ordering = ['day_of_week']
+        ordering = ['day_of_week', 'order']
+        # No unique_together – multiple slots per day allowed
 
     def __str__(self):
-        return f"{self.get_day_of_week_display()} - {self.start_time} to {self.end_time} ({self.periods} periods)"
-
-
-# Update AcademicCalendar to keep universal defaults but remove direct fields
-# The existing fields school_start_time, school_end_time, period_duration will be kept as universal fallbacks.
+        label_part = f" ({self.label})" if self.label else ""
+        return f"{self.get_day_of_week_display()}{label_part} - {self.start_time} to {self.end_time} ({self.periods} periods)"
