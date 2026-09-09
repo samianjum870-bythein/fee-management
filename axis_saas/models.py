@@ -866,6 +866,9 @@ class DaySchedule(models.Model):
     duration = models.PositiveIntegerField(default=45, help_text="Duration per period in minutes.")
     is_active = models.BooleanField(default=True)
 
+    break_after = models.PositiveIntegerField(null=True, blank=True, help_text="After which period (1-indexed) the break occurs.")
+    break_duration = models.PositiveIntegerField(default=0, help_text="Duration of break in minutes.")
+
     class Meta:
         ordering = ['day_of_week', 'order']
         # No unique_together – multiple slots per day allowed

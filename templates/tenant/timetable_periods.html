@@ -1,0 +1,342 @@
+{% extends 'tenant/base.html' %}
+{% load static %}
+{% load fee_extras %}
+{% block title %}Periods Management | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .bunch-card {
+        background: var(--surface);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        box-shadow: var(--shadow-sm);
+    }
+    .bunch-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    .bunch-title {
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+    .period-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    .period-table th, .period-table td {
+        border: 1px solid var(--border);
+        padding: 0.4rem;
+        text-align: center;
+        vertical-align: middle;
+        min-width: 60px;
+    }
+    .period-table th {
+        background: var(--surface-alt);
+        font-weight: 600;
+    }
+    .period-table .day-label {
+        font-weight: 600;
+        background: var(--surface-alt);
+    }
+    .break-cell {
+        background: #fef3c7;
+        border: 2px dashed #f59e0b;
+    }
+    .break-controls {
+        display: flex;
+        gap: 0.3rem;
+        justify-content: center;
+        align-items: center;
+    }
+    .break-controls button {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 0.25rem;
+        padding: 0.1rem 0.4rem;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .break-controls button:hover {
+        background: var(--primary);
+        color: white;
+    }
+    .add-bunch-form {
+        background: var(--surface-alt);
+        padding: 1rem;
+        border-radius: var(--radius);
+        margin-top: 1rem;
+    }
+    .add-bunch-form .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    .add-bunch-form label {
+        font-weight: 500;
+        font-size: 0.85rem;
+    }
+    .add-bunch-form input, .add-bunch-form select {
+        padding: 0.3rem 0.5rem;
+        border-radius: 0.25rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .btn-sm {
+        padding: 0.2rem 0.6rem;
+        font-size: 0.75rem;
+    }
+    .btn-primary {
+        background: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 2rem;
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+        font-weight: 500;
+    }
+    .btn-primary:hover {
+        background: var(--primary-dark);
+    }
+    .btn-success {
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 2rem;
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+        font-weight: 500;
+    }
+    .btn-danger {
+        background: #dc2626;
+        color: white;
+        border: none;
+        border-radius: 2rem;
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+        font-weight: 500;
+    }
+    .flex { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .mt-1 { margin-top: 0.5rem; }
+    .mb-1 { margin-bottom: 0.5rem; }
+    .text-muted { color: var(--muted); }
+    .page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .page-title { font-size: 1.8rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .page-desc { color: var(--muted); }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Periods (Lectures) Management</h1>
+        <p class="page-desc">Define periods and breaks for each day of the week</p>
+    </div>
+</div>
+
+<!-- Add New Bunch Form -->
+<div class="bunch-card">
+    <h3>➕ Add New Bunch</h3>
+    <div class="add-bunch-form">
+        <form id="addBunchForm">
+            <div class="form-row">
+                <label>Days</label>
+                <select name="days" multiple required style="min-width:150px;">
+                    {% for val, label in day_choices %}
+                        {% if val not in used_days %}
+                            <option value="{{ val }}">{{ label }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+                <label>Start</label>
+                <input type="time" name="start_time" value="08:00" required>
+                <label>End</label>
+                <input type="time" name="end_time" value="14:00" required>
+                <label>Periods</label>
+                <input type="number" name="periods" value="8" min="1" required>
+                <label>Duration (min)</label>
+                <input type="number" name="duration" value="45" min="1" required>
+                <label>Label</label>
+                <input type="text" name="label" placeholder="e.g., Morning">
+                <button type="submit" class="btn-success">Create Bunch</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Existing Bunches -->
+{% for bunch in bunches %}
+<div class="bunch-card" data-start="{{ bunch.start_time|time:'H:i' }}" data-end="{{ bunch.end_time|time:'H:i' }}">
+    <div class="bunch-header">
+        <span class="bunch-title">⏰ {{ bunch.start_time|time:'H:i' }} – {{ bunch.end_time|time:'H:i' }}</span>
+        <span class="text-muted">{{ bunch.days|length }} day(s) | Max periods: {{ bunch.max_periods }}</span>
+    </div>
+    <table class="period-table">
+        <thead>
+            <tr>
+                <th>Day</th>
+                {% for p in bunch.max_periods|make_list %}
+                    <th>P{{ forloop.counter }}</th>
+                {% endfor %}
+                <th>Break</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ds in bunch.days %}
+            <tr data-id="{{ ds.id }}" data-periods="{{ ds.periods }}" data-break-after="{{ ds.break_after|default:'' }}" data-break-duration="{{ ds.break_duration|default:0 }}">
+                <td class="day-label">{{ ds.get_day_of_week_display }}</td>
+                {% for p in bunch.max_periods|make_list %}
+                    {% if forloop.counter <= ds.periods %}
+                        <td>P{{ forloop.counter }}</td>
+                    {% else %}
+                        <td class="text-muted">—</td>
+                    {% endif %}
+                {% endfor %}
+                <td class="break-cell">
+                    <div class="break-controls">
+                        <button class="move-break-left" data-id="{{ ds.id }}">◀</button>
+                        <span class="break-info">
+                            {% if ds.break_after %}
+                                After P{{ ds.break_after }} ({{ ds.break_duration }} min)
+                            {% else %}
+                                No break
+                            {% endif %}
+                        </span>
+                        <button class="move-break-right" data-id="{{ ds.id }}">▶</button>
+                        <input type="number" class="break-duration-input" data-id="{{ ds.id }}" value="{{ ds.break_duration|default:0 }}" min="0" style="width:50px;">
+                        <button class="save-break-btn btn-primary btn-sm" data-id="{{ ds.id }}">Save</button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% empty %}
+<p class="text-muted">No periods defined. Create a bunch above.</p>
+{% endfor %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const csrfToken = '{{ csrf_token }}';
+    const schema = '{{ tenant.schema_name }}';
+
+    // Handle move break left/right
+    document.querySelectorAll('.move-break-left, .move-break-right').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = this.dataset.id;
+            const row = this.closest('tr');
+            const periods = parseInt(row.dataset.periods);
+            let breakAfter = parseInt(row.dataset.breakAfter) || 0;
+            const isLeft = this.classList.contains('move-break-left');
+            const newVal = isLeft ? Math.max(0, breakAfter - 1) : Math.min(periods, breakAfter + 1);
+            if (newVal !== breakAfter) {
+                updateBreak(id, newVal, row);
+            }
+        });
+    });
+
+    // Save break duration
+    document.querySelectorAll('.save-break-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = this.dataset.id;
+            const row = this.closest('tr');
+            const input = row.querySelector('.break-duration-input');
+            const duration = parseInt(input.value) || 0;
+            const breakAfter = parseInt(row.dataset.breakAfter) || 0;
+            updateBreak(id, breakAfter, row, duration);
+        });
+    });
+
+    // Helper: update break via API
+    function updateBreak(id, breakAfter, row, duration) {
+        const data = { id: id, break_after: breakAfter };
+        if (duration !== undefined) {
+            data.break_duration = duration;
+        }
+        fetch(`/portal/${schema}/api/timetable/periods/break/update/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(result => {
+            if (result.success) {
+                // Update row data attributes and display
+                row.dataset.breakAfter = breakAfter;
+                if (duration !== undefined) {
+                    row.dataset.breakDuration = duration;
+                }
+                const infoSpan = row.querySelector('.break-info');
+                if (breakAfter > 0) {
+                    infoSpan.textContent = `After P${breakAfter} (${duration || row.dataset.breakDuration || 0} min)`;
+                } else {
+                    infoSpan.textContent = 'No break';
+                }
+                // Update input value
+                const input = row.querySelector('.break-duration-input');
+                if (duration !== undefined) {
+                    input.value = duration;
+                }
+                // Show success feedback
+                const btn = row.querySelector('.save-break-btn');
+                const orig = btn.textContent;
+                btn.textContent = '✓';
+                setTimeout(() => btn.textContent = orig, 1500);
+            } else {
+                alert('Failed to update break: ' + (result.error || 'unknown error'));
+            }
+        })
+        .catch(err => alert('Error: ' + err));
+    }
+
+    // Add bunch form submit
+    document.getElementById('addBunchForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const days = Array.from(formData.getAll('days')).map(Number);
+        const start_time = formData.get('start_time');
+        const end_time = formData.get('end_time');
+        const periods = parseInt(formData.get('periods'));
+        const duration = parseInt(formData.get('duration'));
+        const label = formData.get('label') || '';
+        if (days.length === 0) {
+            alert('Select at least one day.');
+            return;
+        }
+        if (!start_time || !end_time || isNaN(periods) || isNaN(duration)) {
+            alert('Fill all fields correctly.');
+            return;
+        }
+        const payload = { days, start_time, end_time, periods, duration, label };
+        fetch(`/portal/${schema}/api/timetable/periods/bunch/add/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(result => {
+            if (result.success) {
+                window.location.reload();
+            } else {
+                alert('Failed to add bunch: ' + (result.error || 'unknown error'));
+            }
+        })
+        .catch(err => alert('Error: ' + err));
+    });
+});
+</script>
+{% endblock %}

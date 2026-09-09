@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 """
-axis_patcher_final_vacation_overlap.py - Add overlap validation to vacation update.
+axis_patcher_fix_import.py - Fix broken import lines in public_urls.py.
 
-This patcher adds overlap checking to the `api_update_holiday` function
-(excluding the vacation being updated), preventing overlapping vacation dates.
-
-It also ensures that the view handles database errors gracefully and that
-`next_vacation` is always defined.
+This patcher fixes the syntax error where the import from timetable and periods
+are on the same line incorrectly.
 
 Usage:
-    python axis_patcher_final_vacation_overlap.py [--dry-run] [--verbose] [--target-dir PATH]
+    python axis_patcher_fix_import.py [--dry-run] [--verbose] [--target-dir PATH]
 
 Idempotent: safe to run multiple times.
 """
 
 import os
-import sys
 import re
+import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -27,7 +24,7 @@ from typing import Optional
 TARGET_DIR = Path.cwd()
 DRY_RUN = False
 VERBOSE = False
-LOG = []
+LOG: List[str] = []
 
 
 def log(msg: str, level: str = "INFO") -> None:
@@ -55,106 +52,38 @@ def write_file(path: Path, content: str) -> bool:
     return True
 
 
-def patch_view(path: Path) -> bool:
-    content = read_file(path)
+# ----------------------------------------------------------------------
+# Patches
+# ----------------------------------------------------------------------
+
+def fix_public_urls_import(urls_path: Path) -> bool:
+    """Fix the broken import line in public_urls.py."""
+    content = read_file(urls_path)
     if content is None:
-        log(f"View file not found: {path}", "ERROR")
+        log(f"URLs file not found: {urls_path}", "ERROR")
         return False
 
-    # Check if overlap validation is already present in api_update_holiday.
-    if "overlapping = Vacation.objects.filter" in content and "exclude(id=hid)" in content:
-        log("Overlap validation already present in api_update_holiday; skipping patch.", "INFO")
+    # Check if the line is already fixed (i.e., two separate lines)
+    # Look for pattern where we have two import statements on one line
+    # Specifically: ... api_update_holidayfrom .views.periods import ...
+    # We'll replace that with newline after api_update_holiday
+    # Also check if the line already has a newline.
+    if "api_update_holidayfrom" not in content:
+        log("Import line already appears to be fixed; skipping.")
         return True
 
-    # We'll insert the overlap check into the `elif htype == 'vacation':` block of api_update_holiday.
-    # We'll locate the function, then the branch, then insert before the assignments.
+    # Replace the erroneous line.
+    # We'll locate the line containing "from .views.timetable import" and split it.
+    # Safer: split at "from .views.periods" and add newline before it.
+    pattern = r'(from \.views\.timetable import .*?api_update_holiday)from \.views\.periods import (.*)'
+    replacement = r'\1\nfrom .views.periods import \2'
+    new_content = re.sub(pattern, replacement, content)
 
-    # First, find the start of api_update_holiday.
-    update_start = content.find("def api_update_holiday")
-    if update_start == -1:
-        log("api_update_holiday not found.", "ERROR")
+    if new_content == content:
+        log("No changes made; pattern did not match.", "WARNING")
         return False
 
-    # Within that function, find the `elif htype == 'vacation':` branch.
-    branch_pos = content.find("elif htype == 'vacation':", update_start)
-    if branch_pos == -1:
-        log("Could not find vacation branch in api_update_holiday.", "ERROR")
-        return False
-
-    # Now we need to locate the line `holiday.name = name` which is where we'll insert before.
-    # We'll search for `holiday.name = name` after the branch.
-    assign_pos = content.find("holiday.name = name", branch_pos)
-    if assign_pos == -1:
-        log("Could not find 'holiday.name = name' line in vacation branch.", "ERROR")
-        return False
-
-    # Find the newline before that line to insert after the previous line.
-    prev_newline = content.rfind('\n', 0, assign_pos)
-    if prev_newline == -1:
-        prev_newline = 0
-
-    # Build the overlap check code with proper indentation.
-    # We'll extract the indentation from the line containing `holiday.name = name`.
-    # Determine the indentation level: count spaces before that line.
-    line_start = content.rfind('\n', 0, assign_pos) + 1
-    indent = content[line_start:assign_pos]  # get the spaces before 'holiday.name = name'
-    # If the line might have trailing spaces, we'll use that as the base indent.
-    # We'll add one more level (4 spaces) for the filter statements? Actually the check block should be indented at the same level as the lines before it.
-    # The lines before are indented with 16 spaces (from the file). We'll use the same indent for the check.
-    # We'll build the check with that indent.
-    check_code = f"""{indent}# ---- Check for overlapping vacations (excluding self) ----
-{indent}overlapping = Vacation.objects.filter(
-{indent}    start_date__lte=end,
-{indent}    end_date__gte=start
-{indent}).exclude(id=hid).exists()
-{indent}if overlapping:
-{indent}    return JsonResponse({{'error': 'The selected date range overlaps with an existing vacation.'}}, status=400)
-"""
-    # Insert before the `holiday.name = name` line.
-    new_content = content[:assign_pos] + check_code + content[assign_pos:]
-
-    # Also ensure `next_vacation` is defined in the view even if an exception occurs.
-    # In the main view, the try-except sets vacations = [] but doesn't define next_vacation.
-    # We'll add a fallback before the try block: next_vacation = None.
-    # But the user might already have that; we'll check and add if missing.
-    if "next_vacation = None" not in new_content:
-        # Find the try block for vacations and insert `next_vacation = None` before it.
-        # We'll locate the line `try:` that is immediately after `# Vacations`.
-        vac_try = new_content.find("try:\n            vacations = Vacation.objects.all().order_by('start_date')")
-        if vac_try != -1:
-            # Insert `next_vacation = None` before that try.
-            insert_pos = new_content.rfind('\n', 0, vac_try) + 1
-            # Find the indentation of the try line.
-            indent_try = new_content[insert_pos:vac_try]  # get spaces before try
-            # Insert next_vacation = None at that indentation.
-            new_content = new_content[:insert_pos] + f"{indent_try}next_vacation = None\n" + new_content[insert_pos:]
-
-    # Ensure the `except` block also sets next_vacation = None (though it's already set before try, so safe).
-    # The except block currently does: logger.warning(...) and vacations = []
-    # We'll add `next_vacation = None` there as well to be safe.
-    # We'll search for `except Exception as e:` and insert `next_vacation = None` after the vacations = [] line.
-    except_pos = new_content.find("except Exception as e:")
-    if except_pos != -1:
-        # Find the line `vacations = []` within that except block.
-        vac_assign = new_content.find("vacations = []", except_pos)
-        if vac_assign != -1:
-            # Find the newline after that line to insert after.
-            after_assign = new_content.find('\n', vac_assign)
-            if after_assign != -1:
-                # Determine indentation of that line.
-                line_start = new_content.rfind('\n', 0, vac_assign) + 1
-                indent_except = new_content[line_start:vac_assign]
-                insert_code = f"{indent_except}next_vacation = None\n"
-                new_content = new_content[:after_assign+1] + insert_code + new_content[after_assign+1:]
-
-    if not DRY_RUN:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        log("Added overlap validation to api_update_holiday and ensured next_vacation is defined.")
-    else:
-        log("DRY-RUN: would add overlap validation and define next_vacation.")
-
-    return True
+    return write_file(urls_path, new_content)
 
 
 # ----------------------------------------------------------------------
@@ -175,29 +104,27 @@ def main():
             print(f"Unknown argument: {arg}", file=sys.stderr)
             sys.exit(1)
 
-    log(f"Starting axis_patcher_final_vacation_overlap.py (dry-run={DRY_RUN}, verbose={VERBOSE})")
+    log(f"Starting axis_patcher_fix_import.py (dry-run={DRY_RUN}, verbose={VERBOSE})")
     log(f"Target directory: {TARGET_DIR}")
 
-    if not (TARGET_DIR / "manage.py").exists() and not (TARGET_DIR / "axis_saas").exists():
+    if not (TARGET_DIR / "manage.py").exists() or not (TARGET_DIR / "axis_saas").exists():
         log("Target directory does not appear to be a Django project root.", "ERROR")
         sys.exit(1)
 
-    view_path = TARGET_DIR / "axis_saas" / "views" / "timetable.py"
-    if not view_path.exists():
-        log("View file not found.", "ERROR")
+    urls_path = TARGET_DIR / "axis_saas" / "public_urls.py"
+    if not urls_path.exists():
+        log(f"public_urls.py not found at {urls_path}", "ERROR")
         sys.exit(1)
 
-    success = patch_view(view_path)
+    success = fix_public_urls_import(urls_path)
 
-    if DRY_RUN:
-        log("DRY-RUN completed. No changes written.")
-    else:
-        if success:
-            log("Vacation overlap validation added successfully.")
+    if success:
+        log("Import line fixed successfully.")
+        if not DRY_RUN:
             log("Restart the server to apply changes.")
-        else:
-            log("Failed to patch view.", "ERROR")
-            sys.exit(1)
+    else:
+        log("Failed to fix import line. See logs above.", "ERROR")
+        sys.exit(1)
 
     sys.exit(0)
 
