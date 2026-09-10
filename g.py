@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
 """
-axis_patcher_fix.py
-===================
-Fixes the reconciliation bug that made Academic Calendar edits NOT
-propagate to existing Periods Timetables.
+axis_patcher.py
+===============
+Fixes the reconciliation wiring in axis_saas/views/periods.py.
 
-Root causes (present in the current `axis_saas/views/periods.py`):
-  A. `_reconcile_timetables()` is defined, but its first line is:
-         timetables = _reconcile_timetables(request, schema_name)
-     which is an INFINITE SELF-RECURSION instead of calling
-     `_load_timetables(...)`.
-  B. Because that buggy string contains the substring
-     `timetables = _reconcile_timetables`, the previous patcher's
-     idempotency check skipped replacing the real call site inside
-     `periods_management()` — so the page kept calling
-     `_load_timetables()` and never reconciled.
+The previous patch left two bugs:
+
+  (A) Inside `_reconcile_timetables()`, the first executable statement
+      recursively calls `_reconcile_timetables(request, schema_name)`
+      instead of `_load_timetables(request, schema_name)`.
+      This would have caused infinite recursion if it were ever called.
+
+  (B) `periods_management()` still calls `_load_timetables(...)` directly,
+      so the reconciler is never invoked on page load.
+
+  Result: editing the Academic Calendar (start/end time or periods count)
+  never affected existing Periods Timetables, and slot removals never
+  propagated.
 
 This patcher:
-  1) Fixes the recursion bug inside `_reconcile_timetables()`.
-  2) Rewires `periods_management()` to call `_reconcile_timetables()`.
-  3) Leaves everything else untouched (templates, other views).
+  A) Fixes the self-recursion inside `_reconcile_timetables()`.
+  B) Wires `periods_management()` to call `_reconcile_timetables()`.
 
-Idempotent. Safe to run multiple times.
+Idempotent. Safe to run repeatedly.
 
 Usage:
-    python3 axis_patcher_fix.py [--dry-run] [--verbose] [--target-dir=.]
+    python3 axis_patcher.py [--dry-run] [--verbose] [--target-dir=.]
 """
 
 import argparse
@@ -65,13 +66,6 @@ def _write(path: Path, content: str, dry_run: bool, verbose: bool) -> bool:
         return False
 
 
-def _replace_once(text, old, new, label):
-    if old not in text:
-        _log(f"  NOT FOUND anchor: {label}")
-        return text, False
-    return text.replace(old, new, 1), True
-
-
 # =====================================================================
 # Patch periods.py
 # =====================================================================
@@ -85,91 +79,93 @@ def patch_periods_py(path: Path, dry_run: bool, verbose: bool) -> bool:
     changes = 0
 
     # -----------------------------------------------------------------
-    # FIX A: recursion bug inside _reconcile_timetables()
-    #        `timetables = _reconcile_timetables(request, schema_name)`
-    #  ->    `timetables = _load_timetables(request, schema_name)`
+    # FIX A: self-recursion inside _reconcile_timetables()
+    #   `timetables = _reconcile_timetables(...)`  (inside reconcile)
+    # ->`timetables = _load_timetables(...)`         (correct)
+    #
+    # The two-line sequence below only exists inside the reconcile
+    # function (no other place has `_reconcile_timetables(...)` followed
+    # by `if not timetables:`).
     # -----------------------------------------------------------------
-    bug_anchor = (
-        '    """\n'
-        '    Reconcile session-stored timetables against current DaySchedule rows.\n'
-    )
-    bug_old = (
+    fix_a_old = (
         '    timetables = _reconcile_timetables(request, schema_name)\n'
         '    if not timetables:\n'
         '        return timetables\n'
     )
-    bug_new = (
+    fix_a_new = (
         '    timetables = _load_timetables(request, schema_name)\n'
         '    if not timetables:\n'
         '        return timetables\n'
     )
-
-    if bug_anchor in content and bug_old in content:
-        # Only replace if it actually appears inside the reconcile function.
-        # We locate the function body and do a scoped replace.
-        idx = content.find(bug_anchor)
-        if idx != -1:
-            # Find the next occurrence of bug_old after the docstring start
-            sub = content[idx:]
-            if bug_old in sub:
-                sub_fixed = sub.replace(bug_old, bug_new, 1)
-                content = content[:idx] + sub_fixed
-                changes += 1
-                _log("  + fixed recursion bug inside _reconcile_timetables()")
-            else:
-                _log("  - recursion bug line already fixed")
-        else:
-            _log("  - could not locate _reconcile_timetables body")
-    else:
-        _log("  - recursion bug line already fixed (or anchor missing)")
-
-    # -----------------------------------------------------------------
-    # FIX B: rewire periods_management() to use _reconcile_timetables()
-    #        Only replace the call site in periods_management, NOT the
-    #        one inside _reconcile_timetables (we already handled that).
-    # -----------------------------------------------------------------
-    # Use a context-unique anchor: the closing brace of the `with` block
-    # followed by the timetables assignment, followed by the context dict.
-    ctx_old = (
-        "        }\n"
-        "\n"
-        "    timetables = _load_timetables(request, schema_name)\n"
-        "\n"
-        "    context = {\n"
-        "        'tenant': tenant,\n"
-        "        'labels': labels,\n"
-    )
-    ctx_new = (
-        "        }\n"
-        "\n"
-        "    timetables = _reconcile_timetables(request, schema_name)\n"
-        "\n"
-        "    context = {\n"
-        "        'tenant': tenant,\n"
-        "        'labels': labels,\n"
-    )
-
-    if ctx_old in content:
-        content = content.replace(ctx_old, ctx_new, 1)
+    if fix_a_old in content:
+        content = content.replace(fix_a_old, fix_a_new, 1)
         changes += 1
-        _log("  + rewired periods_management() to call _reconcile_timetables()")
+        _log("  + fixed self-recursion inside _reconcile_timetables()")
     else:
-        # Maybe it was already rewired?
-        if (
-            "    timetables = _reconcile_timetables(request, schema_name)\n"
-            "    context = {\n"
-            in content.replace("        }\n\n", "")
-        ):
-            _log("  - periods_management already reconciled")
-        else:
-            _log("  WARN: could not find periods_management call-site anchor")
+        _log("  - self-recursion already fixed (or anchor missing)")
 
+    # -----------------------------------------------------------------
+    # FIX B: periods_management() must call _reconcile_timetables()
+    #        instead of _load_timetables().
+    #
+    # Anchor includes the `context = {` block, so it is unique — it
+    # cannot accidentally match the `timetables = _load_timetables(...)`
+    # that now lives inside _reconcile_timetables (that one is followed
+    # by `if not timetables:`).
+    # -----------------------------------------------------------------
+    fix_b_old = (
+        '    timetables = _load_timetables(request, schema_name)\n'
+        '\n'
+        '    context = {\n'
+        "        'tenant': tenant,\n"
+        "        'labels': labels,\n"
+        "        'slots_by_label_json': json.dumps(slots_by_label),\n"
+    )
+    fix_b_new = (
+        '    timetables = _reconcile_timetables(request, schema_name)\n'
+        '\n'
+        '    context = {\n'
+        "        'tenant': tenant,\n"
+        "        'labels': labels,\n"
+        "        'slots_by_label_json': json.dumps(slots_by_label),\n"
+    )
+    if fix_b_old in content:
+        content = content.replace(fix_b_old, fix_b_new, 1)
+        changes += 1
+        _log("  + wired periods_management() to _reconcile_timetables()")
+    else:
+        _log("  - periods_management already wired (or anchor missing)")
+
+    # -----------------------------------------------------------------
+    # Write + verify
+    # -----------------------------------------------------------------
     if changes == 0:
         _log("  no changes needed")
-        return True
+        # Still run verification so the user can see the current state.
+    else:
+        if content != original:
+            if not _write(path, content, dry_run, verbose):
+                return False
 
-    if content != original:
-        return _write(path, content, dry_run, verbose)
+    # Verification: print the two lines of interest.
+    if not dry_run:
+        try:
+            text = path.read_text(encoding='utf-8')
+            has_a = (
+                '    timetables = _load_timetables(request, schema_name)\n'
+                '    if not timetables:\n'
+                '        return timetables\n'
+            ) in text
+            has_b = (
+                '    timetables = _reconcile_timetables(request, schema_name)\n'
+                '\n'
+                '    context = {\n'
+            ) in text
+            _log(f"  verify: reconcile uses _load_timetables -> {has_a}")
+            _log(f"  verify: periods_management uses _reconcile_timetables -> {has_b}")
+        except Exception as e:
+            _log(f"  verify: could not re-read file: {e}")
+
     return True
 
 
@@ -178,7 +174,7 @@ def patch_periods_py(path: Path, dry_run: bool, verbose: bool) -> bool:
 # =====================================================================
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description='Fix periods reconciliation bug (recursion + wiring).'
+        description='Fix periods reconciliation wiring (self-recursion + call site).'
     )
     parser.add_argument('--dry-run', action='store_true',
                         help='Preview only, do not write files.')
@@ -198,6 +194,9 @@ def main() -> int:
         _log("WARNING: manage.py not found at target root. Continuing anyway.")
 
     periods_py = target / 'axis_saas' / 'views' / 'periods.py'
+    if not periods_py.exists():
+        _log(f"ERROR: {periods_py} not found.")
+        return 2
 
     ok = patch_periods_py(periods_py, args.dry_run, args.verbose)
 
@@ -207,6 +206,14 @@ def main() -> int:
         if not args.dry_run:
             _log("Restart the dev server (Ctrl+C then `python3 manage.py runserver`).")
             _log("Then hard-refresh the Periods page: Ctrl+Shift+R")
+            _log("")
+            _log("Test flow:")
+            _log("  1. Open /portal/<schema>/timetable/periods/ and generate a timetable.")
+            _log("  2. Open /portal/<schema>/timetable/ and change one of the slot's")
+            _log("     periods count (keep start/end same) -> reload periods page.")
+            _log("     The affected day should re-derive its per-period timings.")
+            _log("  3. Change that slot's start OR end time -> reload periods page.")
+            _log("     The affected day should be removed from the timetable.")
         return 0
     _log("FAILED: could not patch periods.py.")
     return 1

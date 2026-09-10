@@ -231,7 +231,7 @@ def periods_management(request, schema_name):
                 for ds in schedules
             ]
 
-    timetables = _load_timetables(request, schema_name)
+    timetables = _reconcile_timetables(request, schema_name)
 
     context = {
         'tenant': tenant,
