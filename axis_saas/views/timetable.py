@@ -127,8 +127,12 @@ def timetable_management(request, schema_name):
             if ds.day_of_week not in weekly_holiday_days:
                 day_schedules.setdefault(ds.day_of_week, []).append(ds)
 
+    _ptt_session_key = f'periods_timetables_{schema_name}'
+    has_period_timetables = bool(request.session.get(_ptt_session_key))
+
     context = {
         'tenant': tenant,
+        'has_period_timetables': has_period_timetables,
         'calendar': calendar,
         'periods': periods,
         'holidays': holidays,

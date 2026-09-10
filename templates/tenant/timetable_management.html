@@ -254,6 +254,18 @@
         from { transform: scale(0.9); opacity: 0; }
         to { transform: scale(1); opacity: 1; }
     }
+
+    /* Academic Calendar warning banner */
+    .calendar-warning-banner {
+        background: #fef3c7;
+        border-left: 4px solid #f59e0b;
+        color: #92400e;
+        padding: 0.65rem 0.9rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
 </style>
 {% endblock %}
 
@@ -271,6 +283,11 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <h3>Academic Calendar</h3>
         <span style="margin-left:auto; font-size:0.85rem; color:var(--muted);">Changes are saved automatically</span>
+    </div>
+
+    <!-- Warning: Academic Calendar changes affect Periods Timetables -->
+    <div class="calendar-warning-banner" id="calendarWarningBanner">
+        ⚠️ <strong>Note:</strong> Changes to Academic Calendar slots will automatically update existing <strong>Periods Timetables</strong>. If a slot&rsquo;s start/end time changes, that day will be removed from affected timetables. If only the <em>periods count</em> changes, affected timetables adjust their period timings automatically (break stays the same).
     </div>
 
     <!-- Universal settings row -->
@@ -741,6 +758,7 @@
             document.querySelector('meta[name="csrf-token"]')?.content ||
             getCsrfToken();
         const schema = '{{ tenant.schema_name|escapejs }}';
+        const HAS_PERIOD_TIMETABLES = {% if has_period_timetables %}true{% else %}false{% endif %};
 
         // Global JS error trap - makes silent failures visible
         window.addEventListener('error', function (e) {
@@ -1014,6 +1032,19 @@
                 return;
             }
 
+            // ---------- modal-save-warning ----------
+            if (typeof HAS_PERIOD_TIMETABLES !== 'undefined' && HAS_PERIOD_TIMETABLES) {
+                const ok = await showConfirm(
+                    'Warning: This change to the Academic Calendar may affect existing Periods Timetables.\n\n' +
+                    'If a slot\'s start/end time changes, that day will be removed from those timetables. ' +
+                    'If only the periods count changes, affected timetables will automatically adjust their period timings (break stays the same).\n\n' +
+                    'Do you want to continue?',
+                    'Academic Calendar Warning'
+                );
+                if (!ok) return;
+            }
+            // ---------- end modal-save-warning ----------
+
             const dayLabel = modalDay.options[modalDay.selectedIndex].text;
 
             // ---------- DUPLICATE (day,label) GUARD ----------
@@ -1110,7 +1141,14 @@
 
             deleteBtn.addEventListener('click', async function(e) {
                 e.stopPropagation();
-                const confirmed = await showConfirm('Delete this slot?', 'Confirm Deletion');
+                // ---------- delete-slot-warning ----------
+                let _delMsg = 'Delete this slot?';
+                let _delTitle = 'Confirm Deletion';
+                if (typeof HAS_PERIOD_TIMETABLES !== 'undefined' && HAS_PERIOD_TIMETABLES) {
+                    _delMsg = 'Warning: Deleting this slot will also remove the corresponding days from existing Periods Timetables.\n\n' + _delMsg;
+                    _delTitle = 'Academic Calendar Warning';
+                }
+                const confirmed = await showConfirm(_delMsg, _delTitle);
                 if (confirmed) {
                     row.remove();
                     if (dayScheduleBody.querySelectorAll('tr[data-day]').length === 0) {
@@ -1132,7 +1170,17 @@
         });
 
         // ====== APPLY UNIVERSAL ======
-        applyUniversalBtn.addEventListener('click', function() {
+        applyUniversalBtn.addEventListener('click', async function() {
+            // ---------- apply-universal-warning ----------
+            if (typeof HAS_PERIOD_TIMETABLES !== 'undefined' && HAS_PERIOD_TIMETABLES) {
+                const ok = await showConfirm(
+                    'Warning: Applying these universal values may affect existing Periods Timetables.\n\n' +
+                    'Do you want to continue?',
+                    'Academic Calendar Warning'
+                );
+                if (!ok) return;
+            }
+            // ---------- end apply-universal-warning ----------
             const start = universalStart.value;
             const end = universalEnd.value;
             const periods = universalPeriods.value;

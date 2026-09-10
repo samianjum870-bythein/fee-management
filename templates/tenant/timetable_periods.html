@@ -9,9 +9,9 @@
     .page-desc { color:var(--muted); }
 
     .card { background:var(--surface); border-radius:var(--radius); border:1px solid var(--border); padding:1rem; margin-bottom:1.5rem; box-shadow:var(--shadow-sm); }
-    .card-header { display:flex; align-items:center; gap:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border); margin-bottom:1rem; }
+    .card-header { display:flex; align-items:center; gap:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border); margin-bottom:1rem; flex-wrap:wrap; }
 
-    .btn-primary, .btn-secondary, .btn-success, .btn-danger {
+    .btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-warning {
         display:inline-flex; align-items:center; gap:0.5rem;
         padding:0.4rem 0.9rem; border-radius:2rem; font-weight:500;
         font-size:0.9rem; text-decoration:none; border:none; cursor:pointer;
@@ -25,7 +25,11 @@
     .btn-success:hover { background:#059669; }
     .btn-success:disabled { opacity:0.5; cursor:not-allowed; }
     .btn-danger { background:#dc2626; color:white; }
+    .btn-danger:hover { background:#b91c1c; }
+    .btn-warning { background:#f59e0b; color:white; }
+    .btn-warning:hover { background:#d97706; }
     .btn-lg { padding:0.6rem 1.2rem; font-size:1rem; font-weight:600; }
+    .btn-sm { padding:0.25rem 0.65rem; font-size:0.78rem; }
 
     .form-control { width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); font-size:0.9rem; }
     .form-control:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 2px rgba(59,130,246,0.15); }
@@ -77,6 +81,8 @@
     .timing-detail-table th, .timing-detail-table td { border:1px solid var(--border); padding:0.4rem 0.6rem; text-align:left; }
     .timing-detail-table th { background:var(--surface-alt); font-weight:600; }
     .timing-detail-table .break-row td { background:#fef3c7; color:#92400e; font-weight:600; }
+
+    .tt-badge { display:inline-block; padding:0.15rem 0.6rem; background:var(--surface-alt); border-radius:1rem; font-size:0.75rem; color:var(--muted); margin-left:0.4rem; }
 </style>
 {% endblock %}
 
@@ -94,34 +100,13 @@
     <p class="text-muted" style="margin:0;">No timetable generated yet. Click <strong>Create New Timetable</strong> to start.</p>
 </div>
 
-<!-- GENERATED TIMETABLE -->
-<div id="timetableWrapper" style="display:none;">
-    <div class="card">
-        <div class="card-header" style="justify-content:space-between; flex-wrap:wrap;">
-            <div>
-                <h2 id="displayTitle" style="margin:0; font-size:1.2rem;">&nbsp;</h2>
-                <span id="displayLabel" class="text-muted" style="font-size:0.85rem;"></span>
-            </div>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                <button type="button" id="toggleViewBtn" class="btn-secondary">See Timings</button>
-                <button type="button" id="regenerateBtn" class="btn-primary">+ New</button>
-            </div>
-        </div>
+<!-- ALL TIMETABLES STACKED -->
+<div id="timetablesContainer"></div>
 
-        <div id="periodsViewContainer">
-            <div style="overflow-x:auto;">
-                <table class="timetable-grid" id="periodsGrid"></table>
-            </div>
-        </div>
-
-        <div id="timingsViewContainer" style="display:none;"></div>
-    </div>
-</div>
-
-<!-- CREATE FORM OVERLAY -->
+<!-- CREATE / EDIT FORM OVERLAY -->
 <div id="createOverlay" class="overlay">
     <div class="overlay-content">
-        <h2>Create Periods Timetable</h2>
+        <h2 id="formHeader">Create Periods Timetable</h2>
         <form id="createForm" autocomplete="off">
 
             <div class="form-group">
@@ -148,7 +133,9 @@
                 <p class="text-muted" style="font-size:0.82rem; margin:0 0 0.6rem 0;">
                     Slots shown below are read-only (Day / Start / End / Periods).
                     <br>
-                    <strong>Rule:</strong> If you tick <strong>2+ slots with the same start &amp; end time</strong>,
+                    <strong>Rules:</strong>
+                    (a) Slots already used by another saved timetable are hidden.
+                    (b) If you tick <strong>2+ slots with the same start &amp; end time</strong>,
                     other timings freeze until you untick them.
                 </p>
                 <div style="max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:0.5rem;">
@@ -196,12 +183,13 @@
     const SLOTS_BY_LABEL = {{ slots_by_label_json|safe }};
     const SCHEMA = '{{ tenant.schema_name|escapejs }}';
 
-    let GENERATED = {{ generated_timetable_json|safe }};
-    let currentView = 'periods';
+    let TIMETABLES = {{ timetables_json|safe }} || [];
+    let editingIndex = null;      // null = add mode, int = edit that index
 
     // ---- DOM refs ----
     const createBtn         = document.getElementById('createTimetableBtn');
     const overlay           = document.getElementById('createOverlay');
+    const formHeader        = document.getElementById('formHeader');
     const cancelBtn         = document.getElementById('cancelBtn');
     const form              = document.getElementById('createForm');
     const formTitle         = document.getElementById('formTitle');
@@ -212,15 +200,8 @@
     const breakAfterSection = document.getElementById('breakAfterSection');
     const breakAfterList    = document.getElementById('breakAfterList');
     const generateBtn       = document.getElementById('generateBtn');
-    const regenerateBtn     = document.getElementById('regenerateBtn');
-    const toggleBtn         = document.getElementById('toggleViewBtn');
-    const timetableWrapper  = document.getElementById('timetableWrapper');
+    const container         = document.getElementById('timetablesContainer');
     const emptyState        = document.getElementById('emptyState');
-    const periodsGrid       = document.getElementById('periodsGrid');
-    const periodsView       = document.getElementById('periodsViewContainer');
-    const timingsView       = document.getElementById('timingsViewContainer');
-    const displayTitle      = document.getElementById('displayTitle');
-    const displayLabel      = document.getElementById('displayLabel');
 
     // ---- CSRF ----
     function getCsrfToken() {
@@ -238,78 +219,307 @@
         return cookieValue;
     }
 
-    // ---- Show existing ----
-    if (GENERATED) {
-        renderTimetable(GENERATED);
-        emptyState.style.display = 'none';
-        timetableWrapper.style.display = 'block';
+    function escapeHtml(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function(c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+        });
     }
 
-    // ---- Overlay control ----
+    // ---- Slot fingerprints helpers ----
+    function slotKey(day, start, end) {
+        return day + '|' + start + '|' + end;
+    }
+
+    function slotsUsedByOthers(label, skipIndex) {
+        const used = new Set();
+        TIMETABLES.forEach(function (tt, idx) {
+            if (idx === skipIndex) return;
+            if (tt.label !== label) return;
+            (tt.days || []).forEach(function (d) {
+                used.add(slotKey(d.day_of_week, d.start, d.end));
+            });
+        });
+        return used;
+    }
+
+    function slotsUsedBySelf(skipIndex) {
+        const used = new Map(); // key -> {break_after}
+        if (skipIndex === null || !TIMETABLES[skipIndex]) return used;
+        (TIMETABLES[skipIndex].days || []).forEach(function (d) {
+            used.set(slotKey(d.day_of_week, d.start, d.end), d.break_after || null);
+        });
+        return used;
+    }
+
+    // ================================================================
+    // RENDER ALL TIMETABLES
+    // ================================================================
+    function renderAll() {
+        container.innerHTML = '';
+        if (!TIMETABLES || TIMETABLES.length === 0) {
+            emptyState.style.display = 'block';
+            return;
+        }
+        emptyState.style.display = 'none';
+        TIMETABLES.forEach(function (tt, idx) {
+            container.appendChild(buildCard(tt, idx));
+        });
+    }
+
+    function buildCard(tt, idx) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.index = String(idx);
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'card-header';
+        header.style.justifyContent = 'space-between';
+        header.innerHTML =
+            '<div>' +
+                '<h2 style="margin:0; font-size:1.2rem;">' + escapeHtml(tt.title) + '</h2>' +
+                '<span class="text-muted" style="font-size:0.85rem;">' +
+                    'Label: <strong>' + escapeHtml(tt.label) + '</strong>' +
+                    (tt.break_duration ? ' | Break: ' + tt.break_duration + ' min' : ' | No break') +
+                '</span>' +
+            '</div>' +
+            '<div style="display:flex; gap:0.5rem; flex-wrap:wrap;">' +
+                '<button type="button" class="btn-secondary btn-sm toggle-view-btn">See Timings</button>' +
+                '<button type="button" class="btn-warning btn-sm edit-btn">✎ Edit</button>' +
+                '<button type="button" class="btn-danger btn-sm delete-btn">× Delete</button>' +
+            '</div>';
+        card.appendChild(header);
+
+        // Periods view
+        const periodsView = document.createElement('div');
+        periodsView.className = 'periods-view';
+        periodsView.style.overflowX = 'auto';
+        const periodsTable = document.createElement('table');
+        periodsTable.className = 'timetable-grid';
+        periodsTable.innerHTML = buildPeriodsTableHTML(tt);
+        periodsView.appendChild(periodsTable);
+        card.appendChild(periodsView);
+
+        // Timings view
+        const timingsView = document.createElement('div');
+        timingsView.className = 'timings-view';
+        timingsView.style.display = 'none';
+        timingsView.innerHTML = buildTimingsHTML(tt);
+        card.appendChild(timingsView);
+
+        // Wire buttons
+        const toggleBtn = header.querySelector('.toggle-view-btn');
+        toggleBtn.addEventListener('click', function () {
+            const showTimings = timingsView.style.display === 'none';
+            timingsView.style.display = showTimings ? 'block' : 'none';
+            periodsView.style.display = showTimings ? 'none' : 'block';
+            toggleBtn.textContent = showTimings ? 'See Periods Timetable' : 'See Timings';
+        });
+
+        header.querySelector('.edit-btn').addEventListener('click', function () {
+            openEditForm(idx);
+        });
+
+        header.querySelector('.delete-btn').addEventListener('click', function () {
+            if (!confirm('Delete this timetable?')) return;
+            deleteTimetable(idx);
+        });
+
+        return card;
+    }
+
+    function buildPeriodsTableHTML(tt) {
+        let maxPeriods = 0;
+        tt.days.forEach(function (d) { if (d.periods_count > maxPeriods) maxPeriods = d.periods_count; });
+        let maxBreakAfter = 0;
+        tt.days.forEach(function (d) { if (d.break_after && d.break_after > maxBreakAfter) maxBreakAfter = d.break_after; });
+        const hasBreak = maxBreakAfter > 0 && tt.break_duration > 0;
+
+        let thead = '<thead><tr><th>Day</th>';
+        for (let i = 1; i <= maxPeriods; i++) {
+            thead += '<th>P' + i + '</th>';
+            if (hasBreak && i === maxBreakAfter) thead += '<th class="break-col">Break</th>';
+        }
+        thead += '</tr></thead>';
+
+        let tbody = '<tbody>';
+        tt.days.forEach(function (d) {
+            tbody += '<tr>';
+            tbody += '<td class="day-label">' + escapeHtml(d.day_label) + '</td>';
+
+            const byOrder = {};
+            let breakPeriod = null;
+            d.periods.forEach(function (p) {
+                if (p.is_break) breakPeriod = p;
+                else byOrder[p.order] = p;
+            });
+
+            for (let i = 1; i <= maxPeriods; i++) {
+                const p = byOrder[i];
+                if (p) {
+                    tbody += '<td><div class="period-cell"><strong>P' + i + '</strong><small>' +
+                             p.start + '-' + p.end + '</small></div></td>';
+                } else {
+                    tbody += '<td class="empty-period">—</td>';
+                }
+                if (hasBreak && i === maxBreakAfter) {
+                    if (breakPeriod && d.break_after === i) {
+                        tbody += '<td class="break-col"><div class="break-cell"><strong>Break</strong><small>' +
+                                 breakPeriod.start + '-' + breakPeriod.end + '</small></div></td>';
+                    } else {
+                        tbody += '<td class="break-col" style="opacity:0.35;">—</td>';
+                    }
+                }
+            }
+            tbody += '</tr>';
+        });
+        tbody += '</tbody>';
+        return thead + tbody;
+    }
+
+    function buildTimingsHTML(tt) {
+        let html = '';
+        tt.days.forEach(function (d) {
+            html += '<div class="timing-day-block">';
+            html += '<h3>' + escapeHtml(d.day_label) +
+                    ' <span class="text-muted" style="font-size:0.85rem;">(' +
+                    d.start + ' - ' + d.end + ' · ' + d.periods_count + ' periods)</span></h3>';
+            html += '<table class="timing-detail-table"><thead><tr>' +
+                    '<th style="width:120px;">Period</th>' +
+                    '<th>Start</th><th>End</th><th>Duration</th></tr></thead><tbody>';
+            d.periods.forEach(function (p) {
+                if (p.is_break) {
+                    html += '<tr class="break-row"><td>Break</td><td>' + p.start + '</td><td>' + p.end + '</td><td>' + p.duration + ' min</td></tr>';
+                } else {
+                    html += '<tr><td>P' + p.order + '</td><td>' + p.start + '</td><td>' + p.end + '</td><td>' + p.duration + ' min</td></tr>';
+                }
+            });
+            html += '</tbody></table></div>';
+        });
+        return html;
+    }
+
+    // ================================================================
+    // FORM OPEN/CLOSE
+    // ================================================================
     function openCreateForm() {
+        editingIndex = null;
+        formHeader.textContent = 'Create Periods Timetable';
+        generateBtn.textContent = 'Generate Periods Timetable';
         formTitle.value = '';
         formLabel.value = '';
+        formLabel.disabled = false;
         slotsBody.innerHTML = '';
         slotsSection.style.display = 'none';
         breakAfterSection.style.display = 'none';
         breakAfterList.innerHTML = '';
         breakDurationEl.value = '15';
         generateBtn.disabled = true;
-        generateBtn.textContent = 'Generate Periods Timetable';
         overlay.classList.add('active');
     }
+
+    function openEditForm(idx) {
+        const tt = TIMETABLES[idx];
+        if (!tt) return;
+        editingIndex = idx;
+        formHeader.textContent = 'Edit Periods Timetable';
+        generateBtn.textContent = 'Save Changes';
+        formTitle.value = tt.title || '';
+        formLabel.value = tt.label || '';
+        formLabel.disabled = true;   // keep label locked when editing
+        breakDurationEl.value = tt.break_duration || 0;
+
+        renderSlotsForLabel(tt.label, idx);
+        slotsSection.style.display = 'block';
+
+        // Restore break_after dropdown values after slots render
+        setTimeout(function () {
+            const selfMap = slotsUsedBySelf(idx);
+            document.querySelectorAll('#slotsBody .slot-checkbox').forEach(function (cb) {
+                cb.checked = true;
+            });
+            applyTimingRule();
+            updateBreakAfterSection();
+            // Restore break_after values
+            selfMap.forEach(function (breakAfter, key) {
+                const parts = key.split('|');
+                const day = parts[0], start = parts[1], end = parts[2];
+                if (breakAfter) {
+                    const sel = document.querySelector(
+                        '.break-after-select[data-day-key="' + day + '|' + start + '|' + end + '"]'
+                    );
+                    if (sel) sel.value = String(breakAfter);
+                }
+            });
+            updateGenerateBtnState();
+        }, 0);
+
+        overlay.classList.add('active');
+    }
+
     function closeCreateForm() {
         overlay.classList.remove('active');
+        editingIndex = null;
     }
 
     createBtn.addEventListener('click', openCreateForm);
-    regenerateBtn.addEventListener('click', openCreateForm);
     cancelBtn.addEventListener('click', closeCreateForm);
     overlay.addEventListener('click', function (e) {
         if (e.target === overlay) closeCreateForm();
     });
 
-    // ---- Label change: render slots ----
-    formLabel.addEventListener('change', function () {
-        const label = this.value;
+    // ================================================================
+    // SLOTS RENDERING (filtered)
+    // ================================================================
+    function renderSlotsForLabel(label, editIdx) {
         slotsBody.innerHTML = '';
         breakAfterSection.style.display = 'none';
         breakAfterList.innerHTML = '';
-        generateBtn.disabled = true;
 
-        if (!label) {
-            slotsSection.style.display = 'none';
-            return;
-        }
+        if (!label) return;
 
-        const slots = SLOTS_BY_LABEL[label] || [];
-        slotsSection.style.display = 'block';
+        const allSlots = SLOTS_BY_LABEL[label] || [];
+        const usedByOthers = slotsUsedByOthers(label, editIdx);
+        const selfMap = slotsUsedBySelf(editIdx);
 
-        if (slots.length === 0) {
+        // Show: slots NOT used by another timetable, OR slots used by THIS
+        // timetable (during edit).
+        const visible = allSlots.filter(function (slot) {
+            const k = slotKey(slot.day, slot.start, slot.end);
+            if (selfMap.has(k)) return true;         // pre-checked, must show
+            return !usedByOthers.has(k);
+        });
+
+        if (visible.length === 0) {
             const tr = document.createElement('tr');
-            tr.innerHTML = '<td colspan="5" style="padding:1rem; text-align:center; color:var(--muted);">No slots defined for this label. Add slots in Academic Calendar first.</td>';
+            tr.innerHTML = '<td colspan="5" style="padding:1rem; text-align:center; color:var(--muted);">' +
+                'No available slots. All slots for this label are already used by another timetable.' +
+                '</td>';
             slotsBody.appendChild(tr);
             return;
         }
 
-        slots.forEach(function (slot) {
+        visible.forEach(function (slot) {
+            const k = slotKey(slot.day, slot.start, slot.end);
+            const checked = selfMap.has(k);
             const tr = document.createElement('tr');
             tr.dataset.start = slot.start;
-            tr.dataset.end   = slot.end;
-            tr.dataset.day   = String(slot.day);
+            tr.dataset.end = slot.end;
+            tr.dataset.day = String(slot.day);
             tr.dataset.periods = String(slot.periods);
             tr.dataset.dayLabel = slot.day_label;
-
             tr.innerHTML =
                 '<td><input type="checkbox" class="slot-checkbox"' +
+                (checked ? ' checked' : '') +
                 ' data-start="' + slot.start + '"' +
-                ' data-end="'   + slot.end   + '"' +
-                ' data-day="'   + slot.day   + '"' +
+                ' data-end="' + slot.end + '"' +
+                ' data-day="' + slot.day + '"' +
                 ' data-periods="' + slot.periods + '"' +
                 ' data-day-label="' + slot.day_label + '"></td>' +
-                '<td>' + slot.day_label + '</td>' +
+                '<td>' + escapeHtml(slot.day_label) + '</td>' +
                 '<td>' + slot.start + '</td>' +
-                '<td>' + slot.end   + '</td>' +
+                '<td>' + slot.end + '</td>' +
                 '<td>' + slot.periods + '</td>';
             slotsBody.appendChild(tr);
         });
@@ -317,9 +527,20 @@
         document.querySelectorAll('#slotsBody .slot-checkbox').forEach(function (cb) {
             cb.addEventListener('change', onSlotChange);
         });
+    }
+
+    // ---- Label change ----
+    formLabel.addEventListener('change', function () {
+        if (editingIndex !== null) return;   // label locked in edit mode
+        const label = this.value;
+        slotsSection.style.display = label ? 'block' : 'none';
+        renderSlotsForLabel(label, null);
+        updateGenerateBtnState();
     });
 
-    // ---- Slot checkbox logic ----
+    // ================================================================
+    // SLOT SELECTION LOGIC
+    // ================================================================
     function onSlotChange() {
         applyTimingRule();
         updateBreakAfterSection();
@@ -370,6 +591,12 @@
             return;
         }
 
+        // Preserve currently selected break_after values
+        const existing = {};
+        document.querySelectorAll('.break-after-select').forEach(function (sel) {
+            existing[sel.dataset.dayKey] = sel.value;
+        });
+
         breakAfterSection.style.display = 'block';
         breakAfterList.innerHTML = '';
 
@@ -386,7 +613,7 @@
             const row = document.createElement('div');
             row.className = 'break-after-row';
             row.innerHTML =
-                '<strong style="min-width:100px;">' + dayLabel + '</strong>' +
+                '<strong style="min-width:100px;">' + escapeHtml(dayLabel) + '</strong>' +
                 '<span class="text-muted" style="font-size:0.85rem;">' + periods + ' periods</span>' +
                 '<select class="form-control break-after-select" data-day-key="' + dayKey + '" style="max-width:200px;">' +
                     optionsHtml +
@@ -394,8 +621,12 @@
             breakAfterList.appendChild(row);
 
             const sel = row.querySelector('.break-after-select');
-            const mid = Math.floor(periods / 2);
-            if (mid >= 1 && mid < periods) sel.value = String(mid);
+            if (existing[dayKey] !== undefined) {
+                sel.value = existing[dayKey];
+            } else {
+                const mid = Math.floor(periods / 2);
+                if (mid >= 1 && mid < periods) sel.value = String(mid);
+            }
         });
     }
 
@@ -412,7 +643,9 @@
     }
     formTitle.addEventListener('input', updateGenerateBtnState);
 
-    // ---- Submit ----
+    // ================================================================
+    // SUBMIT (create or edit)
+    // ================================================================
     form.addEventListener('submit', async function (e) {
         e.preventDefault();
 
@@ -434,8 +667,17 @@
             };
         });
 
+        const payload = {
+            title: title,
+            label: label,
+            break_duration: duration,
+            days: days
+        };
+        if (editingIndex !== null) payload.edit_index = editingIndex;
+
         generateBtn.disabled = true;
-        generateBtn.textContent = 'Generating...';
+        const originalText = generateBtn.textContent;
+        generateBtn.textContent = 'Saving...';
 
         try {
             const res = await fetch('/portal/' + SCHEMA + '/api/timetable/periods/bunch/add/', {
@@ -444,134 +686,55 @@
                     'Content-Type': 'application/json',
                     'X-CSRFToken': getCsrfToken()
                 },
-                body: JSON.stringify({
-                    title: title,
-                    label: label,
-                    break_duration: duration,
-                    days: days
-                })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
                 alert('Error: ' + (data.error || 'Unknown error'));
                 generateBtn.disabled = false;
-                generateBtn.textContent = 'Generate Periods Timetable';
+                generateBtn.textContent = originalText;
                 return;
             }
-            GENERATED = data.timetable;
-            renderTimetable(GENERATED);
-            emptyState.style.display = 'none';
-            timetableWrapper.style.display = 'block';
+            TIMETABLES = data.timetables || [];
+            renderAll();
             closeCreateForm();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
             alert('Network error: ' + err.message);
             generateBtn.disabled = false;
-            generateBtn.textContent = 'Generate Periods Timetable';
+            generateBtn.textContent = originalText;
         }
     });
 
-    // ---- Rendering ----
-    function renderTimetable(tt) {
-        displayTitle.textContent = tt.title;
-        displayLabel.textContent = 'Label: ' + tt.label + ' | Break: ' + tt.break_duration + ' min';
-        renderPeriodsView(tt);
-        renderTimingsView(tt);
-        setView('periods');
-    }
-
-    function setView(v) {
-        currentView = v;
-        if (v === 'periods') {
-            periodsView.style.display = 'block';
-            timingsView.style.display = 'none';
-            toggleBtn.textContent = 'See Timings';
-        } else {
-            periodsView.style.display = 'none';
-            timingsView.style.display = 'block';
-            toggleBtn.textContent = 'See Periods Timetable';
+    // ================================================================
+    // DELETE
+    // ================================================================
+    async function deleteTimetable(idx) {
+        try {
+            const res = await fetch('/portal/' + SCHEMA + '/api/timetable/periods/bunch/delete/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken()
+                },
+                body: JSON.stringify({ index: idx })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                return;
+            }
+            TIMETABLES = data.timetables || [];
+            renderAll();
+        } catch (err) {
+            alert('Network error: ' + err.message);
         }
     }
 
-    toggleBtn.addEventListener('click', function () {
-        setView(currentView === 'periods' ? 'timings' : 'periods');
-    });
-
-    function renderPeriodsView(tt) {
-        let maxPeriods = 0;
-        tt.days.forEach(function (d) { if (d.periods_count > maxPeriods) maxPeriods = d.periods_count; });
-
-        let maxBreakAfter = 0;
-        tt.days.forEach(function (d) { if (d.break_after && d.break_after > maxBreakAfter) maxBreakAfter = d.break_after; });
-
-        const hasBreak = maxBreakAfter > 0 && tt.break_duration > 0;
-
-        // Header
-        let thead = '<thead><tr><th>Day</th>';
-        for (let i = 1; i <= maxPeriods; i++) {
-            thead += '<th>P' + i + '</th>';
-            if (hasBreak && i === maxBreakAfter) {
-                thead += '<th class="break-col">Break</th>';
-            }
-        }
-        thead += '</tr></thead>';
-
-        // Body
-        let tbody = '<tbody>';
-        tt.days.forEach(function (d) {
-            tbody += '<tr>';
-            tbody += '<td class="day-label">' + d.day_label + '</td>';
-
-            const byOrder = {};
-            let breakPeriod = null;
-            d.periods.forEach(function (p) {
-                if (p.is_break) breakPeriod = p;
-                else byOrder[p.order] = p;
-            });
-
-            for (let i = 1; i <= maxPeriods; i++) {
-                const p = byOrder[i];
-                if (p) {
-                    tbody += '<td><div class="period-cell"><strong>P' + i + '</strong><small>' + p.start + '-' + p.end + '</small></div></td>';
-                } else {
-                    tbody += '<td class="empty-period">—</td>';
-                }
-                if (hasBreak && i === maxBreakAfter) {
-                    if (breakPeriod && d.break_after === i) {
-                        tbody += '<td class="break-col"><div class="break-cell"><strong>Break</strong><small>' + breakPeriod.start + '-' + breakPeriod.end + '</small></div></td>';
-                    } else {
-                        tbody += '<td class="break-col" style="opacity:0.35;">—</td>';
-                    }
-                }
-            }
-            tbody += '</tr>';
-        });
-        tbody += '</tbody>';
-
-        periodsGrid.innerHTML = thead + tbody;
-    }
-
-    function renderTimingsView(tt) {
-        let html = '';
-        tt.days.forEach(function (d) {
-            html += '<div class="timing-day-block">';
-            html += '<h3>' + d.day_label +
-                    ' <span class="text-muted" style="font-size:0.85rem;">(' +
-                    d.start + ' - ' + d.end + ' · ' + d.periods_count + ' periods)</span></h3>';
-            html += '<table class="timing-detail-table"><thead><tr>' +
-                    '<th style="width:120px;">Period</th>' +
-                    '<th>Start</th><th>End</th><th>Duration</th></tr></thead><tbody>';
-            d.periods.forEach(function (p) {
-                if (p.is_break) {
-                    html += '<tr class="break-row"><td>Break</td><td>' + p.start + '</td><td>' + p.end + '</td><td>' + p.duration + ' min</td></tr>';
-                } else {
-                    html += '<tr><td>P' + p.order + '</td><td>' + p.start + '</td><td>' + p.end + '</td><td>' + p.duration + ' min</td></tr>';
-                }
-            });
-            html += '</tbody></table></div>';
-        });
-        timingsView.innerHTML = html;
-    }
+    // ================================================================
+    // INIT
+    // ================================================================
+    renderAll();
 })();
 </script>
 {% endblock %}

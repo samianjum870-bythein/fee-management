@@ -18,7 +18,7 @@ from .views.timetable import (
     api_save_timetable, api_save_day_schedules, api_update_holiday,
     api_list_labels, api_add_label, api_update_label, api_delete_label,
 )
-from .views.periods import periods_management, api_update_break, api_add_bunch
+from .views.periods import periods_management, api_update_break, api_add_bunch, api_delete_bunch
 from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
 from .views.staff_portal import staff_login, staff_logout
 from .views.classes import class_strength_api, assign_class_teacher
@@ -303,6 +303,7 @@ urlpatterns = [
     path('portal/<slug:schema_name>/timetable/periods/', portal_wrapper(login_required_for_schema(periods_management)), name='timetable_periods'),
     path('portal/<slug:schema_name>/api/timetable/periods/break/update/', portal_wrapper(login_required_for_schema(api_update_break)), name='api_timetable_periods_break_update'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/add/', portal_wrapper(login_required_for_schema(api_add_bunch)), name='api_timetable_periods_bunch_add'),
+    path('portal/<slug:schema_name>/api/timetable/periods/bunch/delete/', portal_wrapper(login_required_for_schema(api_delete_bunch)), name='api_timetable_periods_bunch_delete'),
     # API endpoints
     path('portal/<slug:schema_name>/api/timetable/calendar/', portal_wrapper(login_required_for_schema(api_update_calendar)), name='api_timetable_calendar'),
     path('portal/<slug:schema_name>/api/timetable/holiday/add/', portal_wrapper(login_required_for_schema(api_add_holiday)), name='api_timetable_holiday_add'),
