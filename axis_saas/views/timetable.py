@@ -74,14 +74,14 @@ def timetable_management(request, schema_name):
             annual_holidays = []
 
         # Vacations
+        next_vacation = None   # <- ALWAYS defined, prevents NameError on 500
         try:
-            vacations = Vacation.objects.all().order_by('start_date')
+            vacations = list(Vacation.objects.all().order_by('start_date'))
             # Compute total days for each vacation
             for vac in vacations:
                 vac.total_days = (vac.end_date - vac.start_date).days + 1
             # Compute next upcoming vacation
             today = date.today()
-            next_vacation = None
             for vac in vacations:
                 if vac.end_date >= today:
                     next_vacation = vac
@@ -92,6 +92,7 @@ def timetable_management(request, schema_name):
 
         # ---- Compute vacation statuses ----
         today = date.today()
+        vacations = vacations or []
         for vac in vacations:
             if vac.end_date < today:
                 vac.status = 'past'

@@ -632,7 +632,6 @@
     {% block extra_head %}{% endblock %}
     <link rel="manifest" href="/portal/{{ tenant.schema_name }}/manifest.json">
     <meta name="theme-color" content="#3b82f6">
-    <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
 </head>
 <body class="tenant-{{ tenant.tenant_type }}">
@@ -1076,7 +1075,7 @@
 // Periodic refresh for student profiles (every 30 min)
 (function() {
     if (!('caches' in window)) return;
-    const schema = '{{ tenant.schema_name|escapejs }}';
+    const schema = '{{ tenant.schema_name }}';
     const apiUrl = `/portal/${schema}/api/students/`;
     const cacheName = 'axis-pwa-v4';
 
@@ -1103,15 +1102,15 @@
     // Refresh on load and then every 30 minutes
     // window.addEventListener('load', refreshProfiles);  // disabled to reduce load
     // setInterval(() => {
-    //     if (!document.hidden) refreshProfiles();
-    // }, 30 * 60 * 1000);  // disabled to reduce load
+        if (!document.hidden) refreshProfiles();
+    }, 30 * 60 * 1000);  // disabled to reduce load
 })();
 </script>
 
 <script>
 // Additional auto-refresh: on visibility change, refresh student profiles
 (function() {
-    const schema = '{{ tenant.schema_name|escapejs }}';
+    const schema = '{{ tenant.schema_name }}';
     const apiUrl = `/portal/${schema}/api/students/`;
 
     function refreshProfiles() {
@@ -1132,8 +1131,8 @@
 
     // Refresh when page becomes visible again (user returns to tab)
     // document.addEventListener('visibilitychange', () => {
-    //     if (!document.hidden && navigator.onLine) refreshProfiles();
-    // });  // disabled to reduce load
+        if (!document.hidden && navigator.onLine) refreshProfiles();
+    });  // disabled to reduce load
 
     // Also refresh on first load (already handled by existing script, but safe to call again)
     // // window.addEventListener('load', refreshProfiles);  // disabled to reduce load
@@ -1142,7 +1141,7 @@
 
     <script src="{% static 'js/offline_student.js' %}"></script>
     <script>
-        window.AXIS_SCHEMA = '{{ tenant.schema_name|escapejs }}';
+        window.AXIS_SCHEMA = '{{ tenant.schema_name }}';
     </script>
 
 <!-- One-time initial caching overlay -->
@@ -1190,7 +1189,7 @@
     }
 
     // ===== CACHE ALL RESOURCES =====
-    const schema = '{{ tenant.schema_name|escapejs }}';
+    const schema = '{{ tenant.schema_name }}';
     const cacheName = 'axis-pwa-v4';
 
     // List of API endpoints that return lists of URLs to cache
