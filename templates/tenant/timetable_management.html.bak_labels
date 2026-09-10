@@ -289,10 +289,9 @@
         </div>
     </div>
 
-    <!-- Add Slot + Manage Labels -->
-    <div class="flex mb-1" style="gap:0.5rem;">
+    <!-- Add Slot button -->
+    <div class="flex mb-1">
         <button type="button" id="addSlotBtn" class="btn-primary btn-lg">+ Add Slot</button>
-        <button type="button" id="manageLabelsBtn" class="btn-secondary btn-lg" title="Create / edit / delete reusable labels">🏷️ Manage Labels</button>
     </div>
 
     <!-- Day schedule table -->
@@ -500,15 +499,7 @@
             </div>
             <div class="form-group">
                 <label for="modalLabel">Label</label>
-                <select id="modalLabel" class="form-control" required>
-                    <option value="">-- Select Label --</option>
-                    {% for lbl in schedule_labels %}
-                    <option value="{{ lbl.name|escapejs }}">{{ lbl.name }}</option>
-                    {% endfor %}
-                </select>
-                <small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.72rem;">
-                    Labels create karne ke liye 🏷️ Manage Labels button dabayein.
-                </small>
+                <input type="text" id="modalLabel" class="form-control" placeholder="e.g., Morning, Class 5A" required>
             </div>
             <div class="form-group">
                 <label for="modalStart">Start</label>
@@ -673,46 +664,6 @@
                 <button type="button" class="btn-save" id="editVacationModalSaveBtn">Save</button>
             </div>
         </form>
-    </div>
-</div>
-
-<!-- ===== MANAGE SCHEDULE LABELS MODAL ===== -->
-<div id="manageLabelsModal" class="slot-modal-overlay" style="align-items: flex-start; padding-top: 2rem;">
-    <div class="slot-modal-box" style="max-width: 680px;">
-        <h3>🏷️ Manage Schedule Labels</h3>
-        <p class="text-muted" style="font-size:0.85rem; margin:0 0 1rem 0;">
-            Labels days ko group karte hain (e.g. <strong>Senior</strong>, <strong>Junior</strong>,
-            <strong>Morning Shift</strong>). Add Slot ke waqt sirf yehi labels choose kiye ja sakenge.
-        </p>
-
-        <div class="form-group" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
-            <div style="flex:2; min-width:140px;">
-                <label for="newLabelName">New Label Name</label>
-                <input type="text" id="newLabelName" class="form-control" placeholder="e.g., Senior" maxlength="50">
-            </div>
-            <div style="flex:3; min-width:180px;">
-                <label for="newLabelDesc">Description (optional)</label>
-                <input type="text" id="newLabelDesc" class="form-control" placeholder="e.g., Senior wing morning timing" maxlength="150">
-            </div>
-            <button type="button" id="createLabelBtn" class="btn-primary" style="padding:0.5rem 1rem;">+ Add</button>
-        </div>
-
-        <div id="labelsListContainer" style="margin-top:1rem; max-height:320px; overflow-y:auto; border:1px solid var(--border); border-radius:0.5rem;">
-            <table class="schedule-table" style="margin:0;">
-                <thead>
-                    <tr>
-                        <th style="width:28%;">Label</th>
-                        <th style="width:42%;">Description</th>
-                        <th style="width:30%;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="labelsListBody"></tbody>
-            </table>
-        </div>
-
-        <div class="modal-actions" style="margin-top:1rem;">
-            <button type="button" class="btn-cancel" id="closeLabelsModalBtn">Close</button>
-        </div>
     </div>
 </div>
 
@@ -1015,27 +966,6 @@
             }
 
             const dayLabel = modalDay.options[modalDay.selectedIndex].text;
-
-            // ---------- DUPLICATE (day,label) GUARD ----------
-            // Same label + same day = blocked. Same label + different day = OK.
-            let dupRow = null;
-            dayScheduleBody.querySelectorAll('tr[data-day]').forEach(function (existingRow) {
-                if (editingRow && existingRow === editingRow) return;
-                const existingDay = parseInt(existingRow.dataset.day, 10);
-                const existingLabel = ((existingRow.querySelectorAll('td')[1] || {}).textContent || '').trim();
-                if (existingDay === day && existingLabel.toLowerCase() === label.toLowerCase()) {
-                    dupRow = existingRow;
-                }
-            });
-            if (dupRow) {
-                await showAlert(
-                    'Ye label "' + label + '" ' + dayLabel + ' ke liye pehle hi set hai.\n\n' +
-                    'Koi doosra label ya doosra din chunain.',
-                    'Already Set'
-                );
-                return;
-            }
-            // ---------- end guard ----------
 
             try {
             if (editingRow) {
@@ -1415,177 +1345,6 @@
         editStart.addEventListener('change', function() {
             editEnd.setAttribute('min', this.value);
         });
-
-        // ==========================================
-        // MANAGE LABELS LOGIC
-        // ==========================================
-        const manageLabelsModal   = document.getElementById('manageLabelsModal');
-        const manageLabelsBtn     = document.getElementById('manageLabelsBtn');
-        const closeLabelsModalBtn = document.getElementById('closeLabelsModalBtn');
-        const newLabelNameInput   = document.getElementById('newLabelName');
-        const newLabelDescInput   = document.getElementById('newLabelDesc');
-        const createLabelBtn      = document.getElementById('createLabelBtn');
-        const labelsListBody      = document.getElementById('labelsListBody');
-
-        let scheduleLabels = [
-            {% for lbl in schedule_labels %}
-            { id: {{ lbl.id }}, name: "{{ lbl.name|escapejs }}", description: "{{ lbl.description|default:''|escapejs }}" },
-            {% endfor %}
-        ];
-
-        function renderLabelDropdown() {
-            const keep = modalLabel.value;
-            modalLabel.innerHTML = '<option value="">-- Select Label --</option>';
-            scheduleLabels.forEach(function (lbl) {
-                const opt = document.createElement('option');
-                opt.value = lbl.name;
-                opt.textContent = lbl.name;
-                modalLabel.appendChild(opt);
-            });
-            if (keep && scheduleLabels.some(l => l.name === keep)) modalLabel.value = keep;
-        }
-
-        function renderLabelsList() {
-            labelsListBody.innerHTML = '';
-            if (scheduleLabels.length === 0) {
-                labelsListBody.innerHTML = '<tr><td colspan="3" class="empty-row">No labels yet. Add one above.</td></tr>';
-                return;
-            }
-            scheduleLabels.forEach(function (lbl) {
-                const tr = document.createElement('tr');
-                const tdName = document.createElement('td');
-                tdName.style.fontWeight = '600';
-                tdName.textContent = lbl.name;
-                const tdDesc = document.createElement('td');
-                tdDesc.style.fontSize = '0.85rem';
-                tdDesc.style.color = 'var(--muted)';
-                tdDesc.textContent = lbl.description || '';
-                const tdAct = document.createElement('td');
-                const actions = document.createElement('div');
-                actions.className = 'row-actions';
-                const editBtn = document.createElement('button');
-                editBtn.className = 'btn-secondary btn-sm';
-                editBtn.textContent = '✎ Edit';
-                editBtn.addEventListener('click', function () { editLabel(lbl); });
-                const delBtn = document.createElement('button');
-                delBtn.className = 'btn-danger btn-sm';
-                delBtn.textContent = '× Delete';
-                delBtn.addEventListener('click', function () { deleteLabel(lbl); });
-                actions.appendChild(editBtn);
-                actions.appendChild(delBtn);
-                tdAct.appendChild(actions);
-                tr.appendChild(tdName);
-                tr.appendChild(tdDesc);
-                tr.appendChild(tdAct);
-                labelsListBody.appendChild(tr);
-            });
-        }
-
-        async function refreshLabelsFromServer() {
-            try {
-                const res = await fetch(`/portal/${schema}/api/timetable/labels/list/`, {
-                    headers: { 'X-CSRFToken': csrfToken },
-                    cache: 'no-store',
-                });
-                if (!res.ok) return;
-                const data = await res.json();
-                if (data && Array.isArray(data.labels)) {
-                    scheduleLabels = data.labels;
-                    renderLabelDropdown();
-                    renderLabelsList();
-                }
-            } catch (e) {
-                console.warn('[Timetable] refreshLabelsFromServer failed', e);
-            }
-        }
-
-        async function editLabel(lbl) {
-            const newName = prompt(`Edit label name (current: ${lbl.name}):`, lbl.name);
-            if (newName === null) return;
-            const trimmed = newName.trim();
-            if (!trimmed) { await showAlert('Label name cannot be empty.', 'Invalid'); return; }
-            const newDesc = prompt('Edit description (optional):', lbl.description || '');
-            if (newDesc === null) return;
-            try {
-                const res = await fetch(`/portal/${schema}/api/timetable/labels/update/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify({ id: lbl.id, name: trimmed, description: newDesc }),
-                });
-                const data = await res.json();
-                if (!res.ok) { await showAlert(data.error || 'Update failed', 'Error'); return; }
-                await refreshLabelsFromServer();
-            } catch (e) {
-                console.error(e);
-                await showAlert('Network error', 'Error');
-            }
-        }
-
-        async function deleteLabel(lbl) {
-            const ok = await showConfirm(
-                `Delete label "${lbl.name}"? Existing slots that use this label keep their text.`,
-                'Confirm Deletion'
-            );
-            if (!ok) return;
-            try {
-                const res = await fetch(`/portal/${schema}/api/timetable/labels/delete/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify({ id: lbl.id }),
-                });
-                const data = await res.json();
-                if (!res.ok) { await showAlert(data.error || 'Delete failed', 'Error'); return; }
-                await refreshLabelsFromServer();
-            } catch (e) {
-                console.error(e);
-                await showAlert('Network error', 'Error');
-            }
-        }
-
-        if (manageLabelsBtn) {
-            manageLabelsBtn.addEventListener('click', function () {
-                manageLabelsModal.classList.add('active');
-            });
-        }
-        if (closeLabelsModalBtn) {
-            closeLabelsModalBtn.addEventListener('click', function () {
-                manageLabelsModal.classList.remove('active');
-            });
-        }
-        if (manageLabelsModal) {
-            manageLabelsModal.addEventListener('click', function (e) {
-                if (e.target === manageLabelsModal) manageLabelsModal.classList.remove('active');
-            });
-        }
-        if (createLabelBtn) {
-            createLabelBtn.addEventListener('click', async function () {
-                const name = newLabelNameInput.value.trim();
-                const description = newLabelDescInput.value.trim();
-                if (!name) {
-                    await showAlert('Label name is required.', 'Missing Data');
-                    newLabelNameInput.focus();
-                    return;
-                }
-                try {
-                    const res = await fetch(`/portal/${schema}/api/timetable/labels/add/`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                        body: JSON.stringify({ name: name, description: description }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) { await showAlert(data.error || 'Add failed', 'Error'); return; }
-                    newLabelNameInput.value = '';
-                    newLabelDescInput.value = '';
-                    await refreshLabelsFromServer();
-                } catch (e) {
-                    console.error(e);
-                    await showAlert('Network error', 'Error');
-                }
-            });
-        }
-
-        renderLabelDropdown();
-        renderLabelsList();
     });
 </script>
 {% endblock %}

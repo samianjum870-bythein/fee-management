@@ -176,21 +176,6 @@ def api_save_day_schedules(request, schema_name):
         if created:
             logger.info(f"Created new AcademicCalendar for schema {schema_name}")
 
-        # ---- Duplicate check inside payload ----
-        seen = {}
-        for i, item in enumerate(schedules_data):
-            lbl = (item.get('label') or '').strip()
-            dy  = item.get('day')
-            if lbl and dy is not None:
-                key = (int(dy), lbl.lower())
-                if key in seen:
-                    day_name = dict(TimetableEntry.DAY_CHOICES).get(dy, str(dy))
-                    return JsonResponse({
-                        'error': f"Ye label '{lbl}' {day_name} ke liye pehle hi set hai. "
-                                 f"Koi doosra label ya doosra din chunain."
-                    }, status=400)
-                seen[key] = i
-
         deleted_all, _ = DaySchedule.objects.filter(academic_calendar=calendar).delete()
         logger.info(f"Deleted {deleted_all} existing schedules for calendar {calendar.pk}")
 
@@ -231,13 +216,6 @@ def api_save_day_schedules(request, schema_name):
                     duration=duration_int
                 )
                 total_created += 1
-            except IntegrityError as e:
-                day_name = dict(TimetableEntry.DAY_CHOICES).get(day, str(day))
-                logger.warning(f"Duplicate schedule for {day_name} / {label}: {e}")
-                return JsonResponse({
-                    'error': f"Ye label '{label}' {day_name} ke liye pehle hi set hai. "
-                             f"Koi doosra label ya doosra din chunain."
-                }, status=400)
             except Exception as e:
                 logger.exception(f"Error creating DaySchedule for day {day}, index {idx}: {e}")
                 return JsonResponse({'error': f'Failed to save day {day} slot {idx}: {str(e)}'}, status=500)

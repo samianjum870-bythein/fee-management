@@ -14,7 +14,7 @@ from django_tenants.utils import schema_context
 from ..models import (
     AcademicCalendar, Holiday, Period, TimetableEntry,
     SchoolClass, Subject, Staff, DaySchedule,
-    WeeklyHoliday, AnnualHoliday, Vacation, ScheduleLabel
+    WeeklyHoliday, AnnualHoliday, Vacation
 )
 from .helpers import get_tenant, require_tenant_type, require_school_feature
 
@@ -103,13 +103,6 @@ def timetable_management(request, schema_name):
             else:
                 vac.status = 'future'
 
-        # ---- Schedule labels (reusable fixed labels) ----
-        try:
-            schedule_labels = list(ScheduleLabel.objects.all().order_by('name'))
-        except Exception as e:
-            logger.warning(f"ScheduleLabel fetch failed: {e}")
-            schedule_labels = []
-
         # Available days for slot selection (exclude weekly holidays)
         all_days = TimetableEntry.DAY_CHOICES
         available_days = [(val, label) for val, label in all_days if val not in weekly_holiday_days]
@@ -147,7 +140,6 @@ def timetable_management(request, schema_name):
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
         'today': date.today().isoformat(),
         'available_weekly_days': available_weekly_days,
-        'schedule_labels': schedule_labels,
         'months': months,
         'days': days,
     }
@@ -175,21 +167,6 @@ def api_save_day_schedules(request, schema_name):
         calendar, created = AcademicCalendar.objects.get_or_create(pk=1)
         if created:
             logger.info(f"Created new AcademicCalendar for schema {schema_name}")
-
-        # ---- Duplicate check inside payload ----
-        seen = {}
-        for i, item in enumerate(schedules_data):
-            lbl = (item.get('label') or '').strip()
-            dy  = item.get('day')
-            if lbl and dy is not None:
-                key = (int(dy), lbl.lower())
-                if key in seen:
-                    day_name = dict(TimetableEntry.DAY_CHOICES).get(dy, str(dy))
-                    return JsonResponse({
-                        'error': f"Ye label '{lbl}' {day_name} ke liye pehle hi set hai. "
-                                 f"Koi doosra label ya doosra din chunain."
-                    }, status=400)
-                seen[key] = i
 
         deleted_all, _ = DaySchedule.objects.filter(academic_calendar=calendar).delete()
         logger.info(f"Deleted {deleted_all} existing schedules for calendar {calendar.pk}")
@@ -231,13 +208,6 @@ def api_save_day_schedules(request, schema_name):
                     duration=duration_int
                 )
                 total_created += 1
-            except IntegrityError as e:
-                day_name = dict(TimetableEntry.DAY_CHOICES).get(day, str(day))
-                logger.warning(f"Duplicate schedule for {day_name} / {label}: {e}")
-                return JsonResponse({
-                    'error': f"Ye label '{label}' {day_name} ke liye pehle hi set hai. "
-                             f"Koi doosra label ya doosra din chunain."
-                }, status=400)
             except Exception as e:
                 logger.exception(f"Error creating DaySchedule for day {day}, index {idx}: {e}")
                 return JsonResponse({'error': f'Failed to save day {day} slot {idx}: {str(e)}'}, status=500)
@@ -483,91 +453,3 @@ def api_get_timetable(request, schema_name):
 @require_school_feature('timetable_management')
 def api_save_timetable(request, schema_name):
     return JsonResponse({'error': 'Not implemented yet'}, status=501)
-
-
-# ========== SCHEDULE LABEL API ENDPOINTS ==========
-
-@csrf_exempt
-@require_http_methods(["GET"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_list_labels(request, schema_name):
-    with schema_context(schema_name):
-        labels = [{'id': l.id, 'name': l.name, 'description': l.description or ''}
-                  for l in ScheduleLabel.objects.all().order_by('name')]
-    return JsonResponse({'labels': labels})
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_add_label(request, schema_name):
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    name = (data.get('name') or '').strip()
-    description = (data.get('description') or '').strip()
-    if not name:
-        return JsonResponse({'error': 'Label name is required'}, status=400)
-    if len(name) > 50:
-        return JsonResponse({'error': 'Label name too long (max 50 chars)'}, status=400)
-    with schema_context(schema_name):
-        if ScheduleLabel.objects.filter(name__iexact=name).exists():
-            return JsonResponse({'error': f"Label '{name}' already exists"}, status=400)
-        lbl = ScheduleLabel.objects.create(name=name, description=description[:150])
-        return JsonResponse({'success': True,
-                             'label': {'id': lbl.id, 'name': lbl.name, 'description': lbl.description or ''}})
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_update_label(request, schema_name):
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    lbl_id = data.get('id')
-    name = (data.get('name') or '').strip()
-    description = (data.get('description') or '').strip()
-    if not lbl_id:
-        return JsonResponse({'error': 'id required'}, status=400)
-    if not name:
-        return JsonResponse({'error': 'Label name is required'}, status=400)
-    if len(name) > 50:
-        return JsonResponse({'error': 'Label name too long (max 50 chars)'}, status=400)
-    with schema_context(schema_name):
-        try:
-            lbl = ScheduleLabel.objects.get(id=lbl_id)
-        except ScheduleLabel.DoesNotExist:
-            return JsonResponse({'error': 'Label not found'}, status=404)
-        if ScheduleLabel.objects.filter(name__iexact=name).exclude(id=lbl_id).exists():
-            return JsonResponse({'error': f"Another label '{name}' already exists"}, status=400)
-        lbl.name = name
-        lbl.description = description[:150]
-        lbl.save()
-        return JsonResponse({'success': True,
-                             'label': {'id': lbl.id, 'name': lbl.name, 'description': lbl.description or ''}})
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_delete_label(request, schema_name):
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    lbl_id = data.get('id')
-    if not lbl_id:
-        return JsonResponse({'error': 'id required'}, status=400)
-    with schema_context(schema_name):
-        try:
-            ScheduleLabel.objects.get(id=lbl_id).delete()
-        except ScheduleLabel.DoesNotExist:
-            return JsonResponse({'error': 'Label not found'}, status=404)
-    return JsonResponse({'success': True})

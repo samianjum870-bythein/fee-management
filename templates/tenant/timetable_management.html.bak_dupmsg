@@ -1016,27 +1016,6 @@
 
             const dayLabel = modalDay.options[modalDay.selectedIndex].text;
 
-            // ---------- DUPLICATE (day,label) GUARD ----------
-            // Same label + same day = blocked. Same label + different day = OK.
-            let dupRow = null;
-            dayScheduleBody.querySelectorAll('tr[data-day]').forEach(function (existingRow) {
-                if (editingRow && existingRow === editingRow) return;
-                const existingDay = parseInt(existingRow.dataset.day, 10);
-                const existingLabel = ((existingRow.querySelectorAll('td')[1] || {}).textContent || '').trim();
-                if (existingDay === day && existingLabel.toLowerCase() === label.toLowerCase()) {
-                    dupRow = existingRow;
-                }
-            });
-            if (dupRow) {
-                await showAlert(
-                    'Ye label "' + label + '" ' + dayLabel + ' ke liye pehle hi set hai.\n\n' +
-                    'Koi doosra label ya doosra din chunain.',
-                    'Already Set'
-                );
-                return;
-            }
-            // ---------- end guard ----------
-
             try {
             if (editingRow) {
                 const cells = editingRow.querySelectorAll('td');

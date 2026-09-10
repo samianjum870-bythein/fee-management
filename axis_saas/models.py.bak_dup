@@ -871,15 +871,7 @@ class DaySchedule(models.Model):
 
     class Meta:
         ordering = ['day_of_week', 'order']
-        # A label may only be scheduled ONCE per day (e.g. "Senior" on Tue).
-        # Same label on OTHER days is allowed, and different labels may
-        # share the same day.
-        constraints = [
-            models.UniqueConstraint(
-                fields=['academic_calendar', 'label', 'day_of_week'],
-                name='unique_label_per_day',
-            ),
-        ]
+        # No unique_together – multiple slots per day allowed
 
     def __str__(self):
         label_part = f" ({self.label})" if self.label else ""
