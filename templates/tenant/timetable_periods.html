@@ -83,6 +83,80 @@
     .timing-detail-table .break-row td { background:#fef3c7; color:#92400e; font-weight:600; }
 
     .tt-badge { display:inline-block; padding:0.15rem 0.6rem; background:var(--surface-alt); border-radius:1rem; font-size:0.75rem; color:var(--muted); margin-left:0.4rem; }
+
+    /* Confirm modal */
+    .tt-confirm-overlay {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 100000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        padding: 1rem;
+        animation: ttFadeIn 0.15s ease;
+    }
+    .tt-confirm-overlay.active { display: flex; }
+    .tt-confirm-box {
+        background: var(--surface, #fff);
+        border-radius: 1rem;
+        padding: 1.5rem 1.75rem;
+        max-width: 460px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+        text-align: center;
+        animation: ttScaleIn 0.15s ease;
+    }
+    .tt-confirm-icon {
+        font-size: 2rem;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+    }
+    .tt-confirm-title {
+        margin: 0 0 0.5rem 0;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #b91c1c;
+    }
+    .tt-confirm-message {
+        color: var(--text, #333);
+        font-size: 0.92rem;
+        line-height: 1.5;
+        margin: 0 0 1.25rem 0;
+    }
+    .tt-confirm-hint {
+        color: var(--muted, #666);
+        font-size: 0.8rem;
+        margin: 0 0 1.25rem 0;
+    }
+    .tt-confirm-actions {
+        display: flex;
+        gap: 0.6rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .tt-confirm-actions button {
+        border: none;
+        padding: 0.6rem 1.3rem;
+        border-radius: 2rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: 0.15s;
+    }
+    .tt-confirm-yes { background: #dc2626; color: #fff; }
+    .tt-confirm-yes:hover { background: #b91c1c; }
+    .tt-confirm-cancel {
+        background: var(--surface-alt, #f3f4f6);
+        color: var(--text, #333);
+        border: 1px solid var(--border, #ddd) !important;
+    }
+    .tt-confirm-cancel:hover { background: var(--border, #e5e7eb); }
+    @keyframes ttFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes ttScaleIn {
+        from { transform: scale(0.95); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+    }
 </style>
 {% endblock %}
 
@@ -176,6 +250,22 @@
     </div>
 </div>
 
+<!-- CUSTOM CONFIRM MODAL -->
+<div id="ttConfirmOverlay" class="tt-confirm-overlay">
+    <div class="tt-confirm-box">
+        <div class="tt-confirm-icon">⚠️</div>
+        <h3 class="tt-confirm-title" id="ttConfirmTitle">Delete this timetable?</h3>
+        <p class="tt-confirm-message" id="ttConfirmMessage">
+            This action cannot be undone. The timetable will be permanently removed.
+        </p>
+        <p class="tt-confirm-hint" id="ttConfirmHint"></p>
+        <div class="tt-confirm-actions">
+            <button type="button" class="tt-confirm-cancel" id="ttConfirmNoBtn">Cancel</button>
+            <button type="button" class="tt-confirm-yes" id="ttConfirmYesBtn">Yes, I'm sure</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     'use strict';
@@ -185,6 +275,47 @@
 
     let TIMETABLES = {{ timetables_json|safe }} || [];
     let editingIndex = null;      // null = add mode, int = edit that index
+
+    // ---- Custom confirm dialog (returns Promise<boolean>) ----
+    function showTtConfirm(opts) {
+        opts = opts || {};
+        const title    = opts.title    || 'Are you sure?';
+        const message  = opts.message  || '';
+        const hint     = opts.hint     || '';
+        const yesLabel = opts.yesLabel || "Yes, I'm sure";
+        const noLabel  = opts.noLabel  || 'Cancel';
+        const overlayEl = document.getElementById('ttConfirmOverlay');
+        const titleEl   = document.getElementById('ttConfirmTitle');
+        const msgEl     = document.getElementById('ttConfirmMessage');
+        const hintEl    = document.getElementById('ttConfirmHint');
+        const yesBtn    = document.getElementById('ttConfirmYesBtn');
+        const noBtn     = document.getElementById('ttConfirmNoBtn');
+        titleEl.textContent = title;
+        msgEl.textContent   = message;
+        hintEl.textContent  = hint;
+        hintEl.style.display = hint ? 'block' : 'none';
+        yesBtn.textContent  = yesLabel;
+        noBtn.textContent   = noLabel;
+        overlayEl.classList.add('active');
+        return new Promise(function (resolve) {
+            function cleanup(result) {
+                overlayEl.classList.remove('active');
+                yesBtn.removeEventListener('click', onYes);
+                noBtn.removeEventListener('click', onNo);
+                overlayEl.removeEventListener('click', onOverlay);
+                document.removeEventListener('keydown', onKey);
+                resolve(result);
+            }
+            function onYes() { cleanup(true); }
+            function onNo()  { cleanup(false); }
+            function onOverlay(e) { if (e.target === overlayEl) cleanup(false); }
+            function onKey(e) { if (e.key === 'Escape') cleanup(false); }
+            yesBtn.addEventListener('click', onYes);
+            noBtn.addEventListener('click', onNo);
+            overlayEl.addEventListener('click', onOverlay);
+            document.addEventListener('keydown', onKey);
+        });
+    }
 
     // ---- DOM refs ----
     const createBtn         = document.getElementById('createTimetableBtn');
@@ -321,8 +452,18 @@
             openEditForm(idx);
         });
 
-        header.querySelector('.delete-btn').addEventListener('click', function () {
-            if (!confirm('Delete this timetable?')) return;
+        header.querySelector('.delete-btn').addEventListener('click', async function () {
+            const dayCount = (tt.days || []).length;
+            const ok = await showTtConfirm({
+                title: 'Delete this timetable?',
+                message: 'You are about to permanently delete "' + (tt.title || 'this timetable') + '" '
+                       + '(Label: ' + (tt.label || '-') + ').\n\n'
+                       + 'This will remove all its ' + dayCount + ' day(s) and period timings.',
+                hint: 'This action cannot be undone.',
+                yesLabel: "Yes, I'm sure",
+                noLabel: 'Cancel'
+            });
+            if (!ok) return;
             deleteTimetable(idx);
         });
 
