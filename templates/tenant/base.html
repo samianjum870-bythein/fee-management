@@ -629,6 +629,68 @@
         }
     </style>
 
+    <style>
+        /* ---------- Toast notifications ---------- */
+        #toast-messages-container {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 99999;
+            max-width: 520px;
+            width: calc(100% - 40px);
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.55rem;
+        }
+        #toast-messages-container:empty { display: none; }
+        #toast-messages-container > * {
+            pointer-events: auto;
+            width: fit-content;
+            max-width: 100%;
+            padding: 0.85rem 1.2rem;
+            border-radius: 0.85rem;
+            color: #ffffff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            line-height: 1.4;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+            background: #3b82f6;
+            animation: toastSlideIn 0.25s ease-out;
+            word-break: break-word;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        #toast-messages-container > .toast-success { background: #10b981; }
+        #toast-messages-container > .toast-error,
+        #toast-messages-container > .toast-danger  { background: #ef4444; }
+        #toast-messages-container > .toast-warning { background: #f59e0b; }
+        #toast-messages-container > .toast-info    { background: #3b82f6; }
+        #toast-messages-container > .toast-debug   { background: #6b7280; }
+
+        @keyframes toastSlideIn {
+            from { opacity: 0; transform: translateY(-12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+
+    <script>
+        // Auto-dismiss toasts after 5 seconds.
+        (function () {
+            var container = document.getElementById('toast-messages-container');
+            if (!container || container.children.length === 0) return;
+            setTimeout(function () {
+                container.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+                container.style.opacity = '0';
+                container.style.transform = 'translate(-50%, -20px)';
+                setTimeout(function () {
+                    if (container.parentNode) container.parentNode.removeChild(container);
+                }, 500);
+            }, 5000);
+        })();
+    </script>
+
     {% block extra_head %}{% endblock %}
     <link rel="manifest" href="/portal/{{ tenant.schema_name }}/manifest.json">
     <meta name="theme-color" content="#3b82f6">
@@ -701,6 +763,15 @@
                 <a href="{% url 'class_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'class' in request.resolver_match.url_name %}active{% endif %}">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
                     <span>Classes & Subjects</span>
+                </a>
+                {% endif %}
+
+                {% if tenant|has_feature:'classes_management' %}
+                <a href="{% url 'classes_management' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'classes_management' %}active{% endif %}">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+                    </svg>
+                    <span>Classes Management</span>
                 </a>
                 {% endif %}
 
@@ -840,7 +911,11 @@
 
             <!-- Content area -->
             <div class="content-area">
-                {% include "tenant/messages.html" %}
+                <div id="toast-messages-container" role="status" aria-live="polite">
+                    {% for message in messages %}
+                    <div class="toast-item toast-{{ message.tags|default:'info' }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
                 {% block body %}{% endblock %}
             </div>
         </main>

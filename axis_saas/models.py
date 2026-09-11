@@ -15,6 +15,7 @@ from axis_saas.utils.display_grade import get_student_display_grade
 SCHOOL_FEATURE_CHOICES = [
 
     ('class_management', 'Class & Subject Management'),
+    ('classes_management', 'Classes Management'),
     ('dashboard', 'Dashboard'),
     ('students', 'Students'),
     ('fee_collection', 'Fee Collection'),

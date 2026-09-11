@@ -1,0 +1,900 @@
+{% extends 'tenant/base.html' %}
+{% load fee_extras %}
+{% load static %}
+{% block title %}Classes Management | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* =========================================================
+       PREMIUM CLASSES MANAGEMENT — WING VERSION (COMPACT CARDS)
+       ========================================================= */
+
+    :root {
+        --premium-gradient: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+        --premium-gradient-soft: linear-gradient(135deg, rgba(59,130,246,0.14), rgba(37,99,235,0.04));
+    }
+
+    /* ---------- Page header ---------- */
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+        margin-bottom: 2rem;
+        padding-bottom: 1.4rem;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+    }
+    .page-header::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        width: 64px;
+        height: 3px;
+        border-radius: 3px;
+        background: var(--premium-gradient);
+    }
+    .page-title {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.6px;
+        margin: 0;
+        line-height: 1.15;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+    .page-desc {
+        color: var(--muted);
+        margin: 0.45rem 0 0;
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    /* ---------- Buttons ---------- */
+    .btn-sm {
+        background: var(--premium-gradient);
+        color: #fff;
+        border: none;
+        border-radius: 0.75rem;
+        padding: 0.65rem 1.15rem;
+        font-size: 0.86rem;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        box-shadow: 0 6px 18px -6px rgba(59,130,246,0.55);
+        font-family: inherit;
+    }
+    .btn-sm:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 22px -6px rgba(59,130,246,0.65);
+        filter: brightness(1.05);
+    }
+    .btn-sm:active { transform: translateY(0); }
+
+    .btn-secondary {
+        background: var(--surface-alt);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 0.6rem 1.1rem;
+        border-radius: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 0.86rem;
+        transition: 0.2s;
+        font-family: inherit;
+    }
+    .btn-secondary:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+    }
+    .btn-primary {
+        background: var(--premium-gradient);
+        color: #fff;
+        padding: 0.65rem 1.35rem;
+        border-radius: 0.75rem;
+        border: none;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+        font-size: 0.88rem;
+        font-family: inherit;
+        box-shadow: 0 6px 18px -6px rgba(59,130,246,0.55);
+    }
+    .btn-primary:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.05);
+        box-shadow: 0 10px 22px -6px rgba(59,130,246,0.65);
+    }
+
+    /* ---------- KPI cards ---------- */
+    .kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.75rem;
+    }
+    .kpi-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.15rem 1.35rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: var(--shadow-sm);
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    }
+    .kpi-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0;
+        width: 4px; height: 100%;
+        background: var(--premium-gradient);
+    }
+    .kpi-card:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow);
+        border-color: var(--primary);
+    }
+    .kpi-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        background: var(--premium-gradient-soft);
+        color: var(--primary);
+        flex-shrink: 0;
+    }
+    .kpi-body {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .kpi-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: var(--muted);
+        font-weight: 700;
+    }
+    .kpi-value {
+        font-size: 1.7rem;
+        font-weight: 800;
+        color: var(--text);
+        line-height: 1.1;
+        margin-top: 0.1rem;
+        letter-spacing: -0.5px;
+    }
+
+    /* ---------- Filters bar ---------- */
+    .filters-bar {
+        display: flex;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 1.75rem;
+        padding: 0.9rem 1rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: var(--shadow-sm);
+        backdrop-filter: blur(8px);
+    }
+    .filters-bar input[type="text"],
+    .filters-bar select {
+        padding: 0.6rem 0.9rem;
+        border: 1px solid var(--border);
+        border-radius: 0.7rem;
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: 0.88rem;
+        min-width: 170px;
+        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        font-family: inherit;
+    }
+    .filters-bar input[type="text"]:focus,
+    .filters-bar select:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.18);
+        background: var(--surface);
+    }
+    .filters-bar .search-input {
+        flex: 1;
+        min-width: 220px;
+    }
+
+    /* ---------- Classes grid ---------- */
+    .classes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+        gap: 1.25rem;
+        align-items: start;
+    }
+
+    .class-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1.05rem;
+        padding: 1.15rem 1.25rem 1rem;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        position: relative;
+        overflow: hidden;
+        animation: cardIn 0.35s ease both;
+    }
+    @keyframes cardIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    .class-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: var(--premium-gradient);
+        opacity: 0;
+        transition: opacity 0.28s ease;
+    }
+    .class-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow);
+        border-color: var(--primary);
+    }
+    .class-card:hover::before { opacity: 1; }
+
+    .class-card-head {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .class-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        background: var(--premium-gradient-soft);
+        color: var(--primary);
+        flex-shrink: 0;
+    }
+    .class-card-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text);
+        margin: 0;
+        line-height: 1.35;
+        letter-spacing: -0.2px;
+        /* long names: wrap naturally, no ellipsis, no forced break */
+        overflow-wrap: anywhere;
+        word-break: normal;
+        hyphens: none;
+    }
+
+    /* stats: only a top dashed divider */
+    .class-card-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.6rem;
+        padding: 0.6rem 0 0;
+        border-top: 1px dashed var(--border);
+    }
+    .class-stat {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .class-stat-label {
+        font-size: 0.64rem;
+        text-transform: uppercase;
+        letter-spacing: 0.55px;
+        color: var(--muted);
+        font-weight: 700;
+    }
+    .class-stat-value {
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-top: 0.15rem;
+        line-height: 1.35;
+        /* long teacher/class names: wrap fully, no ellipsis */
+        overflow-wrap: anywhere;
+        word-break: normal;
+        hyphens: none;
+    }
+    .class-stat-value.muted { color: var(--muted); font-weight: 500; }
+
+    /* actions right under stats */
+    .class-card-actions {
+        display: flex;
+        gap: 0.4rem;
+        justify-content: flex-end;
+        padding-top: 0.15rem;
+    }
+    .action-icon {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        padding: 0.38rem 0.7rem;
+        color: var(--text);
+        transition: all 0.2s ease;
+        border-radius: 0.6rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.74rem;
+        font-weight: 600;
+        font-family: inherit;
+        line-height: 1;
+    }
+    .action-icon svg { flex-shrink: 0; }
+    .action-icon:hover {
+        color: var(--primary);
+        border-color: var(--primary);
+        background: var(--surface);
+        transform: translateY(-1px);
+    }
+    .action-icon.delete-btn:hover {
+        color: #dc2626;
+        border-color: #dc2626;
+    }
+
+    /* ---------- Empty state ---------- */
+    .empty-state {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 3.5rem 1rem;
+        color: var(--muted);
+        background: var(--surface);
+        border: 1.5px dashed var(--border);
+        border-radius: 1.05rem;
+    }
+    .empty-state svg {
+        opacity: 0.4;
+        margin-bottom: 0.75rem;
+        color: var(--primary);
+    }
+    .empty-state p:first-of-type {
+        margin: 0;
+        font-weight: 700;
+        color: var(--text);
+        font-size: 1.05rem;
+    }
+    .empty-state p:last-of-type {
+        margin: 0.35rem 0 0;
+        font-size: 0.88rem;
+    }
+
+    /* ---------- Modal ---------- */
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.22s ease, visibility 0.22s ease;
+        padding: 1rem;
+    }
+    .modal-overlay.active {
+        visibility: visible;
+        opacity: 1;
+    }
+    .modal-container {
+        background: var(--surface);
+        border-radius: 1.25rem;
+        max-width: 520px;
+        width: 100%;
+        max-height: 88vh;
+        overflow-y: auto;
+        padding: 1.75rem;
+        border: 1px solid var(--border);
+        box-shadow: 0 25px 70px rgba(0,0,0,0.4);
+        transform: translateY(6px) scale(0.98);
+        transition: transform 0.22s ease;
+    }
+    .modal-overlay.active .modal-container {
+        transform: translateY(0) scale(1);
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.25rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .modal-header h3 {
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 700;
+        letter-spacing: -0.2px;
+    }
+    .close-modal {
+        background: none;
+        border: none;
+        font-size: 1.6rem;
+        cursor: pointer;
+        color: var(--muted);
+        line-height: 1;
+        padding: 0 0.25rem;
+        transition: color 0.2s, transform 0.2s;
+    }
+    .close-modal:hover {
+        color: var(--text);
+        transform: rotate(90deg);
+    }
+
+    .form-field { margin-bottom: 1.1rem; }
+    .form-field label {
+        display: block;
+        font-weight: 700;
+        font-size: 0.8rem;
+        margin-bottom: 0.4rem;
+        color: var(--text);
+        letter-spacing: 0.2px;
+    }
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        width: 100%;
+        padding: 0.65rem 0.85rem;
+        border-radius: 0.7rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: 0.9rem;
+        font-family: inherit;
+        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        box-sizing: border-box;
+    }
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.18);
+        background: var(--surface);
+    }
+    .form-field textarea { resize: vertical; min-height: 60px; }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+
+    /* ---------- Custom confirm dialog ---------- */
+    .tt-confirm-overlay {
+        position: fixed; inset: 0;
+        background: rgba(15, 23, 42, 0.65);
+        z-index: 100000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(6px);
+        padding: 1rem;
+        animation: ttFadeIn 0.15s ease;
+    }
+    .tt-confirm-overlay.active { display: flex; }
+    .tt-confirm-box {
+        background: var(--surface, #fff);
+        border-radius: 1.25rem;
+        padding: 1.75rem 1.85rem;
+        max-width: 460px;
+        width: 100%;
+        box-shadow: 0 25px 70px rgba(0,0,0,0.45);
+        text-align: center;
+        animation: ttScaleIn 0.18s ease;
+        border: 1px solid var(--border);
+    }
+    .tt-confirm-icon {
+        font-size: 2.25rem;
+        line-height: 1;
+        margin-bottom: 0.6rem;
+    }
+    .tt-confirm-title {
+        margin: 0 0 0.5rem 0;
+        font-size: 1.2rem;
+        font-weight: 800;
+        color: #b91c1c;
+        letter-spacing: -0.2px;
+    }
+    .tt-confirm-message {
+        color: var(--text, #333);
+        font-size: 0.92rem;
+        line-height: 1.55;
+        margin: 0 0 1.15rem 0;
+    }
+    .tt-confirm-hint {
+        color: var(--muted, #666);
+        font-size: 0.8rem;
+        margin: 0 0 1.25rem 0;
+    }
+    .tt-confirm-actions {
+        display: flex;
+        gap: 0.6rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .tt-confirm-actions button {
+        border: none;
+        padding: 0.65rem 1.35rem;
+        border-radius: 0.75rem;
+        font-weight: 700;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: 0.15s ease;
+        font-family: inherit;
+    }
+    .tt-confirm-yes {
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        color: #fff;
+        box-shadow: 0 6px 18px -6px rgba(220,38,38,0.6);
+    }
+    .tt-confirm-yes:hover {
+        filter: brightness(1.05);
+        transform: translateY(-1px);
+    }
+    .tt-confirm-cancel {
+        background: var(--surface-alt, #f3f4f6);
+        color: var(--text, #333);
+        border: 1px solid var(--border, #ddd) !important;
+    }
+    .tt-confirm-cancel:hover { background: var(--border, #e5e7eb); }
+
+    @keyframes ttFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes ttScaleIn {
+        from { transform: scale(0.94); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+    }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 768px) {
+        .page-title { font-size: 1.6rem; }
+        .kpi-value { font-size: 1.45rem; }
+        .classes-grid {
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        }
+        .filters-bar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .filters-bar input,
+        .filters-bar select { width: 100%; min-width: 0; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Classes Management</h1>
+        <p class="page-desc">Manage your campus / wing classes at a glance</p>
+    </div>
+    <div>
+        <button class="btn-sm" onclick="openAddModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Class
+        </button>
+    </div>
+</div>
+
+<!-- KPI strip -->
+<div class="kpi-strip">
+    <div class="kpi-card">
+        <div class="kpi-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <path d="M3 10h18M8 2v4M16 2v4"/>
+            </svg>
+        </div>
+        <div class="kpi-body">
+            <span class="kpi-label">Total Classes</span>
+            <span class="kpi-value">{{ total_classes }}</span>
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+        </div>
+        <div class="kpi-body">
+            <span class="kpi-label">Active Students</span>
+            <span class="kpi-value">{{ total_students }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<form method="get" class="filters-bar">
+    <input type="text" name="q" class="search-input" placeholder="Search class or section..."
+           value="{{ search_query|default:'' }}">
+    <select name="wing">
+        <option value="">All Campuses / Wings</option>
+        {% for wc in wing_categories %}
+        <option value="{{ wc.id }}" {% if selected_wing == wc.id|stringformat:'s' %}selected{% endif %}>{{ wc.label }}</option>
+        {% endfor %}
+    </select>
+    <select name="section">
+        <option value="">All Sections</option>
+        {% for s in sections %}
+        <option value="{{ s }}" {% if selected_section == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit" class="btn-sm">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+        </svg>
+        Apply
+    </button>
+    {% if search_query or selected_section or selected_wing %}
+    <a href="{% url 'classes_management' schema_name=tenant.schema_name %}" class="btn-secondary" style="text-decoration:none;">Reset</a>
+    {% endif %}
+</form>
+
+<!-- Classes grid -->
+<div class="classes-grid">
+    {% for cls in classes %}
+    <div class="class-card"
+         data-class-id="{{ cls.id }}"
+         data-class-name="{{ cls.name|escapejs }}"
+         data-class-section="{{ cls.section|escapejs }}"
+         data-class-desc="{{ cls.description|default:''|escapejs }}"
+         data-class-wing="{{ cls.wing_category_id|default:'' }}">
+        <div class="class-card-head">
+            <div class="class-avatar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+            </div>
+            <h3 class="class-card-title">{{ cls.display_name }}</h3>
+        </div>
+        <div class="class-card-stats">
+            <div class="class-stat">
+                <span class="class-stat-label">Students</span>
+                <span class="class-stat-value">{{ cls.student_count }}</span>
+            </div>
+            <div class="class-stat">
+                <span class="class-stat-label">Class Teacher</span>
+                <span class="class-stat-value {% if not cls.class_teacher %}muted{% endif %}">
+                    {% if cls.class_teacher %}{{ cls.class_teacher.name|default:cls.class_teacher.full_name }}{% else %}—{% endif %}
+                </span>
+            </div>
+        </div>
+        <div class="class-card-actions">
+            <button type="button" class="action-icon delete-btn" title="Delete class">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+                Delete
+            </button>
+        </div>
+    </div>
+    {% empty %}
+    <div class="empty-state">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2"/>
+            <path d="M3 10h18M8 2v4M16 2v4"/>
+        </svg>
+        <p>No classes found</p>
+        <p>Click "Add Class" to create your first class.</p>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- ============ Add / Edit Class Modal ============ -->
+<div id="classModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="classModalTitle">Add Class</h3>
+            <button class="close-modal" onclick="closeModal('classModal')">&times;</button>
+        </div>
+        <form method="post" action="{% url 'add_class' schema_name=tenant.schema_name %}" id="classForm">
+            {% csrf_token %}
+            <input type="hidden" name="return_to" value="classes_management">
+            <div class="form-field">
+                <label>Campus / Wing</label>
+                <select name="wing_category" id="classWing" required>
+                    <option value="">Select Campus / Wing</option>
+                    {% for wc in wing_categories %}
+                    <option value="{{ wc.id }}">{{ wc.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label>Class Name</label>
+                <input type="text" name="name" id="className" required placeholder="e.g., Grade 5">
+            </div>
+            <div class="form-field">
+                <label>Section</label>
+                <input type="text" name="section" id="classSection" placeholder="e.g., A" oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="form-field">
+                <label>Description</label>
+                <textarea name="description" id="classDesc" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('classModal')">Cancel</button>
+                <button type="submit" class="btn-primary" id="classSubmitBtn">Save Class</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ===== Custom confirm modal (delete class) ===== -->
+<div id="ttConfirmOverlay" class="tt-confirm-overlay">
+    <div class="tt-confirm-box">
+        <div class="tt-confirm-icon">⚠️</div>
+        <h3 class="tt-confirm-title" id="ttConfirmTitle">Deactivate this class?</h3>
+        <p class="tt-confirm-message" id="ttConfirmMessage">
+            This action cannot be undone.
+        </p>
+        <p class="tt-confirm-hint" id="ttConfirmHint"></p>
+        <div class="tt-confirm-actions">
+            <button type="button" class="tt-confirm-cancel" id="ttConfirmNoBtn">Cancel</button>
+            <button type="button" class="tt-confirm-yes" id="ttConfirmYesBtn">Yes, I'm sure</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const SCHEMA = '{{ tenant.schema_name }}';
+    const ADD_URL = "{% url 'add_class' schema_name=tenant.schema_name %}";
+
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    function showDeleteConfirm(opts) {
+        opts = opts || {};
+        var title    = opts.title    || 'Are you sure?';
+        var message  = opts.message  || '';
+        var hint     = opts.hint     || '';
+        var yesLabel = opts.yesLabel || "Yes, I'm sure";
+        var noLabel  = opts.noLabel  || 'Cancel';
+        var overlayEl = document.getElementById('ttConfirmOverlay');
+        var titleEl   = document.getElementById('ttConfirmTitle');
+        var msgEl     = document.getElementById('ttConfirmMessage');
+        var hintEl    = document.getElementById('ttConfirmHint');
+        var yesBtn    = document.getElementById('ttConfirmYesBtn');
+        var noBtn     = document.getElementById('ttConfirmNoBtn');
+        titleEl.textContent = title;
+        msgEl.textContent   = message;
+        hintEl.textContent  = hint;
+        hintEl.style.display = hint ? 'block' : 'none';
+        yesBtn.textContent  = yesLabel;
+        noBtn.textContent   = noLabel;
+        overlayEl.classList.add('active');
+        return new Promise(function (resolve) {
+            function cleanup(result) {
+                overlayEl.classList.remove('active');
+                yesBtn.removeEventListener('click', onYes);
+                noBtn.removeEventListener('click', onNo);
+                overlayEl.removeEventListener('click', onOverlay);
+                document.removeEventListener('keydown', onKey);
+                resolve(result);
+            }
+            function onYes() { cleanup(true); }
+            function onNo()  { cleanup(false); }
+            function onOverlay(e) { if (e.target === overlayEl) cleanup(false); }
+            function onKey(e) { if (e.key === 'Escape') cleanup(false); }
+            yesBtn.addEventListener('click', onYes);
+            noBtn.addEventListener('click', onNo);
+            overlayEl.addEventListener('click', onOverlay);
+            document.addEventListener('keydown', onKey);
+        });
+    }
+
+    function openAddModal() {
+        document.getElementById('classModalTitle').innerText = 'Add Class';
+        document.getElementById('classSubmitBtn').innerText = 'Save Class';
+        document.getElementById('classForm').action = ADD_URL;
+        document.getElementById('className').value = '';
+        document.getElementById('classSection').value = '';
+        document.getElementById('classDesc').value = '';
+        document.getElementById('classWing').value = '';
+        openModal('classModal');
+    }
+
+    function openEditModal(card) {
+        const id = card.dataset.classId;
+        document.getElementById('classModalTitle').innerText = 'Edit Class';
+        document.getElementById('classSubmitBtn').innerText = 'Update Class';
+        document.getElementById('className').value = card.dataset.className || '';
+        document.getElementById('classSection').value = card.dataset.classSection || '';
+        document.getElementById('classDesc').value = card.dataset.classDesc || '';
+        document.getElementById('classWing').value = card.dataset.classWing || '';
+        document.getElementById('classForm').action = `/portal/${SCHEMA}/classes/edit/${id}/`;
+        openModal('classModal');
+    }
+
+    document.querySelectorAll('.class-card').forEach(card => {
+        const delBtn = card.querySelector('.delete-btn');
+        if (delBtn) {
+            delBtn.addEventListener('click', async () => {
+                const id = card.dataset.classId;
+                const className = card.dataset.className || '';
+                const classSection = card.dataset.classSection || '';
+                let displayName = className;
+                if (classSection) displayName += ' - ' + classSection;
+
+                const ok = await showDeleteConfirm({
+                    title: 'Deactivate this class?',
+                    message: 'You are about to deactivate "' + displayName + '". '
+                           + 'Existing student assignments and records will be kept.',
+                    hint: 'The class will be hidden from active lists.',
+                    yesLabel: 'Yes, deactivate',
+                    noLabel: 'Cancel'
+                });
+                if (!ok) return;
+
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = `/portal/${SCHEMA}/classes/delete/${id}/`;
+                form.innerHTML = `{% csrf_token %}<input type="hidden" name="return_to" value="classes_management">`;
+                document.body.appendChild(form);
+                form.submit();
+            });
+        }
+    });
+
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', function(e) {
+            if (e.target === this) this.classList.remove('active');
+        });
+    });
+
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('open_modal') !== 'class') return;
+
+        var editId = params.get('edit_id');
+        if (editId) {
+            document.getElementById('classModalTitle').innerText = 'Edit Class';
+            document.getElementById('classSubmitBtn').innerText = 'Update Class';
+            document.getElementById('classForm').action =
+                '/portal/' + SCHEMA + '/classes/edit/' + editId + '/';
+        } else {
+            document.getElementById('classModalTitle').innerText = 'Add Class';
+            document.getElementById('classSubmitBtn').innerText = 'Save Class';
+            document.getElementById('classForm').action = ADD_URL;
+        }
+        document.getElementById('className').value    = params.get('name') || '';
+        document.getElementById('classSection').value = params.get('section') || '';
+        document.getElementById('classDesc').value    = params.get('description') || '';
+        var wingEl = document.getElementById('classWing');
+        if (wingEl) wingEl.value = params.get('wing_category') || '';
+
+        openModal('classModal');
+    })();
+</script>
+{% endblock %}

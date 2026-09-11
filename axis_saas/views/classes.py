@@ -22,12 +22,18 @@ from ..models import SchoolClass, Subject, ClassSubject, Staff, Student, WingCat
 from ..forms import ClassForm, SubjectForm, ClassSubjectForm, available_wing_categories
 from .helpers import get_tenant, is_mobile_user_agent, require_tenant_type, require_school_feature
 
-def redirect_with_cache_bust(url_name, schema_name, **kwargs):
-    """Return a HttpResponseRedirect with cache-control headers and a timestamp."""
+def redirect_with_cache_bust(url_name, schema_name, extra_qs='', **kwargs):
+    """Return a HttpResponseRedirect with cache-control headers and a timestamp.
+
+    extra_qs: optional additional query-string (no leading '?'). Used to
+              pass flags like "open_modal=class" back to the card-view page.
+    """
     from django.shortcuts import redirect
     from django.urls import reverse
     import time
     url = reverse(url_name, kwargs={'schema_name': schema_name}) + '?updated=' + str(int(time.time()))
+    if extra_qs:
+        url = url + '&' + extra_qs
     response = redirect(url)
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response['Pragma'] = 'no-cache'
@@ -148,13 +154,15 @@ def add_class(request, schema_name):
     with schema_context(schema_name):
         tenant = get_tenant(request, schema_name)
         form = ClassForm(request.POST, wing_school=tenant.tenant_type == 'wing_school')
-        if form.is_valid():
+        is_valid = form.is_valid()
+        if is_valid:
             cls = form.save(commit=False)
             cls.is_active = True
             try:
                 cls.save()
                 messages.success(request, f"Class '{cls}' added successfully.")
             except (ValidationError, IntegrityError) as error:
+                is_valid = False
                 if isinstance(error, IntegrityError):
                     messages.error(request, 'A class with this name and section already exists in this campus / wing.')
                     error = None
@@ -162,11 +170,45 @@ def add_class(request, schema_name):
                     for message in error.messages:
                         messages.error(request, message)
         else:
+            # Deduplicate + pretty-format validation errors. Django's
+            # ModelForm.full_clean() can raise BOTH a custom ValidationError
+            # (from SchoolClass.clean) AND a UniqueConstraint error for the
+            # SAME underlying problem. We only show ONE 'already exists'.
+            seen_errors = set()
+            shown_already_exists = False
             for field, errors in form.errors.items():
                 for error in errors:
-                    messages.error(request, f"{field}: {error}")
+                    err_str = str(error)
+                    if err_str in seen_errors:
+                        continue
+                    seen_errors.add(err_str)
+                    if 'already exists' in err_str.lower():
+                        if shown_already_exists:
+                            continue
+                        shown_already_exists = True
+                    # Strip the ugly __all__: prefix so the user sees a
+                    # clean message instead of "__all__: A class with ...".
+                    if field == '__all__':
+                        messages.error(request, err_str)
+                    else:
+                        label = field.replace('_', ' ').title()
+                        messages.error(request, f"{label}: {error}")
         if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
             return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            if not is_valid:
+                # Re-open the Add Class modal on the /my-classes/ page,
+                # pre-filling the form with the user's previous input.
+                import urllib.parse as _up
+                _qs = _up.urlencode({
+                    'open_modal': 'class',
+                    'name': request.POST.get('name', ''),
+                    'section': request.POST.get('section', ''),
+                    'wing_category': request.POST.get('wing_category', ''),
+                    'description': request.POST.get('description', ''),
+                })
+                return redirect_with_cache_bust('classes_management', schema_name, extra_qs=_qs)
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 @csrf_exempt
@@ -178,11 +220,13 @@ def edit_class(request, schema_name, class_id):
     with schema_context(schema_name):
         cls = get_object_or_404(SchoolClass, id=class_id)
         form = ClassForm(request.POST, instance=cls, wing_school=get_tenant(request, schema_name).tenant_type == 'wing_school')
-        if form.is_valid():
+        is_valid = form.is_valid()
+        if is_valid:
             try:
                 form.save()
                 messages.success(request, f"Class '{cls}' updated.")
             except (ValidationError, IntegrityError) as error:
+                is_valid = False
                 if isinstance(error, IntegrityError):
                     messages.error(request, 'A class with this name and section already exists in this campus / wing.')
                     error = None
@@ -190,11 +234,38 @@ def edit_class(request, schema_name, class_id):
                     for message in error.messages:
                         messages.error(request, message)
         else:
+            seen_errors = set()
+            shown_already_exists = False
             for field, errors in form.errors.items():
                 for error in errors:
-                    messages.error(request, f"{field}: {error}")
+                    err_str = str(error)
+                    if err_str in seen_errors:
+                        continue
+                    seen_errors.add(err_str)
+                    if 'already exists' in err_str.lower():
+                        if shown_already_exists:
+                            continue
+                        shown_already_exists = True
+                    if field == '__all__':
+                        messages.error(request, err_str)
+                    else:
+                        label = field.replace('_', ' ').title()
+                        messages.error(request, f"{label}: {error}")
         if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
             return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            if not is_valid:
+                import urllib.parse as _up
+                _qs = _up.urlencode({
+                    'open_modal': 'class',
+                    'edit_id': str(class_id),
+                    'name': request.POST.get('name', ''),
+                    'section': request.POST.get('section', ''),
+                    'wing_category': request.POST.get('wing_category', ''),
+                    'description': request.POST.get('description', ''),
+                })
+                return redirect_with_cache_bust('classes_management', schema_name, extra_qs=_qs)
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 @csrf_exempt
@@ -210,7 +281,9 @@ def delete_class(request, schema_name, class_id):
         messages.success(request, f"Class '{cls}' deactivated.")
     if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
         return redirect_with_cache_bust('mobile_class_management', schema_name)
-        return redirect_with_cache_bust('class_management', schema_name)
+    if request.POST.get('return_to') == 'classes_management':
+        return redirect_with_cache_bust('classes_management', schema_name)
+    return redirect_with_cache_bust('class_management', schema_name)
 
 # ========== CRUD FOR SUBJECT ==========
 
@@ -228,11 +301,27 @@ def add_subject(request, schema_name):
             subj.save()
             messages.success(request, f"Subject '{subj}' added successfully.")
         else:
+            # Deduplicate messages: Django ModelForm.full_clean() can raise
+            # BOTH a custom ValidationError (from SchoolClass.clean) AND a
+            # UniqueConstraint error for the SAME underlying problem. We
+            # only want to show ONE 'already exists' message to the user.
+            seen_errors = set()
+            shown_already_exists = False
             for field, errors in form.errors.items():
                 for error in errors:
+                    err_str = str(error)
+                    if err_str in seen_errors:
+                        continue
+                    seen_errors.add(err_str)
+                    if 'already exists' in err_str.lower():
+                        if shown_already_exists:
+                            continue
+                        shown_already_exists = True
                     messages.error(request, f"{field}: {error}")
         if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
             return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 @csrf_exempt
@@ -248,11 +337,27 @@ def edit_subject(request, schema_name, subject_id):
             form.save()
             messages.success(request, f"Subject '{subj}' updated.")
         else:
+            # Deduplicate messages: Django ModelForm.full_clean() can raise
+            # BOTH a custom ValidationError (from SchoolClass.clean) AND a
+            # UniqueConstraint error for the SAME underlying problem. We
+            # only want to show ONE 'already exists' message to the user.
+            seen_errors = set()
+            shown_already_exists = False
             for field, errors in form.errors.items():
                 for error in errors:
+                    err_str = str(error)
+                    if err_str in seen_errors:
+                        continue
+                    seen_errors.add(err_str)
+                    if 'already exists' in err_str.lower():
+                        if shown_already_exists:
+                            continue
+                        shown_already_exists = True
                     messages.error(request, f"{field}: {error}")
         if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
             return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 @csrf_exempt
@@ -268,6 +373,8 @@ def delete_subject(request, schema_name, subject_id):
         messages.success(request, f"Subject '{subj}' deactivated.")
     if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
         return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 # ========== ASSIGNMENT (ClassSubject) ==========
@@ -286,11 +393,27 @@ def assign_subject(request, schema_name):
             assignment.save()
             messages.success(request, f"Subject '{assignment.subject}' assigned to class '{assignment.school_class}' with teacher {assignment.teacher.full_name if assignment.teacher else 'None'}.")
         else:
+            # Deduplicate messages: Django ModelForm.full_clean() can raise
+            # BOTH a custom ValidationError (from SchoolClass.clean) AND a
+            # UniqueConstraint error for the SAME underlying problem. We
+            # only want to show ONE 'already exists' message to the user.
+            seen_errors = set()
+            shown_already_exists = False
             for field, errors in form.errors.items():
                 for error in errors:
+                    err_str = str(error)
+                    if err_str in seen_errors:
+                        continue
+                    seen_errors.add(err_str)
+                    if 'already exists' in err_str.lower():
+                        if shown_already_exists:
+                            continue
+                        shown_already_exists = True
                     messages.error(request, f"{field}: {error}")
         if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
             return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 @csrf_exempt
@@ -306,11 +429,27 @@ def edit_assignment(request, schema_name, assignment_id):
             form.save()
             messages.success(request, f"Assignment updated.")
         else:
+            # Deduplicate messages: Django ModelForm.full_clean() can raise
+            # BOTH a custom ValidationError (from SchoolClass.clean) AND a
+            # UniqueConstraint error for the SAME underlying problem. We
+            # only want to show ONE 'already exists' message to the user.
+            seen_errors = set()
+            shown_already_exists = False
             for field, errors in form.errors.items():
                 for error in errors:
+                    err_str = str(error)
+                    if err_str in seen_errors:
+                        continue
+                    seen_errors.add(err_str)
+                    if 'already exists' in err_str.lower():
+                        if shown_already_exists:
+                            continue
+                        shown_already_exists = True
                     messages.error(request, f"{field}: {error}")
         if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
             return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 @csrf_exempt
@@ -326,6 +465,8 @@ def delete_assignment(request, schema_name, assignment_id):
         messages.success(request, f"Assignment deactivated.")
     if is_mobile_user_agent(request) or request.POST.get('mobile_redirect') == '1':
         return redirect_with_cache_bust('mobile_class_management', schema_name)
+        if request.POST.get('return_to') == 'classes_management':
+            return redirect_with_cache_bust('classes_management', schema_name)
         return redirect_with_cache_bust('class_management', schema_name)
 
 

@@ -25,3 +25,9 @@ from .sell import *
 from .helpers import *
 from .classes import *
 from .classes import assign_class_teacher
+
+# --- Classes Management (card view) imports — added by fix_patcher ---
+from .wing_classes import *  # noqa: F401,F403
+from .wing_classes import wing_classes_view, classes_management_view  # noqa: F401
+from .single_classes import *  # noqa: F401,F403
+from .single_classes import single_classes_view  # noqa: F401
