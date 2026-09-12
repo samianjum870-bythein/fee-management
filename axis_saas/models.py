@@ -964,3 +964,67 @@ class ScheduleLabel(models.Model):
 
     def __str__(self):
         return self.name
+
+
+# ========== PERSISTED PERIODS TIMETABLES (used by Assign-to-Class) ==========
+
+class PeriodsTimetable(models.Model):
+    """
+    Persisted periods timetable. Previously stored per-session; now in DB so
+    that timetables can be assigned to classes and shared across admin sessions.
+    Shape of `days` matches the JSON previously stored in the session:
+      [
+        {
+          'day_of_week': int,
+          'day_label': str,
+          'start': 'HH:MM',
+          'end': 'HH:MM',
+          'periods_count': int,
+          'break_after': int|None,
+          'break_duration': int,
+          'periods': [
+            {'order': int|None, 'start': 'HH:MM', 'end': 'HH:MM',
+             'duration': int, 'is_break': bool},
+            ...
+          ]
+        }, ...
+      ]
+    """
+    title = models.CharField(max_length=150)
+    label = models.CharField(max_length=50, blank=True, default='')
+    break_duration = models.PositiveIntegerField(default=0)
+    days = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['title']
+        verbose_name = 'Periods Timetable'
+        verbose_name_plural = 'Periods Timetables'
+
+    def __str__(self):
+        return self.title
+
+
+class ClassTimetableAssignment(models.Model):
+    """
+    Assigns one PeriodsTimetable to one SchoolClass.
+    A class has at most one active assignment at a time (OneToOne).
+    """
+    school_class = models.OneToOneField(
+        'SchoolClass',
+        on_delete=models.CASCADE,
+        related_name='timetable_assignment',
+    )
+    timetable = models.ForeignKey(
+        PeriodsTimetable,
+        on_delete=models.CASCADE,
+        related_name='class_assignments',
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-assigned_at']
+
+    def __str__(self):
+        return f"{self.school_class} -> {self.timetable.title}"

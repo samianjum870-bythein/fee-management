@@ -166,7 +166,10 @@
         <h1 class="page-title">Periods Timetable</h1>
         <p class="page-desc">Generate period-by-period timetables using your Academic&nbsp;Calendar slots.</p>
     </div>
-    <button type="button" id="createTimetableBtn" class="btn-primary btn-lg">+ Create New Timetable</button>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}" class="btn-secondary btn-lg" style="text-decoration:none;">📚 Assign Timetable to Class</a>
+        <button type="button" id="createTimetableBtn" class="btn-primary btn-lg">+ Create New Timetable</button>
+    </div>
 </div>
 
 <!-- EMPTY STATE -->
@@ -274,7 +277,7 @@
     const SCHEMA = '{{ tenant.schema_name|escapejs }}';
 
     let TIMETABLES = {{ timetables_json|safe }} || [];
-    let editingIndex = null;      // null = add mode, int = edit that index
+    let editingId = null;      // null = add mode, int = edit that index
 
     // ---- Custom confirm dialog (returns Promise<boolean>) ----
     function showTtConfirm(opts) {
@@ -362,10 +365,10 @@
         return day + '|' + start + '|' + end;
     }
 
-    function slotsUsedByOthers(label, skipIndex) {
+    function slotsUsedByOthers(label, skipId) {
         const used = new Set();
-        TIMETABLES.forEach(function (tt, idx) {
-            if (idx === skipIndex) return;
+        TIMETABLES.forEach(function (tt) {
+            if (tt.id === skipId) return;
             if (tt.label !== label) return;
             (tt.days || []).forEach(function (d) {
                 used.add(slotKey(d.day_of_week, d.start, d.end));
@@ -374,10 +377,12 @@
         return used;
     }
 
-    function slotsUsedBySelf(skipIndex) {
+    function slotsUsedBySelf(skipId) {
         const used = new Map(); // key -> {break_after}
-        if (skipIndex === null || !TIMETABLES[skipIndex]) return used;
-        (TIMETABLES[skipIndex].days || []).forEach(function (d) {
+        if (skipId === null || skipId === undefined) return used;
+        const tt = TIMETABLES.find(function (t) { return t.id === skipId; });
+        if (!tt) return used;
+        (tt.days || []).forEach(function (d) {
             used.set(slotKey(d.day_of_week, d.start, d.end), d.break_after || null);
         });
         return used;
@@ -402,6 +407,7 @@
         const card = document.createElement('div');
         card.className = 'card';
         card.dataset.index = String(idx);
+        card.dataset.ttId = String(tt.id);
 
         // Header
         const header = document.createElement('div');
@@ -449,7 +455,7 @@
         });
 
         header.querySelector('.edit-btn').addEventListener('click', function () {
-            openEditForm(idx);
+            openEditForm(tt.id);
         });
 
         header.querySelector('.delete-btn').addEventListener('click', async function () {
@@ -464,7 +470,7 @@
                 noLabel: 'Cancel'
             });
             if (!ok) return;
-            deleteTimetable(idx);
+            deleteTimetable(tt.id);
         });
 
         return card;
@@ -545,7 +551,7 @@
     // FORM OPEN/CLOSE
     // ================================================================
     function openCreateForm() {
-        editingIndex = null;
+        editingId = null;
         formHeader.textContent = 'Create Periods Timetable';
         generateBtn.textContent = 'Generate Periods Timetable';
         formTitle.value = '';
@@ -560,10 +566,10 @@
         overlay.classList.add('active');
     }
 
-    function openEditForm(idx) {
-        const tt = TIMETABLES[idx];
+    function openEditForm(id) {
+        const tt = TIMETABLES.find(function (t) { return t.id === id; });
         if (!tt) return;
-        editingIndex = idx;
+        editingId = id;
         formHeader.textContent = 'Edit Periods Timetable';
         generateBtn.textContent = 'Save Changes';
         formTitle.value = tt.title || '';
@@ -571,12 +577,12 @@
         formLabel.disabled = true;   // keep label locked when editing
         breakDurationEl.value = tt.break_duration || 0;
 
-        renderSlotsForLabel(tt.label, idx);
+        renderSlotsForLabel(tt.label, id);
         slotsSection.style.display = 'block';
 
         // Restore break_after dropdown values after slots render
         setTimeout(function () {
-            const selfMap = slotsUsedBySelf(idx);
+            const selfMap = slotsUsedBySelf(id);
             document.querySelectorAll('#slotsBody .slot-checkbox').forEach(function (cb) {
                 cb.checked = true;
             });
@@ -601,7 +607,7 @@
 
     function closeCreateForm() {
         overlay.classList.remove('active');
-        editingIndex = null;
+        editingId = null;
     }
 
     createBtn.addEventListener('click', openCreateForm);
@@ -672,7 +678,7 @@
 
     // ---- Label change ----
     formLabel.addEventListener('change', function () {
-        if (editingIndex !== null) return;   // label locked in edit mode
+        if (editingId !== null) return;   // label locked in edit mode
         const label = this.value;
         slotsSection.style.display = label ? 'block' : 'none';
         renderSlotsForLabel(label, null);
@@ -814,7 +820,7 @@
             break_duration: duration,
             days: days
         };
-        if (editingIndex !== null) payload.edit_index = editingIndex;
+        if (editingId !== null) payload.edit_id = editingId;
 
         generateBtn.disabled = true;
         const originalText = generateBtn.textContent;
@@ -850,7 +856,7 @@
     // ================================================================
     // DELETE
     // ================================================================
-    async function deleteTimetable(idx) {
+    async function deleteTimetable(id) {
         try {
             const res = await fetch('/portal/' + SCHEMA + '/api/timetable/periods/bunch/delete/', {
                 method: 'POST',
@@ -858,7 +864,7 @@
                     'Content-Type': 'application/json',
                     'X-CSRFToken': getCsrfToken()
                 },
-                body: JSON.stringify({ index: idx })
+                body: JSON.stringify({ id: id })
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
@@ -876,6 +882,27 @@
     // INIT
     // ================================================================
     renderAll();
+
+    // Highlight + scroll to a specific timetable if ?highlight=<id> is in the URL
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        var highlightId = params.get('highlight');
+        if (!highlightId) return;
+        setTimeout(function () {
+            var el = container.querySelector('[data-tt-id="' + highlightId + '"]');
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            var prevBox = el.style.boxShadow;
+            var prevBorder = el.style.borderColor;
+            el.style.transition = 'box-shadow 0.3s ease, border-color 0.3s ease';
+            el.style.boxShadow = '0 0 0 4px rgba(59,130,246,0.45)';
+            el.style.borderColor = 'var(--primary)';
+            setTimeout(function () {
+                el.style.boxShadow = prevBox || '';
+                el.style.borderColor = prevBorder || '';
+            }, 2600);
+        }, 200);
+    })();
 })();
 </script>
 {% endblock %}

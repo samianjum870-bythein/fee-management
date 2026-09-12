@@ -1,8 +1,10 @@
 """
 AXIS views – periods (lectures) management module.
 Multi-timetable generator with edit support.
-"""
 
+Storage migrated from per-session to DB (PeriodsTimetable model) so that
+timetables can be assigned to classes and shared across admin sessions.
+"""
 import json
 import logging
 from datetime import datetime
@@ -13,7 +15,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
-from ..models import DaySchedule, AcademicCalendar, ScheduleLabel
+from ..models import (
+    DaySchedule, AcademicCalendar, ScheduleLabel,
+    PeriodsTimetable, ClassTimetableAssignment,
+)
 from .helpers import get_tenant, require_tenant_type, require_school_feature
 
 logger = logging.getLogger(__name__)
@@ -85,42 +90,61 @@ def _get_session_key(schema_name):
     return SESSION_KEY_TEMPLATE.format(schema=schema_name)
 
 
-def _load_timetables(request, schema_name):
-    """Load the list of timetables from session (safe)."""
+def _timetable_to_dict(tt):
+    """Convert a PeriodsTimetable row into the JSON shape the UI expects."""
+    return {
+        'id': tt.id,
+        'title': tt.title,
+        'label': tt.label or '',
+        'break_duration': tt.break_duration or 0,
+        'days': tt.days or [],
+    }
+
+
+def _load_timetables():
+    """Load all persisted periods timetables (id-ordered)."""
+    return [_timetable_to_dict(tt) for tt in PeriodsTimetable.objects.order_by('id')]
+
+
+def _migrate_session_to_db(request, schema_name):
+    """One-time migration: move any session-stored timetables into the DB."""
     key = _get_session_key(schema_name)
     value = request.session.get(key)
-    if not isinstance(value, list):
-        # Migrate / reset legacy single-object if present, or empty.
-        return []
-    # Sanitize: keep only dicts with required keys
-    clean = []
-    for item in value:
-        if isinstance(item, dict) and 'days' in item and 'label' in item:
-            clean.append(item)
-    return clean
-
-
-def _save_timetables(request, schema_name, timetables):
-    key = _get_session_key(schema_name)
-    request.session[key] = timetables
+    if not isinstance(value, list) or not value:
+        return
+    migrated = 0
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        title = (entry.get('title') or '').strip()
+        if not title:
+            continue
+        if PeriodsTimetable.objects.filter(title=title).exists():
+            continue
+        try:
+            bd = int(entry.get('break_duration') or 0)
+        except (TypeError, ValueError):
+            bd = 0
+        PeriodsTimetable.objects.create(
+            title=title[:150],
+            label=((entry.get('label') or '').strip())[:50],
+            break_duration=max(0, bd),
+            days=entry.get('days') or [],
+        )
+        migrated += 1
+    request.session.pop(key, None)
     request.session.modified = True
+    if migrated:
+        logger.info('Migrated %s session timetable(s) to DB for schema %s', migrated, schema_name)
 
 
-def _reconcile_timetables(request, schema_name):
+def _reconcile_timetables(schema_name):
     """
-    Reconcile session-stored timetables against current DaySchedule rows.
-
-    Rules (per timetable, per day entry):
-      * No matching DaySchedule (same label + day_of_week) -> remove the day.
-      * start_time / end_time changed -> remove the day from the timetable.
-      * Only periods count changed (start/end same) -> recompute per-period
-        timings; break_after / break_duration preserved.
-      * If a timetable ends up with zero days, remove it entirely.
+    Reconcile persisted timetables against current DaySchedule rows.
+    Drops days whose slot is gone or whose timing changed; recomputes periods
+    when only the periods count changed. Timetables with zero remaining days
+    are deleted.
     """
-    timetables = _load_timetables(request, schema_name)
-    if not timetables:
-        return timetables
-
     with schema_context(schema_name):
         schedules = list(DaySchedule.objects.all())
 
@@ -133,32 +157,31 @@ def _reconcile_timetables(request, schema_name):
             'periods': ds.periods,
         }
 
-    changed = False
-    new_timetables = []
-    for tt in timetables:
-        label = (tt.get('label') or '').strip()
+    updated_objs = []
+    delete_ids = []
+
+    for tt in PeriodsTimetable.objects.all():
+        label = (tt.label or '').strip()
         try:
-            break_duration = int(tt.get('break_duration') or 0)
+            break_duration = int(tt.break_duration or 0)
         except (TypeError, ValueError):
             break_duration = 0
 
         new_days = []
-        for day in (tt.get('days') or []):
+        days_changed = False
+
+        for day in (tt.days or []):
             day_of_week = day.get('day_of_week')
             key = (label.lower(), day_of_week)
             sched = schedule_map.get(key)
 
-            # 1) Slot no longer exists -> drop the day.
             if not sched:
-                changed = True
+                days_changed = True
                 continue
-
-            # 2) Timing changed -> drop the day.
             if sched['start'] != day.get('start') or sched['end'] != day.get('end'):
-                changed = True
+                days_changed = True
                 continue
 
-            # 3) Same timing; check periods count.
             try:
                 old_count = int(day.get('periods_count') or 0)
             except (TypeError, ValueError):
@@ -169,7 +192,7 @@ def _reconcile_timetables(request, schema_name):
                     start_t = datetime.strptime(sched['start'], '%H:%M').time()
                     end_t = datetime.strptime(sched['end'], '%H:%M').time()
                 except Exception:
-                    changed = True
+                    days_changed = True
                     continue
 
                 break_after = day.get('break_after')
@@ -187,19 +210,22 @@ def _reconcile_timetables(request, schema_name):
                 day['periods_count'] = sched['periods']
                 day['periods'] = periods_data
                 day['break_after'] = break_after
-                changed = True
+                days_changed = True
 
             new_days.append(day)
 
-        tt['days'] = new_days
         if new_days:
-            new_timetables.append(tt)
+            if days_changed:
+                tt.days = new_days
+                updated_objs.append(tt)
         else:
-            changed = True
+            delete_ids.append(tt.id)
 
-    if changed:
-        _save_timetables(request, schema_name, new_timetables)
-    return new_timetables
+    if updated_objs:
+        PeriodsTimetable.objects.bulk_update(updated_objs, ['days'])
+    if delete_ids:
+        ClassTimetableAssignment.objects.filter(timetable_id__in=delete_ids).delete()
+        PeriodsTimetable.objects.filter(id__in=delete_ids).delete()
 
 
 # ---------------------------------------------------------------------
@@ -211,6 +237,9 @@ def periods_management(request, schema_name):
     tenant = get_tenant(request, schema_name)
 
     with schema_context(schema_name):
+        # One-time migration from session (old) to DB (new)
+        _migrate_session_to_db(request, schema_name)
+
         labels = list(ScheduleLabel.objects.all().order_by('name'))
 
         slots_by_label = {}
@@ -231,7 +260,8 @@ def periods_management(request, schema_name):
                 for ds in schedules
             ]
 
-    timetables = _reconcile_timetables(request, schema_name)
+        _reconcile_timetables(schema_name)
+        timetables = _load_timetables()
 
     context = {
         'tenant': tenant,
@@ -245,7 +275,6 @@ def periods_management(request, schema_name):
 
 # ---------------------------------------------------------------------
 # API: generate / edit periods timetable
-# Mounted at .../api/timetable/periods/bunch/add/
 # ---------------------------------------------------------------------
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -258,7 +287,7 @@ def api_add_bunch(request, schema_name):
         "title": "Senior Timetable",
         "label": "Senior",
         "break_duration": 15,
-        "edit_index": 2,            # optional; if present, replace that item
+        "edit_id": 42,              # optional; if present, update that row
         "days": [
             {"day": 0, "start": "08:00", "end": "14:00",
              "periods": 8, "break_after": 4},
@@ -279,12 +308,12 @@ def api_add_bunch(request, schema_name):
         break_duration = 0
     days = data.get('days') or []
 
-    edit_index = data.get('edit_index')
-    if edit_index is not None:
+    edit_id = data.get('edit_id')
+    if edit_id is not None:
         try:
-            edit_index = int(edit_index)
+            edit_id = int(edit_id)
         except (TypeError, ValueError):
-            edit_index = None
+            edit_id = None
 
     if not title:
         return JsonResponse({'error': 'Title is required'}, status=400)
@@ -341,32 +370,35 @@ def api_add_bunch(request, schema_name):
 
     computed_days.sort(key=lambda x: x['day_of_week'])
 
-    entry = {
-        'title': title,
-        'label': label,
-        'break_duration': break_duration,
-        'days': computed_days,
-    }
-
-    timetables = _load_timetables(request, schema_name)
-
-    if edit_index is not None and 0 <= edit_index < len(timetables):
-        timetables[edit_index] = entry
-    else:
-        timetables.append(entry)
-
-    _save_timetables(request, schema_name, timetables)
+    with schema_context(schema_name):
+        if edit_id is not None:
+            try:
+                tt = PeriodsTimetable.objects.get(id=edit_id)
+            except PeriodsTimetable.DoesNotExist:
+                return JsonResponse({'error': 'Timetable not found'}, status=404)
+            tt.title = title[:150]
+            tt.label = label[:50]
+            tt.break_duration = max(0, break_duration)
+            tt.days = computed_days
+            tt.save()
+        else:
+            tt = PeriodsTimetable.objects.create(
+                title=title[:150],
+                label=label[:50],
+                break_duration=max(0, break_duration),
+                days=computed_days,
+            )
+        timetables = _load_timetables()
 
     return JsonResponse({
         'success': True,
         'timetables': timetables,
-        'timetable': entry,
+        'timetable': _timetable_to_dict(tt),
     })
 
 
 # ---------------------------------------------------------------------
-# API: delete a timetable by index (nice to have)
-# Mounted at .../api/timetable/periods/bunch/delete/ (patched in public_urls)
+# API: delete a timetable by id
 # ---------------------------------------------------------------------
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -377,21 +409,20 @@ def api_delete_bunch(request, schema_name):
         data = json.loads(request.body)
     except Exception:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    idx = data.get('index')
+    tt_id = data.get('id')
     try:
-        idx = int(idx)
+        tt_id = int(tt_id)
     except (TypeError, ValueError):
-        return JsonResponse({'error': 'index required'}, status=400)
+        return JsonResponse({'error': 'id required'}, status=400)
 
-    timetables = _load_timetables(request, schema_name)
-    if 0 <= idx < len(timetables):
-        timetables.pop(idx)
-        _save_timetables(request, schema_name, timetables)
+    with schema_context(schema_name):
+        PeriodsTimetable.objects.filter(id=tt_id).delete()
+        timetables = _load_timetables()
     return JsonResponse({'success': True, 'timetables': timetables})
 
 
 # ---------------------------------------------------------------------
-# API: keep legacy break-update endpoint functional
+# API: keep legacy break-update endpoint functional (unchanged)
 # ---------------------------------------------------------------------
 @csrf_exempt
 @require_http_methods(["POST"])

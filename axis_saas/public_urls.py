@@ -19,6 +19,9 @@ from .views.timetable import (
     api_list_labels, api_add_label, api_update_label, api_delete_label,
 )
 from .views.periods import periods_management, api_update_break, api_add_bunch, api_delete_bunch
+from .views.timetable_assignments import (
+    timetable_assignments, api_assign_timetable, api_unassign_timetable,
+)
 from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
 from .views.staff_portal import staff_login, staff_logout
 from .views.classes import class_strength_api, assign_class_teacher
@@ -303,6 +306,9 @@ urlpatterns = [
     # ===== TIME-TABLE MANAGEMENT =====
     path('portal/<slug:schema_name>/timetable/', portal_wrapper(login_required_for_schema(timetable_management)), name='timetable_management'),
     path('portal/<slug:schema_name>/timetable/periods/', portal_wrapper(login_required_for_schema(periods_management)), name='timetable_periods'),
+    path('portal/<slug:schema_name>/timetable/assign/', portal_wrapper(login_required_for_schema(timetable_assignments)), name='timetable_assignments'),
+    path('portal/<slug:schema_name>/timetable/assign/submit/', portal_wrapper(login_required_for_schema(api_assign_timetable)), name='api_assign_timetable'),
+    path('portal/<slug:schema_name>/timetable/assign/unassign/', portal_wrapper(login_required_for_schema(api_unassign_timetable)), name='api_unassign_timetable'),
     path('portal/<slug:schema_name>/api/timetable/periods/break/update/', portal_wrapper(login_required_for_schema(api_update_break)), name='api_timetable_periods_break_update'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/add/', portal_wrapper(login_required_for_schema(api_add_bunch)), name='api_timetable_periods_bunch_add'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/delete/', portal_wrapper(login_required_for_schema(api_delete_bunch)), name='api_timetable_periods_bunch_delete'),

@@ -37,3 +37,11 @@ from .wing_class_detailed import *  # noqa: F401,F403
 from .wing_class_detailed import wing_class_detailed_view, class_detailed_view  # noqa: F401
 from .single_class_detailed import *  # noqa: F401,F403
 from .single_class_detailed import single_class_detailed_view  # noqa: F401
+
+# --- Timetable Assignments — added by add_timetable_assignments ---
+from .timetable_assignments import *  # noqa: F401,F403
+from .timetable_assignments import (  # noqa: F401
+    timetable_assignments,
+    api_assign_timetable,
+    api_unassign_timetable,
+)

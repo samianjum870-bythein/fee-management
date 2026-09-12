@@ -14,7 +14,8 @@ from django_tenants.utils import schema_context
 from ..models import (
     AcademicCalendar, Holiday, Period, TimetableEntry,
     SchoolClass, Subject, Staff, DaySchedule,
-    WeeklyHoliday, AnnualHoliday, Vacation, ScheduleLabel
+    WeeklyHoliday, AnnualHoliday, Vacation, ScheduleLabel,
+    PeriodsTimetable,
 )
 from .helpers import get_tenant, require_tenant_type, require_school_feature
 
@@ -127,8 +128,12 @@ def timetable_management(request, schema_name):
             if ds.day_of_week not in weekly_holiday_days:
                 day_schedules.setdefault(ds.day_of_week, []).append(ds)
 
-    _ptt_session_key = f'periods_timetables_{schema_name}'
-    has_period_timetables = bool(request.session.get(_ptt_session_key))
+    with schema_context(schema_name):
+        try:
+            has_period_timetables = PeriodsTimetable.objects.exists()
+        except Exception:
+            # Table may not exist yet if migrations haven't run
+            has_period_timetables = False
 
     context = {
         'tenant': tenant,
