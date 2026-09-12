@@ -3,24 +3,28 @@
 axis_patcher.py
 ===============
 
-ASSIGN_TEACHERS_v1
-------------------
+REMOVE_EDIT_BUTTON_v1
+---------------------
 
-Adds a new sub-tab "Assign to Teachers" under the Time-Table sidebar section
-and a full feature to assign subjects (with their already-assigned teachers)
-to specific period slots of a class's periods timetable.
+Problem:
+  On the class-detailed page (`wing_class_detailed.html` /
+  `single_class_detailed.html`), the periods-timetable card shows three
+  buttons:
 
-New:
-  * Model  PeriodTeacherAssignment
-  * Migration 0018_period_teacher_assignment
-  * View module axis_saas/views/assign_teachers.py
-    - Page  /portal/<schema>/timetable/assign-teachers/
-    - GET   /portal/<schema>/api/timetable/teacher-assignments/<class_id>/
-    - POST  /portal/<schema>/api/timetable/teacher-assignments/<class_id>/save/
-  * Template templates/tenant/timetable_assign_teachers.html
-  * Sidebar sub-tab in base.html
-  * Class-detailed modal now shows "Subject (Teacher)" for assigned periods
-    and just "Pn" (no time) for unassigned ones.
+      [ See Timings ] [ 📚 Manage Subjects ] [ ✎ Edit ]
+
+  The user wants:
+    - REMOVE the "✎ Edit" button entirely.
+    - RENAME "📚 Manage Subjects" to "📚 Manage and Edit Subjects".
+
+Fix:
+  1. In the card-header `innerHTML`, drop the `<button ... edit-btn>`
+     line and change the manage-subjects-btn label.
+  2. Remove the dead `_editBtn.addEventListener(...)` wiring line
+     (harmless if left, but cleaner without it).
+
+Nothing else is touched. The inline Manage Subjects grid still works
+exactly as before.
 
 Idempotent. Safe to run multiple times.
 
@@ -34,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-MARKER = "ASSIGN_TEACHERS_v1"
+MARKER = "REMOVE_EDIT_BUTTON_v1"
 
 
 def _log(msg):
@@ -42,7 +46,7 @@ def _log(msg):
     print(f"[{ts}] {msg}")
 
 
-def _read(path):
+def _read(path: Path):
     try:
         return path.read_text(encoding='utf-8')
     except Exception as e:
@@ -50,7 +54,7 @@ def _read(path):
         return None
 
 
-def _write(path, content, dry_run, verbose):
+def _write(path: Path, content: str, dry_run: bool, verbose: bool) -> bool:
     try:
         if dry_run:
             _log(f"DRY-RUN would write {path} ({len(content)} bytes)")
@@ -67,1291 +71,111 @@ def _write(path, content, dry_run, verbose):
         return False
 
 
-# =====================================================================
-# 1) MODEL
-# =====================================================================
-MODEL_ANCHOR = (
-    "    class Meta:\n"
-    "        ordering = ['-assigned_at']\n"
-    "\n"
-    "    def __str__(self):\n"
-    "        return f\"{self.school_class} -> {self.timetable.title}\"\n"
+# ---------------------------------------------------------------------
+# Anchors — exact strings as they appear in the current templates
+# ---------------------------------------------------------------------
+
+# 1) The two-button block we want to collapse into a single renamed button.
+BUTTONS_OLD = (
+    "                '<button type=\"button\" class=\"btn-sm btn-secondary manage-subjects-btn\">&#128218; Manage Subjects</button>' +\n"
+    "                '<button type=\"button\" class=\"btn-sm btn-warning edit-btn\">&#9998; Edit</button>' +\n"
 )
 
-MODEL_APPEND = '''
-
-# ========== PERIOD TEACHER ASSIGNMENTS (ASSIGN_TEACHERS_v1) ==========
-
-class PeriodTeacherAssignment(models.Model):
-    """Assigns a subject (with its class-subject teacher) to one period slot
-    (day_of_week + period_order) of a class's periods timetable."""
-    DAY_CHOICES = [
-        (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'),
-        (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
-    ]
-
-    school_class = models.ForeignKey(
-        'SchoolClass',
-        on_delete=models.CASCADE,
-        related_name='period_teacher_assignments',
-    )
-    day_of_week = models.IntegerField(choices=DAY_CHOICES)
-    period_order = models.PositiveIntegerField()
-    subject = models.ForeignKey(
-        'Subject',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='period_teacher_assignments',
-    )
-    teacher = models.ForeignKey(
-        'Staff',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='period_teacher_assignments',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['school_class', 'day_of_week', 'period_order']
-        unique_together = [('school_class', 'day_of_week', 'period_order')]
-
-    def __str__(self):
-        subject_name = self.subject.name if self.subject else '—'
-        return f"{self.school_class} | D{self.day_of_week} P{self.period_order}: {subject_name}"
-'''
-
-
-def _patch_models(path, dry_run, verbose):
-    _log(f"Patching models.py: {path}")
-    content = _read(path)
-    if content is None:
-        return False
-    if 'class PeriodTeacherAssignment(' in content:
-        _log("  - model already present, skipping")
-        return True
-    if MODEL_ANCHOR not in content:
-        _log("  WARN: could not find ClassTimetableAssignment.__str__ anchor")
-        return False
-    content = content.replace(MODEL_ANCHOR, MODEL_ANCHOR + MODEL_APPEND, 1)
-    _log("  + appended PeriodTeacherAssignment model")
-    return _write(path, content, dry_run, verbose)
-
-
-# =====================================================================
-# 2) MIGRATION
-# =====================================================================
-MIGRATION_FILENAME = "0018_period_teacher_assignment.py"
-MIGRATION_CONTENT = '''# Generated by axis_patcher — Assign-to-Teachers feature.
-from django.db import migrations, models
-import django.db.models.deletion
-
-
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ('axis_saas', '0017_periods_timetable'),
-    ]
-
-    operations = [
-        migrations.CreateModel(
-            name='PeriodTeacherAssignment',
-            fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('day_of_week', models.IntegerField(choices=[(0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'), (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday')])),
-                ('period_order', models.PositiveIntegerField()),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('school_class', models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name='period_teacher_assignments',
-                    to='axis_saas.schoolclass',
-                )),
-                ('subject', models.ForeignKey(
-                    blank=True, null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name='period_teacher_assignments',
-                    to='axis_saas.subject',
-                )),
-                ('teacher', models.ForeignKey(
-                    blank=True, null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name='period_teacher_assignments',
-                    to='axis_saas.staff',
-                )),
-            ],
-            options={
-                'ordering': ['school_class', 'day_of_week', 'period_order'],
-                'unique_together': {('school_class', 'day_of_week', 'period_order')},
-            },
-        ),
-    ]
-'''
-
-
-# =====================================================================
-# 3) NEW VIEW MODULE
-# =====================================================================
-ASSIGN_TEACHERS_PY = '''"""
-AXIS views - assign periods to teachers (ASSIGN_TEACHERS_v1).
-
-Lets the admin pick a class (that already has a periods timetable assigned)
-and, for each period slot, choose a subject. The subject's teacher in this
-class (from ClassSubject.teacher) is saved alongside.
-"""
-import json
-import logging
-
-from django.http import JsonResponse
-from django.shortcuts import render, get_object_or_404
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from django_tenants.utils import schema_context
-
-from ..models import (
-    SchoolClass, ClassTimetableAssignment,
-    ClassSubject, PeriodTeacherAssignment,
-)
-from .helpers import get_tenant, require_tenant_type, require_school_feature
-from axis_saas.utils.class_display import get_class_display_name
-
-
-logger = logging.getLogger(__name__)
-
-
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def timetable_assign_teachers(request, schema_name):
-    """Main page: shows classes that have a periods timetable + a
-    button to open the assignment modal."""
-    tenant = get_tenant(request, schema_name)
-
-    with schema_context(schema_name):
-        class_assignments = list(
-            ClassTimetableAssignment.objects
-            .select_related('school_class__wing_category', 'timetable')
-            .order_by('school_class__name', 'school_class__section')
-        )
-
-        class_rows = []
-        for a in class_assignments:
-            cls = a.school_class
-            display = get_class_display_name(cls, tenant.tenant_type)
-            total_periods = 0
-            for d in (a.timetable.days or []):
-                try:
-                    total_periods += int(d.get('periods_count') or 0)
-                except (TypeError, ValueError):
-                    pass
-            assigned_count = PeriodTeacherAssignment.objects.filter(
-                school_class=cls, subject__isnull=False,
-            ).count()
-            class_rows.append({
-                'class_id': cls.id,
-                'class_display_name': display,
-                'timetable_title': a.timetable.title,
-                'timetable_label': a.timetable.label or '',
-                'total_periods': total_periods,
-                'assigned_count': assigned_count,
-            })
-
-        assigned_class_ids = {a.school_class_id for a in class_assignments}
-        classes_without_timetable = []
-        for c in SchoolClass.objects.filter(is_active=True).order_by('name', 'section'):
-            if c.id not in assigned_class_ids:
-                classes_without_timetable.append({
-                    'id': c.id,
-                    'display_name': get_class_display_name(c, tenant.tenant_type),
-                })
-
-    context = {
-        'tenant': tenant,
-        'class_rows': class_rows,
-        'classes_without_timetable': classes_without_timetable,
-        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
-    }
-    response = render(request, 'tenant/timetable_assign_teachers.html', context)
-    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response['Pragma'] = 'no-cache'
-    response['Expires'] = '0'
-    return response
-
-
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_get_teacher_assignments(request, schema_name, class_id):
-    """Return data needed to render the grid for a given class."""
-    tenant = get_tenant(request, schema_name)
-
-    with schema_context(schema_name):
-        school_class = get_object_or_404(SchoolClass, id=class_id, is_active=True)
-        assignment = (
-            ClassTimetableAssignment.objects
-            .select_related('timetable')
-            .filter(school_class=school_class)
-            .first()
-        )
-
-        class_display = get_class_display_name(school_class, tenant.tenant_type)
-
-        if not assignment or not assignment.timetable:
-            return JsonResponse({
-                'has_timetable': False,
-                'class_id': school_class.id,
-                'class_display': class_display,
-            })
-
-        tt = assignment.timetable
-
-        # Subjects of this class whose teacher is set (these are the only
-        # valid choices for period assignment)
-        subjects = []
-        for cs in (
-            ClassSubject.objects
-            .filter(school_class=school_class, is_active=True, teacher__isnull=False)
-            .select_related('subject', 'teacher')
-            .order_by('subject__name')
-        ):
-            subjects.append({
-                'subject_id': cs.subject_id,
-                'subject_name': cs.subject.name,
-                'teacher_id': cs.teacher_id,
-                'teacher_name': cs.teacher.full_name if cs.teacher else '',
-            })
-
-        existing = {}
-        for pta in PeriodTeacherAssignment.objects.filter(school_class=school_class):
-            key = f"{pta.day_of_week}|{pta.period_order}"
-            existing[key] = {
-                'subject_id': pta.subject_id,
-            }
-
-        return JsonResponse({
-            'has_timetable': True,
-            'class_id': school_class.id,
-            'class_display': class_display,
-            'timetable_title': tt.title,
-            'timetable_label': tt.label or '',
-            'timetable_days': tt.days or [],
-            'subjects': subjects,
-            'existing': existing,
-        })
-
-
-@csrf_exempt
-@require_http_methods(['POST'])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_save_teacher_assignments(request, schema_name, class_id):
-    """Persist the full set of (day, period) -> subject assignments for a class."""
-    try:
-        data = json.loads(request.body)
-    except Exception:
-        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
-
-    items = data.get('assignments', [])
-    if not isinstance(items, list):
-        return JsonResponse({'success': False, 'error': 'assignments must be a list'}, status=400)
-
-    with schema_context(schema_name):
-        school_class = get_object_or_404(SchoolClass, id=class_id, is_active=True)
-
-        # Only subjects whose teacher is already set for this class are valid
-        class_subject_teacher = {
-            cs.subject_id: cs.teacher_id
-            for cs in ClassSubject.objects.filter(
-                school_class=school_class, is_active=True, teacher__isnull=False,
-            )
-        }
-
-        existing_map = {
-            (pta.day_of_week, pta.period_order): pta
-            for pta in PeriodTeacherAssignment.objects.filter(school_class=school_class)
-        }
-
-        saved = 0
-        removed = 0
-        skipped = 0
-
-        for item in items:
-            try:
-                day = int(item.get('day'))
-                order = int(item.get('order'))
-            except (TypeError, ValueError):
-                skipped += 1
-                continue
-
-            subject_id_raw = item.get('subject_id')
-            if subject_id_raw in (None, '', 'null', 0, '0'):
-                subject_id = None
-            else:
-                try:
-                    subject_id = int(subject_id_raw)
-                except (TypeError, ValueError):
-                    skipped += 1
-                    continue
-
-            key = (day, order)
-
-            if subject_id is None:
-                existing = existing_map.get(key)
-                if existing is not None:
-                    existing.delete()
-                    removed += 1
-                continue
-
-            if subject_id not in class_subject_teacher:
-                # Teacher not assigned for this subject in this class -> skip
-                skipped += 1
-                continue
-
-            teacher_id = class_subject_teacher[subject_id]
-            existing = existing_map.get(key)
-            if existing is not None:
-                existing.subject_id = subject_id
-                existing.teacher_id = teacher_id
-                existing.save(update_fields=['subject', 'teacher', 'updated_at'])
-            else:
-                PeriodTeacherAssignment.objects.create(
-                    school_class=school_class,
-                    day_of_week=day,
-                    period_order=order,
-                    subject_id=subject_id,
-                    teacher_id=teacher_id,
-                )
-            saved += 1
-
-        return JsonResponse({
-            'success': True,
-            'saved': saved,
-            'removed': removed,
-            'skipped': skipped,
-        })
-'''
-
-
-# =====================================================================
-# 4) views/__init__.py import
-# =====================================================================
-VIEWS_INIT_ANCHOR = (
-    "# --- Class Staff Management — added by CLASS_STAFF_MANAGEMENT_v1 ---\n"
-    "from .class_staff import *  # noqa: F401,F403\n"
-    "from .class_staff import (  # noqa: F401\n"
-    "    api_assign_class_teacher as api_class_assign_class_teacher,\n"
-    "    api_assign_subject_teacher as api_class_assign_subject_teacher,\n"
-    ")\n"
-)
-
-VIEWS_INIT_APPEND = (
-    "\n"
-    "# --- Assign Periods to Teachers — added by ASSIGN_TEACHERS_v1 ---\n"
-    "from .assign_teachers import *  # noqa: F401,F403\n"
-    "from .assign_teachers import (  # noqa: F401\n"
-    "    timetable_assign_teachers,\n"
-    "    api_get_teacher_assignments,\n"
-    "    api_save_teacher_assignments,\n"
-    ")\n"
+BUTTONS_NEW = (
+    "                '<button type=\"button\" class=\"btn-sm btn-secondary manage-subjects-btn\">&#128218; Manage and Edit Subjects</button>' +\n"
 )
 
 
-def _patch_views_init(path, dry_run, verbose):
-    _log(f"Patching views/__init__.py: {path}")
-    content = _read(path)
-    if content is None:
-        return False
-    if 'from .assign_teachers import' in content:
-        _log("  - already imported, skipping")
-        return True
-    if VIEWS_INIT_ANCHOR not in content:
-        _log("  WARN: could not find class_staff import anchor")
-        return False
-    content = content.replace(VIEWS_INIT_ANCHOR, VIEWS_INIT_ANCHOR + VIEWS_INIT_APPEND, 1)
-    _log("  + appended assign_teachers imports")
-    return _write(path, content, dry_run, verbose)
-
-
-# =====================================================================
-# 5) public_urls.py routes
-# =====================================================================
-PUBLIC_URLS_IMPORT_ANCHOR = (
-    "from .views.class_staff import (\n"
-    "    api_assign_class_teacher as api_class_assign_class_teacher,\n"
-    "    api_assign_subject_teacher as api_class_assign_subject_teacher,\n"
-    ")\n"
+# 2) The wiring block. Drop the `_editBtn` line, keep the `_msubBtn` line.
+WIRING_OLD = (
+    "        var _msubBtn = header.querySelector('.manage-subjects-btn');\n"
+    "        var _editBtn = header.querySelector('.edit-btn');\n"
+    "        if (_msubBtn) _msubBtn.addEventListener('click', _openInlineSubjectsGrid);\n"
+    "        if (_editBtn) _editBtn.addEventListener('click', _openEditTimetableForm);\n"
 )
 
-PUBLIC_URLS_IMPORT_APPEND = (
-    "from .views.assign_teachers import (\n"
-    "    timetable_assign_teachers,\n"
-    "    api_get_teacher_assignments,\n"
-    "    api_save_teacher_assignments,\n"
-    ")\n"
-)
-
-PUBLIC_URLS_ROUTE_ANCHOR = (
-    "    path('portal/<slug:schema_name>/timetable/assign/unassign/', "
-    "portal_wrapper(login_required_for_schema(api_unassign_timetable)), "
-    "name='api_unassign_timetable'),"
-)
-
-PUBLIC_URLS_ROUTE_REPLACEMENT = (
-    PUBLIC_URLS_ROUTE_ANCHOR + "\n"
-    "    # ===== ASSIGN_TEACHERS_v1 =====\n"
-    "    path('portal/<slug:schema_name>/timetable/assign-teachers/',\n"
-    "         portal_wrapper(login_required_for_schema(timetable_assign_teachers)),\n"
-    "         name='timetable_assign_teachers'),\n"
-    "    path('portal/<slug:schema_name>/api/timetable/teacher-assignments/<int:class_id>/',\n"
-    "         portal_wrapper(login_required_for_schema(api_get_teacher_assignments)),\n"
-    "         name='api_get_teacher_assignments'),\n"
-    "    path('portal/<slug:schema_name>/api/timetable/teacher-assignments/<int:class_id>/save/',\n"
-    "         portal_wrapper(login_required_for_schema(api_save_teacher_assignments)),\n"
-    "         name='api_save_teacher_assignments'),"
+WIRING_NEW = (
+    "        var _msubBtn = header.querySelector('.manage-subjects-btn');\n"
+    "        if (_msubBtn) _msubBtn.addEventListener('click', _openInlineSubjectsGrid);\n"
 )
 
 
-def _patch_public_urls(path, dry_run, verbose):
-    _log(f"Patching public_urls.py: {path}")
+# 3) Fallback wiring — the variant where Edit is still wired to the inline grid.
+WIRING_FALLBACK_OLD = (
+    "        var _msubBtn = header.querySelector('.manage-subjects-btn');\n"
+    "        var _editBtn = header.querySelector('.edit-btn');\n"
+    "        if (_msubBtn) _msubBtn.addEventListener('click', _openInlineSubjectsGrid);\n"
+    "        if (_editBtn) _editBtn.addEventListener('click', _openInlineSubjectsGrid);\n"
+)
+
+
+def patch_template(path: Path, dry_run: bool, verbose: bool) -> bool:
+    _log(f"Patching template: {path}")
     content = _read(path)
     if content is None:
         return False
 
-    changed = False
-
-    if "from .views.assign_teachers import" in content:
-        _log("  - import already present")
-    elif PUBLIC_URLS_IMPORT_ANCHOR in content:
-        content = content.replace(
-            PUBLIC_URLS_IMPORT_ANCHOR,
-            PUBLIC_URLS_IMPORT_ANCHOR + PUBLIC_URLS_IMPORT_APPEND,
-            1,
-        )
-        _log("  + added assign_teachers import")
-        changed = True
-    else:
-        _log("  WARN: could not find class_staff import anchor")
-
-    if "name='timetable_assign_teachers'" in content:
-        _log("  - routes already present")
-    elif PUBLIC_URLS_ROUTE_ANCHOR in content:
-        content = content.replace(
-            PUBLIC_URLS_ROUTE_ANCHOR,
-            PUBLIC_URLS_ROUTE_REPLACEMENT,
-            1,
-        )
-        _log("  + registered assign-teachers routes")
-        changed = True
-    else:
-        _log("  WARN: could not find timetable unassign route anchor")
-
-    if not changed:
-        _log("  no changes needed")
-        return True
-    return _write(path, content, dry_run, verbose)
-
-
-# =====================================================================
-# 6) SIDEBAR (base.html) sub-tab
-# =====================================================================
-SIDEBAR_ANCHOR = (
-    "                <a href=\"{% url 'timetable_assignments' schema_name=tenant.schema_name %}\" "
-    "class=\"nav-item {% if request.resolver_match.url_name == 'timetable_assignments' %}active{% endif %}\" "
-    "style=\"padding-left: 2.5rem; font-size: 0.9rem;\">\n"
-    "                    <svg class=\"nav-icon\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\">"
-    "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z\"/></svg>\n"
-    "                    <span>Assign to Classes</span>\n"
-    "                </a>"
-)
-
-SIDEBAR_REPLACEMENT = (
-    SIDEBAR_ANCHOR + "\n"
-    "                <a href=\"{% url 'timetable_assign_teachers' schema_name=tenant.schema_name %}\" "
-    "class=\"nav-item {% if request.resolver_match.url_name == 'timetable_assign_teachers' %}active{% endif %}\" "
-    "style=\"padding-left: 2.5rem; font-size: 0.9rem;\">\n"
-    "                    <svg class=\"nav-icon\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\">"
-    "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" "
-    "d=\"M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z\"/></svg>\n"
-    "                    <span>Assign to Teachers</span>\n"
-    "                </a>"
-)
-
-
-def _patch_sidebar(path, dry_run, verbose):
-    _log(f"Patching sidebar: {path}")
-    content = _read(path)
-    if content is None:
-        return False
-
-    if "url 'timetable_assign_teachers'" in content:
-        _log("  - sub-tab already present, skipping")
-        return True
-
-    if SIDEBAR_ANCHOR not in content:
-        _log("  WARN: could not find 'Assign to Classes' sidebar anchor")
-        return False
-
-    content = content.replace(SIDEBAR_ANCHOR, SIDEBAR_REPLACEMENT, 1)
-    _log("  + added 'Assign to Teachers' sub-tab")
-    return _write(path, content, dry_run, verbose)
-
-
-# =====================================================================
-# 7) NEW TEMPLATE
-# =====================================================================
-ASSIGN_TEACHERS_HTML = r'''{% extends 'tenant/base.html' %}
-{% load static %}
-{% block title %}Assign Periods to Teachers | {{ tenant.name }}{% endblock %}
-
-{% block extra_head %}
-<style>
-    .page-header {
-        display:flex; justify-content:space-between; align-items:center;
-        flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;
-    }
-    .page-title {
-        font-size:1.8rem; font-weight:700;
-        background:linear-gradient(135deg,var(--primary),var(--primary-dark));
-        -webkit-background-clip:text; background-clip:text; color:transparent;
-    }
-    .page-desc { color:var(--muted); }
-
-    .card {
-        background:var(--surface); border-radius:var(--radius);
-        border:1px solid var(--border); padding:1rem;
-        margin-bottom:1.5rem; box-shadow:var(--shadow-sm);
-    }
-    .card-header {
-        display:flex; align-items:center; gap:0.75rem;
-        padding-bottom:0.75rem; border-bottom:1px solid var(--border);
-        margin-bottom:1rem; flex-wrap:wrap;
-    }
-    .card-header h3 { flex:1; font-size:1.1rem; font-weight:600; margin:0; }
-
-    .btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-warning {
-        display:inline-flex; align-items:center; gap:0.5rem;
-        padding:0.4rem 0.9rem; border-radius:2rem;
-        font-weight:500; font-size:0.9rem;
-        text-decoration:none; border:none; cursor:pointer;
-        transition:0.2s;
-    }
-    .btn-primary { background:var(--primary); color:white; }
-    .btn-primary:hover { background:var(--primary-dark); }
-    .btn-secondary { background:var(--surface-alt); color:var(--text); border:1px solid var(--border); }
-    .btn-secondary:hover { border-color:var(--primary); color:var(--primary); }
-    .btn-success { background:#10b981; color:white; }
-    .btn-success:hover { background:#059669; }
-    .btn-success:disabled { opacity:0.5; cursor:not-allowed; }
-    .btn-lg { padding:0.6rem 1.2rem; font-size:1rem; font-weight:600; }
-    .btn-sm { padding:0.3rem 0.7rem; font-size:0.78rem; }
-
-    .data-table { width:100%; border-collapse:collapse; font-size:0.9rem; }
-    .data-table th, .data-table td {
-        border:1px solid var(--border); padding:0.6rem 0.8rem;
-        text-align:left; vertical-align:middle;
-    }
-    .data-table th {
-        background:var(--surface-alt); font-weight:600;
-        font-size:0.78rem; text-transform:uppercase;
-        letter-spacing:0.4px; color:var(--muted);
-    }
-    .data-table tbody tr:hover { background:var(--surface-alt); }
-
-    .empty-row { text-align:center; color:var(--muted); padding:2rem 1rem; }
-
-    .tag {
-        display:inline-block; padding:0.2rem 0.65rem;
-        border-radius:2rem; font-size:0.75rem; font-weight:600;
-        background:var(--surface-alt); color:var(--muted);
-        border:1px solid var(--border);
-    }
-    .tag-blue {
-        background:rgba(59,130,246,0.12); color:#1d4ed8;
-        border-color:rgba(59,130,246,0.3);
-    }
-    .tag-green {
-        background:rgba(16,185,129,0.12); color:#047857;
-        border-color:rgba(16,185,129,0.3);
-    }
-    .text-muted { color:var(--muted); }
-
-    /* Modal */
-    .overlay {
-        position:fixed; inset:0; background:rgba(15,23,42,0.65);
-        z-index:99999; display:none; align-items:flex-start; justify-content:center;
-        backdrop-filter:blur(6px); padding:2rem 1rem; overflow-y:auto;
-    }
-    .overlay.active { display:flex; }
-    .overlay-content {
-        background:var(--surface,#fff); border-radius:1rem;
-        padding:1.5rem 1.75rem; max-width:1100px; width:100%;
-        box-shadow:0 25px 70px rgba(0,0,0,0.45);
-        border:1px solid var(--border);
-        animation: modalIn 0.18s ease;
-    }
-    @keyframes modalIn {
-        from { transform: translateY(8px) scale(0.98); opacity: 0; }
-        to   { transform: translateY(0) scale(1); opacity: 1; }
-    }
-    .overlay-content h2 { margin:0 0 1rem; font-size:1.25rem; }
-    .form-group { margin-bottom:1rem; }
-    .form-group label {
-        display:block; font-weight:600; font-size:0.85rem;
-        color:var(--muted); margin-bottom:0.35rem;
-    }
-    .form-control {
-        width:100%; padding:0.55rem; border-radius:0.5rem;
-        border:1px solid var(--border); background:var(--surface-alt);
-        color:var(--text); font-size:0.9rem;
-    }
-    .form-actions {
-        display:flex; justify-content:flex-end; gap:0.75rem;
-        margin-top:1.25rem; padding-top:1rem;
-        border-top:1px solid var(--border);
-    }
-
-    /* Grid */
-    .assign-grid {
-        width:100%; border-collapse:collapse; font-size:0.85rem;
-        margin-top:1rem;
-    }
-    .assign-grid th, .assign-grid td {
-        border:1px solid var(--border); padding:0.4rem;
-        text-align:center; vertical-align:top;
-    }
-    .assign-grid th {
-        background:var(--surface-alt); font-weight:600;
-        font-size:0.72rem; text-transform:uppercase;
-        letter-spacing:0.4px; color:var(--muted);
-    }
-    .assign-grid .day-label {
-        font-weight:600; background:var(--surface-alt);
-        white-space:nowrap; text-align:left; padding:0.5rem 0.75rem;
-        vertical-align:middle;
-    }
-    .assign-grid .period-col {
-        min-width:110px;
-    }
-    .assign-grid select {
-        width:100%; padding:0.35rem;
-        border-radius:0.4rem; border:1px solid var(--border);
-        background:var(--surface); color:var(--text);
-        font-size:0.8rem; cursor:pointer;
-    }
-    .assign-grid select:focus {
-        outline:none; border-color:var(--primary);
-        box-shadow:0 0 0 2px rgba(59,130,246,0.15);
-    }
-    .assign-grid .teacher-hint {
-        display:block; font-size:0.68rem;
-        color:var(--muted); margin-top:0.25rem;
-        min-height:0.85rem; line-height:1.1;
-    }
-    .assign-grid .teacher-hint.has-teacher { color:var(--primary); font-weight:600; }
-    .assign-grid .break-col {
-        background:#fef3c7;
-        color:#92400e; font-weight:600;
-        padding:0.4rem 0.35rem;
-    }
-
-    @media (max-width:900px) {
-        .page-header { flex-direction:column; align-items:flex-start; }
-        .assign-grid { font-size:0.78rem; }
-    }
-</style>
-{% endblock %}
-
-{% block body %}
-<div class="page-header">
-    <div>
-        <h1 class="page-title">Assign Periods to Teachers</h1>
-        <p class="page-desc">Assign subjects (with their class teachers) to each period slot of a class's periods timetable.</p>
-    </div>
-    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-        <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}" class="btn-secondary btn-lg" style="text-decoration:none;">← Back to Periods</a>
-        <button type="button" id="openAssignTeachersBtn" class="btn-primary btn-lg">📅 Assign Periods to Teachers</button>
-    </div>
-</div>
-
-<div class="card">
-    <div class="card-header">
-        <h3>Classes with Assigned Timetables</h3>
-        <span class="text-muted" style="font-size:0.85rem;">{{ class_rows|length }} class{{ class_rows|length|pluralize }}</span>
-    </div>
-
-    {% if class_rows %}
-    <div style="overflow-x:auto;">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th style="width:40%;">Class</th>
-                    <th style="width:25%;">Timetable</th>
-                    <th style="width:20%;">Assigned Periods</th>
-                    <th style="width:15%; text-align:right;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in class_rows %}
-                <tr>
-                    <td><strong>{{ row.class_display_name }}</strong></td>
-                    <td>
-                        <span class="tag tag-blue">{{ row.timetable_title }}</span>
-                        {% if row.timetable_label %}
-                        <span class="text-muted" style="font-size:0.8rem;"> · {{ row.timetable_label }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if row.assigned_count %}
-                        <span class="tag tag-green">{{ row.assigned_count }}/{{ row.total_periods }}</span>
-                        {% else %}
-                        <span class="tag">{{ row.assigned_count }}/{{ row.total_periods }}</span>
-                        {% endif %}
-                    </td>
-                    <td style="text-align:right; white-space:nowrap;">
-                        <button type="button" class="btn-secondary btn-sm open-manage-btn" data-class-id="{{ row.class_id }}">Manage</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="empty-row">
-        No classes have a periods timetable assigned yet.
-        <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}">Assign one</a> first.
-    </div>
-    {% endif %}
-</div>
-
-{% if classes_without_timetable %}
-<div class="card" style="border-left:4px solid #f59e0b;">
-    <div class="card-header">
-        <h3>Classes Without an Assigned Timetable</h3>
-        <span class="text-muted" style="font-size:0.85rem;">{{ classes_without_timetable|length }}</span>
-    </div>
-    <p class="text-muted" style="margin:0 0 0.75rem;">
-        These classes don't have a periods timetable yet. Assign one first, then come back to assign teachers.
-    </p>
-    <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
-        {% for c in classes_without_timetable %}
-        <span class="tag">{{ c.display_name }}</span>
-        {% endfor %}
-    </div>
-    <div style="margin-top:0.9rem;">
-        <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}" class="btn-secondary btn-sm" style="text-decoration:none;">Go to Assign Timetables →</a>
-    </div>
-</div>
-{% endif %}
-
-<!-- ===== Assign Modal ===== -->
-<div id="assignTeachersOverlay" class="overlay">
-    <div class="overlay-content">
-        <h2>Assign Periods to Teachers</h2>
-
-        <div class="form-group">
-            <label for="classSelector">Class *</label>
-            <select id="classSelector" class="form-control">
-                <option value="">-- Select Class --</option>
-                {% for row in class_rows %}
-                <option value="{{ row.class_id }}">{{ row.class_display_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <div id="modalBody">
-            <p class="text-muted" style="text-align:center; padding:1.5rem 0;">
-                Select a class to load its periods timetable.
-            </p>
-        </div>
-
-        <div class="form-actions">
-            <button type="button" id="cancelAssignBtn" class="btn-secondary">Cancel</button>
-            <button type="button" id="saveAssignBtn" class="btn-success" disabled>Save Assignments</button>
-        </div>
-    </div>
-</div>
-
-<script>
-(function () {
-    'use strict';
-
-    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
-    var ASSIGN_URL = '/portal/' + SCHEMA + '/timetable/assign/';
-    var overlay = document.getElementById('assignTeachersOverlay');
-    var openBtn = document.getElementById('openAssignTeachersBtn');
-    var cancelBtn = document.getElementById('cancelAssignBtn');
-    var saveBtn = document.getElementById('saveAssignBtn');
-    var classSel = document.getElementById('classSelector');
-    var modalBody = document.getElementById('modalBody');
-
-    var CURRENT_CLASS_ID = null;
-    var CURRENT_DATA = null;
-    var CURRENT_SELECTS = [];
-
-    function esc(s) {
-        if (s === null || s === undefined) return '';
-        return String(s).replace(/[&<>"']/g, function (c) {
-            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-        });
-    }
-
-    function openModal() {
-        overlay.classList.add('active');
-    }
-    function closeModal() {
-        overlay.classList.remove('active');
-    }
-
-    function reset() {
-        classSel.value = '';
-        CURRENT_CLASS_ID = null;
-        CURRENT_DATA = null;
-        CURRENT_SELECTS = [];
-        modalBody.innerHTML =
-            '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">' +
-            'Select a class to load its periods timetable.</p>';
-        saveBtn.disabled = true;
-    }
-
-    function loadClass(classId) {
-        CURRENT_CLASS_ID = classId;
-        modalBody.innerHTML =
-            '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>';
-        saveBtn.disabled = true;
-
-        fetch('/portal/' + SCHEMA + '/api/timetable/teacher-assignments/' + classId + '/', {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            CURRENT_DATA = data;
-            if (!data.has_timetable) {
-                modalBody.innerHTML =
-                    '<div style="text-align:center; padding:1.5rem 0;">' +
-                        '<p class="text-muted" style="margin:0 0 1rem;">' +
-                            '<strong>' + esc(data.class_display) + '</strong> does not have a periods timetable assigned yet.' +
-                        '</p>' +
-                        '<a href="' + ASSIGN_URL + '" class="btn-primary" style="text-decoration:none;">' +
-                            '📅 Assign Periods Timetable to this Class' +
-                        '</a>' +
-                    '</div>';
-                return;
-            }
-            renderGrid(data);
-            saveBtn.disabled = false;
-        })
-        .catch(function (err) {
-            console.error(err);
-            modalBody.innerHTML =
-                '<p style="color:#dc2626; text-align:center; padding:1rem 0;">Failed to load class data.</p>';
-        });
-    }
-
-    function renderGrid(data) {
-        var days = data.timetable_days || [];
-        var subjects = data.subjects || [];
-        var existing = data.existing || {};
-
-        if (subjects.length === 0) {
-            modalBody.innerHTML =
-                '<div style="padding:1rem; border:1px dashed var(--border); border-radius:0.6rem; color:var(--muted); text-align:center;">' +
-                    'This class has no subject teachers assigned yet. ' +
-                    'Please assign subjects/teachers to this class first (Manage Class Teacher / Manage Subject Teachers).' +
-                '</div>';
-            saveBtn.disabled = true;
-            return;
-        }
-
-        var maxPeriods = 0;
-        var maxBreakAfter = 0;
-        days.forEach(function (d) {
-            var pc = parseInt(d.periods_count, 10) || 0;
-            if (pc > maxPeriods) maxPeriods = pc;
-            var ba = parseInt(d.break_after, 10) || 0;
-            if (ba > maxBreakAfter) maxBreakAfter = ba;
-        });
-        var hasBreak = maxBreakAfter > 0 && (parseInt(data.break_duration, 10) || 0) > 0;
-
-        var html = '<div style="overflow-x:auto;">';
-        html += '<table class="assign-grid">';
-        html += '<thead><tr><th style="text-align:left;">Day</th>';
-        for (var i = 1; i <= maxPeriods; i++) {
-            html += '<th class="period-col">P' + i + '</th>';
-            if (hasBreak && i === maxBreakAfter) {
-                html += '<th class="break-col">Break</th>';
-            }
-        }
-        html += '</tr></thead><tbody>';
-
-        CURRENT_SELECTS = [];
-
-        days.forEach(function (day) {
-            var dayNum = day.day_of_week;
-            var dayLabel = day.day_label || ('Day ' + dayNum);
-            var dayPeriods = day.periods_count || 0;
-
-            html += '<tr>';
-            html += '<td class="day-label">' + esc(dayLabel) + '</td>';
-
-            for (var i = 1; i <= maxPeriods; i++) {
-                if (i > dayPeriods) {
-                    html += '<td class="empty-period">—</td>';
-                    if (hasBreak && i === maxBreakAfter) {
-                        html += '<td class="break-col">—</td>';
-                    }
-                    continue;
-                }
-                var key = dayNum + '|' + i;
-                var selVal = '';
-                if (existing[key] && existing[key].subject_id) {
-                    selVal = String(existing[key].subject_id);
-                }
-                var opts = '<option value="">— Select —</option>';
-                var teacherForSel = '';
-                subjects.forEach(function (s) {
-                    var selected = (String(s.subject_id) === selVal) ? ' selected' : '';
-                    opts += '<option value="' + s.subject_id + '"' + selected + '>' +
-                            esc(s.subject_name) + '</option>';
-                    if (String(s.subject_id) === selVal) {
-                        teacherForSel = s.teacher_name || '';
-                    }
-                });
-
-                html += '<td>' +
-                    '<select class="cell-subject" data-day="' + dayNum + '" data-order="' + i + '">' +
-                        opts +
-                    '</select>' +
-                    '<span class="teacher-hint' + (teacherForSel ? ' has-teacher' : '') + '">' +
-                        (teacherForSel ? '(' + esc(teacherForSel) + ')' : '') +
-                    '</span>' +
-                '</td>';
-
-                if (hasBreak && i === maxBreakAfter) {
-                    html += '<td class="break-col">Break</td>';
-                }
-            }
-            html += '</tr>';
-        });
-        html += '</tbody></table></div>';
-
-        html += '<p class="text-muted" style="font-size:0.8rem; margin-top:0.75rem;">' +
-                'Only subjects with an assigned teacher in this class can be picked. ' +
-                'The teacher name is shown automatically.</p>';
-
-        modalBody.innerHTML = html;
-
-        // Wire up selects to show teacher hint immediately
-        var selectMap = {};
-        subjects.forEach(function (s) { selectMap[String(s.subject_id)] = s.teacher_name || ''; });
-
-        modalBody.querySelectorAll('.cell-subject').forEach(function (sel) {
-            CURRENT_SELECTS.push(sel);
-            sel.addEventListener('change', function () {
-                var hint = sel.parentNode.querySelector('.teacher-hint');
-                var t = selectMap[sel.value] || '';
-                hint.textContent = t ? '(' + t + ')' : '';
-                hint.className = 'teacher-hint' + (t ? ' has-teacher' : '');
-            });
-        });
-    }
-
-    function saveAssignments() {
-        if (!CURRENT_CLASS_ID || !CURRENT_DATA || !CURRENT_DATA.has_timetable) return;
-
-        var payload = { assignments: [] };
-        CURRENT_SELECTS.forEach(function (sel) {
-            var day = parseInt(sel.getAttribute('data-day'), 10);
-            var order = parseInt(sel.getAttribute('data-order'), 10);
-            var subjectId = sel.value ? parseInt(sel.value, 10) : null;
-            payload.assignments.push({
-                day: day,
-                order: order,
-                subject_id: subjectId,
-            });
-        });
-
-        saveBtn.disabled = true;
-        var orig = saveBtn.textContent;
-        saveBtn.textContent = 'Saving…';
-
-        function getCookie(name) {
-            var v = null;
-            if (document.cookie) {
-                document.cookie.split(';').forEach(function (c) {
-                    c = c.trim();
-                    if (c.substring(0, name.length + 1) === (name + '=')) {
-                        v = decodeURIComponent(c.substring(name.length + 1));
-                    }
-                });
-            }
-            return v;
-        }
-
-        fetch('/portal/' + SCHEMA + '/api/timetable/teacher-assignments/' + CURRENT_CLASS_ID + '/save/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken') || '',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify(payload)
-        })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
-        .then(function (res) {
-            saveBtn.disabled = false;
-            saveBtn.textContent = orig;
-            if (!res.ok || !res.data.success) {
-                alert('Error: ' + ((res.data && res.data.error) || 'Unknown error'));
-                return;
-            }
-            window.location.reload();
-        })
-        .catch(function (err) {
-            saveBtn.disabled = false;
-            saveBtn.textContent = orig;
-            alert('Network error: ' + err.message);
-        });
-    }
-
-    if (openBtn) openBtn.addEventListener('click', function () {
-        reset();
-        openModal();
-    });
-    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-    if (overlay) overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) closeModal();
-    });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
-    });
-
-    if (classSel) classSel.addEventListener('change', function () {
-        if (this.value) {
-            loadClass(this.value);
-        } else {
-            reset();
-        }
-    });
-
-    if (saveBtn) saveBtn.addEventListener('click', saveAssignments);
-
-    // "Manage" buttons in the table
-    document.querySelectorAll('.open-manage-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var cid = btn.getAttribute('data-class-id');
-            reset();
-            openModal();
-            classSel.value = cid;
-            loadClass(cid);
-        });
-    });
-})();
-</script>
-{% endblock %}
-'''
-
-
-# =====================================================================
-# 8) Class-detailed views: inject period_teacher_map
-# =====================================================================
-CLASSDETAIL_MAP_BLOCK = '''
-        # ===== ASSIGN_TEACHERS_v1: period -> subject/teacher map =====
-        try:
-            _pta_qs = PeriodTeacherAssignment.objects.filter(school_class=school_class).select_related('subject', 'teacher')
-        except Exception:
-            _pta_qs = []
-        _period_teacher_map = {}
-        for _pta in _pta_qs:
-            _k = f"{_pta.day_of_week}|{_pta.period_order}"
-            _period_teacher_map[_k] = {
-                'subject': _pta.subject.name if _pta.subject else '',
-                'teacher': _pta.teacher.full_name if _pta.teacher else '',
-            }
-        period_teacher_map_json = json.dumps(_period_teacher_map)
-        # ===== END ASSIGN_TEACHERS_v1 =====
-'''
-
-CLASSDETAIL_MODEL_IMPORT_ANCHOR = (
-    "from ..models import SchoolClass, Student, ClassSubject, ClassTimetableAssignment, PeriodsTimetable\n"
-)
-
-CLASSDETAIL_MODEL_IMPORT_REPLACEMENT = (
-    "from ..models import SchoolClass, Student, ClassSubject, ClassTimetableAssignment, PeriodsTimetable, PeriodTeacherAssignment\n"
-)
-
-CLASSDETAIL_RETURN_ANCHOR = (
-    "        'assigned_timetable': assigned_timetable,\n"
-    "        'assigned_timetable_json': json.dumps(assigned_timetable or {}),"
-)
-
-CLASSDETAIL_RETURN_REPLACEMENT = (
-    "        'assigned_timetable': assigned_timetable,\n"
-    "        'assigned_timetable_json': json.dumps(assigned_timetable or {}),\n"
-    "        'period_teacher_map_json': period_teacher_map_json,"
-)
-
-
-def _patch_class_detailed_view(path, dry_run, verbose):
-    _log(f"Patching class-detail view: {path}")
-    content = _read(path)
-    if content is None:
-        return False
-
-    if 'ASSIGN_TEACHERS_v1' in content:
+    if MARKER in content:
         _log("  - already patched, skipping")
         return True
 
     changed = False
 
-    # 1) import
-    if 'PeriodTeacherAssignment' in content:
-        _log("  - PeriodTeacherAssignment already imported")
-    elif CLASSDETAIL_MODEL_IMPORT_ANCHOR in content:
-        content = content.replace(
-            CLASSDETAIL_MODEL_IMPORT_ANCHOR,
-            CLASSDETAIL_MODEL_IMPORT_REPLACEMENT,
-            1,
-        )
-        _log("  + added PeriodTeacherAssignment to model imports")
+    # --- 1) Buttons block ---
+    if BUTTONS_OLD in content:
+        content = content.replace(BUTTONS_OLD, BUTTONS_NEW, 1)
+        _log("  + removed edit-btn, renamed manage-subjects-btn label")
         changed = True
     else:
-        _log("  WARN: could not find model import anchor")
-
-    # 2) inject map-building block before the return dict
-    if "'period_teacher_map_json': period_teacher_map_json" in content:
-        _log("  - period_teacher_map already in context")
-    else:
-        # Anchor: use the existing assigned_timetable block-end that precedes `return {`
-        anchor = "                'days': _tt.days or [],\n            }\n"
-        if anchor not in content:
-            _log("  WARN: could not find assigned_timetable block-end anchor")
-        else:
-            content = content.replace(anchor, anchor + CLASSDETAIL_MAP_BLOCK, 1)
-            _log("  + injected period-teacher-map build block")
+        # Maybe edit-btn was already removed but the label still says
+        # 'Manage Subjects'. Try a label-only fix as a safety net.
+        label_old = "&#128218; Manage Subjects</button>"
+        label_new = "&#128218; Manage and Edit Subjects</button>"
+        if label_old in content:
+            content = content.replace(label_old, label_new, 1)
+            _log("  + (fallback) renamed manage-subjects-btn label only")
             changed = True
-
-        if CLASSDETAIL_RETURN_ANCHOR not in content:
-            _log("  WARN: could not find return-dict anchor")
         else:
+            _log("  WARN: could not find buttons block / label anchor")
+
+    # --- 2) Wiring block (Edit -> _openEditTimetableForm variant) ---
+    if WIRING_OLD in content:
+        content = content.replace(WIRING_OLD, WIRING_NEW, 1)
+        _log("  + removed dead _editBtn wiring (edit -> inline-grid variant)")
+        changed = True
+    elif WIRING_FALLBACK_OLD in content:
+        content = content.replace(WIRING_FALLBACK_OLD, WIRING_NEW, 1)
+        _log("  + removed dead _editBtn wiring (edit -> _openEditTimetableForm variant)")
+        changed = True
+    else:
+        _log("  - no wiring block matched (may already be patched)")
+
+    # --- 3) Marker ---
+    if MARKER not in content:
+        anchor = "{% block body %}\n"
+        if anchor in content:
             content = content.replace(
-                CLASSDETAIL_RETURN_ANCHOR,
-                CLASSDETAIL_RETURN_REPLACEMENT,
+                anchor,
+                anchor + "{# " + MARKER + " #}\n",
                 1,
             )
-            _log("  + added period_teacher_map_json to context")
-            changed = True
 
     if not changed:
-        _log("  no changes needed")
+        _log("  - no changes applied")
         return True
-    return _write(path, content, dry_run, verbose)
-
-
-# =====================================================================
-# 9) Class-detailed templates: show Subject (Teacher) instead of time
-# =====================================================================
-CD_JS_ANCHOR = (
-    "    var ASSIGNED_TIMETABLE = {{ assigned_timetable_json|safe }} || null;"
-)
-
-CD_JS_REPLACEMENT = (
-    "    var ASSIGNED_TIMETABLE = {{ assigned_timetable_json|safe }} || null;\n"
-    "    var PERIOD_TEACHER_MAP = {{ period_teacher_map_json|safe }} || {};"
-)
-
-CD_PERIODS_LOOP_ANCHOR = (
-    "            for (var i = 1; i <= maxPeriods; i++) {\n"
-    "                var p = byOrder[i];\n"
-    "                if (p) {\n"
-    "                    tbody += '<td><div class=\"period-cell\"><strong>P' + i + '</strong><small>' +\n"
-    "                             esc(p.start) + '-' + esc(p.end) + '</small></div></td>';\n"
-    "                } else {\n"
-    "                    tbody += '<td class=\"empty-period\">&mdash;</td>';\n"
-    "                }\n"
-)
-
-CD_PERIODS_LOOP_REPLACEMENT = (
-    "            var _dayNum = d.day_of_week;\n"
-    "            for (var i = 1; i <= maxPeriods; i++) {\n"
-    "                var p = byOrder[i];\n"
-    "                if (p) {\n"
-    "                    var _assigned = PERIOD_TEACHER_MAP[_dayNum + '|' + i];\n"
-    "                    if (_assigned && _assigned.subject) {\n"
-    "                        var _inner = '<strong>' + esc(_assigned.subject) + '</strong>';\n"
-    "                        if (_assigned.teacher) {\n"
-    "                            _inner += '<small>(' + esc(_assigned.teacher) + ')</small>';\n"
-    "                        }\n"
-    "                        tbody += '<td><div class=\"period-cell\">' + _inner + '</div></td>';\n"
-    "                    } else {\n"
-    "                        tbody += '<td><div class=\"period-cell\"><strong>P' + i + '</strong></div></td>';\n"
-    "                    }\n"
-    "                } else {\n"
-    "                    tbody += '<td class=\"empty-period\">&mdash;</td>';\n"
-    "                }\n"
-)
-
-
-def _patch_class_detailed_template(path, dry_run, verbose):
-    _log(f"Patching class-detail template: {path}")
-    content = _read(path)
-    if content is None:
-        return False
-
-    if 'ASSIGN_TEACHERS_v1' in content:
-        _log("  - already patched, skipping")
-        return True
-
-    changed = False
-
-    # 1) Add PERIOD_TEACHER_MAP JS var
-    if 'PERIOD_TEACHER_MAP' in content and 'var PERIOD_TEACHER_MAP' in content:
-        _log("  - PERIOD_TEACHER_MAP already injected")
-    elif CD_JS_ANCHOR in content:
-        content = content.replace(CD_JS_ANCHOR, CD_JS_REPLACEMENT, 1)
-        _log("  + injected PERIOD_TEACHER_MAP JS variable")
-        changed = True
-    else:
-        _log("  WARN: could not find ASSIGNED_TIMETABLE JS anchor")
-
-    # 2) Replace the periods-cell loop
-    if "var _assigned = PERIOD_TEACHER_MAP" in content:
-        _log("  - periods-cell loop already patched")
-    elif CD_PERIODS_LOOP_ANCHOR in content:
-        content = content.replace(
-            CD_PERIODS_LOOP_ANCHOR,
-            CD_PERIODS_LOOP_REPLACEMENT,
-            1,
-        )
-        _log("  + patched periods-cell renderer (subject/teacher vs Pn)")
-        changed = True
-    else:
-        _log("  WARN: could not find periods-cell loop anchor")
-
-    if not changed:
-        _log("  no changes needed")
-        return True
-
-    # Add a marker comment near the top so re-runs are idempotent
-    if '<!-- ASSIGN_TEACHERS_v1' not in content:
-        for a in ("{% block body %}\n", "{% block body %}"):
-            if a in content:
-                content = content.replace(
-                    a,
-                    a + "{# " + MARKER + ": periods grid shows Subject (Teacher) #}\n",
-                    1,
-                )
-                break
 
     return _write(path, content, dry_run, verbose)
 
 
-# =====================================================================
+# ---------------------------------------------------------------------
 # main
-# =====================================================================
-def main():
+# ---------------------------------------------------------------------
+def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "ASSIGN_TEACHERS_v1: adds 'Assign to Teachers' sub-tab + page, "
-            "new PeriodTeacherAssignment model + migration, and updates the "
-            "class-detailed page to render Subject (Teacher) per period."
+            "REMOVE_EDIT_BUTTON_v1 -- Remove the ✎ Edit button from the "
+            "class-detailed periods-timetable card and rename "
+            "'📚 Manage Subjects' to '📚 Manage and Edit Subjects'."
         )
     )
     parser.add_argument('--dry-run', action='store_true')
@@ -1370,91 +194,16 @@ def main():
 
     ok = True
 
-    # 1) Model
     print('-' * 60)
-    _log("STEP 1: Add PeriodTeacherAssignment to models.py")
-    ok &= _patch_models(
-        target / 'axis_saas' / 'models.py',
-        args.dry_run, args.verbose,
-    )
-
-    # 2) Migration
-    print('-' * 60)
-    _log("STEP 2: Create migration 0018_period_teacher_assignment.py")
-    p = target / 'axis_saas' / 'migrations' / MIGRATION_FILENAME
-    if p.exists():
-        _log("  - already exists, leaving untouched")
-    else:
-        ok &= _write(p, MIGRATION_CONTENT, args.dry_run, args.verbose)
-
-    # 3) New view module
-    print('-' * 60)
-    _log("STEP 3: Create axis_saas/views/assign_teachers.py")
-    p = target / 'axis_saas' / 'views' / 'assign_teachers.py'
-    if p.exists():
-        _log("  - already exists, leaving untouched")
-    else:
-        ok &= _write(p, ASSIGN_TEACHERS_PY, args.dry_run, args.verbose)
-
-    # 4) views/__init__.py
-    print('-' * 60)
-    _log("STEP 4: Import assign_teachers in views/__init__.py")
-    ok &= _patch_views_init(
-        target / 'axis_saas' / 'views' / '__init__.py',
-        args.dry_run, args.verbose,
-    )
-
-    # 5) public_urls.py
-    print('-' * 60)
-    _log("STEP 5: Register assign-teachers routes in public_urls.py")
-    ok &= _patch_public_urls(
-        target / 'axis_saas' / 'public_urls.py',
-        args.dry_run, args.verbose,
-    )
-
-    # 6) Sidebar
-    print('-' * 60)
-    _log("STEP 6: Add 'Assign to Teachers' sub-tab to base.html sidebar")
-    ok &= _patch_sidebar(
-        target / 'templates' / 'tenant' / 'base.html',
-        args.dry_run, args.verbose,
-    )
-
-    # 7) New page template
-    print('-' * 60)
-    _log("STEP 7: Create templates/tenant/timetable_assign_teachers.html")
-    p = target / 'templates' / 'tenant' / 'timetable_assign_teachers.html'
-    if p.exists():
-        _log("  - already exists, leaving untouched")
-    else:
-        ok &= _write(p, ASSIGN_TEACHERS_HTML, args.dry_run, args.verbose)
-
-    # 8) Class-detail views
-    print('-' * 60)
-    _log("STEP 8: Patch wing_class_detailed.py (period-teacher map)")
-    ok &= _patch_class_detailed_view(
-        target / 'axis_saas' / 'views' / 'wing_class_detailed.py',
-        args.dry_run, args.verbose,
-    )
-
-    print('-' * 60)
-    _log("STEP 9: Patch single_class_detailed.py (period-teacher map)")
-    ok &= _patch_class_detailed_view(
-        target / 'axis_saas' / 'views' / 'single_class_detailed.py',
-        args.dry_run, args.verbose,
-    )
-
-    # 9) Class-detail templates
-    print('-' * 60)
-    _log("STEP 10: Patch wing_class_detailed.html (Subject/Teacher grid)")
-    ok &= _patch_class_detailed_template(
+    _log("STEP 1: templates/tenant/wing_class_detailed.html")
+    ok &= patch_template(
         target / 'templates' / 'tenant' / 'wing_class_detailed.html',
         args.dry_run, args.verbose,
     )
 
     print('-' * 60)
-    _log("STEP 11: Patch single_class_detailed.html (Subject/Teacher grid)")
-    ok &= _patch_class_detailed_template(
+    _log("STEP 2: templates/tenant/single_class_detailed.html")
+    ok &= patch_template(
         target / 'templates' / 'tenant' / 'single_class_detailed.html',
         args.dry_run, args.verbose,
     )
@@ -1464,22 +213,13 @@ def main():
         _log("DONE.")
         if not args.dry_run:
             _log("")
-            _log("REQUIRED NEXT STEPS:")
-            _log("  1. Apply the new migration to all schemas:")
-            _log("       python3 manage.py migrate_schemas --shared")
-            _log("       python3 manage.py migrate_schemas")
-            _log("")
-            _log("  2. Restart Django:")
-            _log("       python3 manage.py runserver")
-            _log("")
-            _log("  3. Open /portal/<schema>/timetable/assign-teachers/")
-            _log("     - New 'Assign to Teachers' sub-tab appears under Time-Table.")
-            _log("     - Click [ Assign Periods to Teachers ] or a row's [ Manage ].")
-            _log("     - Choose a class -> a day-by-period grid appears.")
-            _log("     - Pick a subject in each cell; the class-subject teacher")
-            _log("       is shown automatically.")
-            _log("     - Save Assignments -> grid on the class-detailed page")
-            _log("       modal now shows Subject (Teacher) per period.")
+            _log("NEXT STEPS:")
+            _log("  1. Hard-refresh the browser (Ctrl+F5 / Cmd+Shift+R).")
+            _log("  2. Open /portal/<schema>/my-classes/<id>/")
+            _log("     - Click '📅 Manage Periods Timetable'.")
+            _log("     - Card header now shows only two buttons:")
+            _log("         [ See Timings ]  [ 📚 Manage and Edit Subjects ]")
+            _log("     - The '✎ Edit' button is gone.")
         return 0
     _log("FAILED: one or more steps did not complete.")
     return 1

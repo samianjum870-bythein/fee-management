@@ -355,7 +355,17 @@
             modalBody.innerHTML =
                 '<div style="padding:1rem; border:1px dashed var(--border); border-radius:0.6rem; color:var(--muted); text-align:center;">' +
                     'This class has no subject teachers assigned yet. ' +
-                    'Please assign subjects/teachers to this class first (Manage Class Teacher / Manage Subject Teachers).' +
+                    'Please assign subjects/teachers to this class first.' +
+                    '<div style="margin-top:1rem;">' +
+                        '<a href="/portal/' + SCHEMA + '/my-classes/' + CURRENT_CLASS_ID + '/" ' +
+                           'style="display:inline-flex; align-items:center; gap:0.5rem; ' +
+                                  'padding:0.6rem 1.2rem; border-radius:0.75rem; ' +
+                                  'background:linear-gradient(135deg,var(--primary),var(--primary-dark)); ' +
+                                  'color:#fff; font-weight:700; font-size:0.9rem; ' +
+                                  'text-decoration:none;">' +
+                            '&#128218; View Class &amp; Assign Subject Teachers' +
+                        '</a>' +
+                    '</div>' +
                 '</div>';
             saveBtn.disabled = true;
             return;

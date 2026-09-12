@@ -184,6 +184,35 @@ def _build_context(schema_name, tenant, class_id):
         all_active_subjects_json = _json.dumps(all_active_subjects)
         # ===== END CLASS_STAFF_MANAGEMENT_v1 =====
 
+        # ===== EDIT_PERIODS_TIMETABLE_v1: slots + all timetables for edit form =====
+        from ..models import DaySchedule as _DaySchedule, ScheduleLabel as _ScheduleLabel
+        _edit_labels = list(_ScheduleLabel.objects.all().order_by('name'))
+        _edit_slots_by_label = {}
+        for _lbl in _edit_labels:
+            _scheds = _DaySchedule.objects.filter(label=_lbl.name).order_by('day_of_week', 'order')
+            _edit_slots_by_label[_lbl.name] = [
+                {
+                    'id': _ds.id,
+                    'day': _ds.day_of_week,
+                    'day_label': _ds.get_day_of_week_display(),
+                    'start': _ds.start_time.strftime('%H:%M'),
+                    'end': _ds.end_time.strftime('%H:%M'),
+                    'periods': _ds.periods,
+                    'duration': _ds.duration,
+                }
+                for _ds in _scheds
+            ]
+        _edit_timetables = []
+        for _tt in PeriodsTimetable.objects.order_by('id'):
+            _edit_timetables.append({
+                'id': _tt.id,
+                'title': _tt.title,
+                'label': _tt.label or '',
+                'break_duration': _tt.break_duration or 0,
+                'days': _tt.days or [],
+            })
+        # ===== END EDIT_PERIODS_TIMETABLE_v1 =====
+
     return {
         'tenant': tenant,
         'class_obj': school_class,
@@ -196,6 +225,9 @@ def _build_context(schema_name, tenant, class_id):
         'eligible_ct_candidates_json': eligible_ct_candidates_json,
         'all_active_teachers_json': all_active_teachers_json,
         'all_active_subjects_json': all_active_subjects_json,
+        'labels': _edit_labels,
+        'slots_by_label_json': json.dumps(_edit_slots_by_label),
+        'timetables_json': json.dumps(_edit_timetables),
         'students': students,
         'analytics': analytics,
         'class_teacher': class_teacher,
