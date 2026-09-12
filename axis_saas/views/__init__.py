@@ -45,3 +45,18 @@ from .timetable_assignments import (  # noqa: F401
     api_assign_timetable,
     api_unassign_timetable,
 )
+
+# --- Class Staff Management — added by CLASS_STAFF_MANAGEMENT_v1 ---
+from .class_staff import *  # noqa: F401,F403
+from .class_staff import (  # noqa: F401
+    api_assign_class_teacher as api_class_assign_class_teacher,
+    api_assign_subject_teacher as api_class_assign_subject_teacher,
+)
+
+# --- Assign Periods to Teachers — added by ASSIGN_TEACHERS_v1 ---
+from .assign_teachers import *  # noqa: F401,F403
+from .assign_teachers import (  # noqa: F401
+    timetable_assign_teachers,
+    api_get_teacher_assignments,
+    api_save_teacher_assignments,
+)

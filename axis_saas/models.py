@@ -1028,3 +1028,44 @@ class ClassTimetableAssignment(models.Model):
 
     def __str__(self):
         return f"{self.school_class} -> {self.timetable.title}"
+
+
+# ========== PERIOD TEACHER ASSIGNMENTS (ASSIGN_TEACHERS_v1) ==========
+
+class PeriodTeacherAssignment(models.Model):
+    """Assigns a subject (with its class-subject teacher) to one period slot
+    (day_of_week + period_order) of a class's periods timetable."""
+    DAY_CHOICES = [
+        (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'),
+        (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
+    ]
+
+    school_class = models.ForeignKey(
+        'SchoolClass',
+        on_delete=models.CASCADE,
+        related_name='period_teacher_assignments',
+    )
+    day_of_week = models.IntegerField(choices=DAY_CHOICES)
+    period_order = models.PositiveIntegerField()
+    subject = models.ForeignKey(
+        'Subject',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='period_teacher_assignments',
+    )
+    teacher = models.ForeignKey(
+        'Staff',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='period_teacher_assignments',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['school_class', 'day_of_week', 'period_order']
+        unique_together = [('school_class', 'day_of_week', 'period_order')]
+
+    def __str__(self):
+        subject_name = self.subject.name if self.subject else '—'
+        return f"{self.school_class} | D{self.day_of_week} P{self.period_order}: {subject_name}"

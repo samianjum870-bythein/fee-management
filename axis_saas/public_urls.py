@@ -22,6 +22,15 @@ from .views.periods import periods_management, api_update_break, api_add_bunch, 
 from .views.timetable_assignments import (
     timetable_assignments, api_assign_timetable, api_unassign_timetable,
 )
+from .views.class_staff import (
+    api_assign_class_teacher as api_class_assign_class_teacher,
+    api_assign_subject_teacher as api_class_assign_subject_teacher,
+)
+from .views.assign_teachers import (
+    timetable_assign_teachers,
+    api_get_teacher_assignments,
+    api_save_teacher_assignments,
+)
 from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
 from .views.staff_portal import staff_login, staff_logout
 from .views.classes import class_strength_api, assign_class_teacher
@@ -289,6 +298,13 @@ urlpatterns = [
     path('portal/<slug:schema_name>/classes/', portal_wrapper(login_required_for_schema(class_management)), name='class_management'),
     path('portal/<slug:schema_name>/my-classes/', portal_wrapper(login_required_for_schema(classes_management_view)), name='classes_management'),
     path('portal/<slug:schema_name>/my-classes/<int:class_id>/', portal_wrapper(login_required_for_schema(class_detailed_view)), name='class_detailed'),
+    # ===== CLASS_STAFF_MANAGEMENT_v1 =====
+    path('portal/<slug:schema_name>/my-classes/<int:class_id>/assign-class-teacher/',
+         portal_wrapper(login_required_for_schema(api_class_assign_class_teacher)),
+         name='api_class_assign_class_teacher'),
+    path('portal/<slug:schema_name>/my-classes/<int:class_id>/assign-subject-teacher/',
+         portal_wrapper(login_required_for_schema(api_class_assign_subject_teacher)),
+         name='api_class_assign_subject_teacher'),
     path('portal/<slug:schema_name>/classes/mobile/', portal_wrapper(login_required_for_schema(mobile_class_management)), name='mobile_class_management'),
     path('portal/<slug:schema_name>/classes/add/', portal_wrapper(login_required_for_schema(add_class)), name='add_class'),
     path('portal/<slug:schema_name>/classes/edit/<int:class_id>/', portal_wrapper(login_required_for_schema(edit_class)), name='edit_class'),
@@ -309,6 +325,16 @@ urlpatterns = [
     path('portal/<slug:schema_name>/timetable/assign/', portal_wrapper(login_required_for_schema(timetable_assignments)), name='timetable_assignments'),
     path('portal/<slug:schema_name>/timetable/assign/submit/', portal_wrapper(login_required_for_schema(api_assign_timetable)), name='api_assign_timetable'),
     path('portal/<slug:schema_name>/timetable/assign/unassign/', portal_wrapper(login_required_for_schema(api_unassign_timetable)), name='api_unassign_timetable'),
+    # ===== ASSIGN_TEACHERS_v1 =====
+    path('portal/<slug:schema_name>/timetable/assign-teachers/',
+         portal_wrapper(login_required_for_schema(timetable_assign_teachers)),
+         name='timetable_assign_teachers'),
+    path('portal/<slug:schema_name>/api/timetable/teacher-assignments/<int:class_id>/',
+         portal_wrapper(login_required_for_schema(api_get_teacher_assignments)),
+         name='api_get_teacher_assignments'),
+    path('portal/<slug:schema_name>/api/timetable/teacher-assignments/<int:class_id>/save/',
+         portal_wrapper(login_required_for_schema(api_save_teacher_assignments)),
+         name='api_save_teacher_assignments'),
     path('portal/<slug:schema_name>/api/timetable/periods/break/update/', portal_wrapper(login_required_for_schema(api_update_break)), name='api_timetable_periods_break_update'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/add/', portal_wrapper(login_required_for_schema(api_add_bunch)), name='api_timetable_periods_bunch_add'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/delete/', portal_wrapper(login_required_for_schema(api_delete_bunch)), name='api_timetable_periods_bunch_delete'),

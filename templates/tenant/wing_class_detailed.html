@@ -506,6 +506,7 @@
 {% endblock %}
 
 {% block body %}
+{# ASSIGN_TEACHERS_v1: periods grid shows Subject (Teacher) #}
 <a href="{% url 'classes_management' schema_name=tenant.schema_name %}" class="back-link">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
     Back to Classes
@@ -516,7 +517,13 @@
         <h1 class="page-title">{{ class_display_name }}</h1>
         <p class="page-desc">Class details, teachers, and students</p>
     </div>
-    <div>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="button" class="btn-manage-timetable" id="manageClassTeacherBtn">
+            &#128100; Manage Class Teacher
+        </button>
+        <button type="button" class="btn-manage-timetable" id="manageSubjectTeachersBtn">
+            &#128218; Manage Subject Teachers
+        </button>
         <button type="button" class="btn-manage-timetable" id="manageTimetableBtn">
             &#128197; Manage Periods Timetable
         </button>
@@ -646,6 +653,418 @@
     {% endif %}
 </div>
 
+
+<!-- ============ CLASS_STAFF_MANAGEMENT_v1 : modals + JS ============ -->
+
+<!-- Manage Class Teacher modal -->
+<div id="ctModal" class="timetable-modal-overlay">
+    <div class="timetable-modal-content" style="max-width:680px;">
+        <div class="timetable-modal-header">
+            <h2>Manage Class Teacher &mdash; {{ class_display_name }}</h2>
+            <button type="button" class="timetable-modal-close" id="ctModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div id="ctModalBody"></div>
+    </div>
+</div>
+
+<!-- Manage Subject Teachers modal -->
+<div id="stModal" class="timetable-modal-overlay">
+    <div class="timetable-modal-content" style="max-width:900px;">
+        <div class="timetable-modal-header">
+            <h2>Manage Subject Teachers &mdash; {{ class_display_name }}</h2>
+            <button type="button" class="timetable-modal-close" id="stModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div id="stModalBody"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var SCHEMA      = '{{ tenant.schema_name|escapejs }}';
+    var CLASS_ID    = {{ class_obj.id }};
+    var CT_INFO     = {{ class_teacher_info_json|safe }};
+    var CT_CANDS    = {{ eligible_ct_candidates_json|safe }};
+    var SUBJECT_ROWS= {{ subject_teacher_rows_json|safe }};
+    var ALL_TEACHERS= {{ all_active_teachers_json|safe }};
+    var ALL_SUBJECTS= {{ all_active_subjects_json|safe }};
+
+    function esc(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+        });
+    }
+
+    function getCookie(name) {
+        var v = null;
+        if (document.cookie && document.cookie !== '') {
+            document.cookie.split(';').forEach(function (c) {
+                c = c.trim();
+                if (c.substring(0, name.length + 1) === (name + '=')) {
+                    v = decodeURIComponent(c.substring(name.length + 1));
+                }
+            });
+        }
+        return v;
+    }
+
+    function apiPost(url, data) {
+        var body = new URLSearchParams(data).toString();
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: body
+        }).then(function (r) {
+            return r.json().then(function (j) { return { ok: r.ok, data: j }; });
+        });
+    }
+
+    // ================================================================
+    // Class Teacher modal
+    // ================================================================
+    function renderCTModal() {
+        var body = document.getElementById('ctModalBody');
+        if (!CT_INFO || !CT_INFO.id) {
+            body.innerHTML =
+                '<div style="text-align:center; padding:1rem;">' +
+                    '<p style="color:var(--muted); margin:0 0 1rem;">' +
+                        'No class teacher is currently assigned to this class.' +
+                    '</p>' +
+                    '<button type="button" id="ctAssignBtn" ' +
+                        'style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.7rem 1.5rem; ' +
+                        'border-radius:0.75rem; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); ' +
+                        'color:#fff; font-weight:700; font-size:0.92rem; border:none; cursor:pointer;">' +
+                        '&#128100; Assign Class Teacher' +
+                    '</button>' +
+                '</div>';
+        } else {
+            var subjectLine = CT_INFO.subject_in_class
+                ? 'Teaches <strong>' + esc(CT_INFO.subject_in_class) + '</strong> in this class'
+                : 'Not a subject teacher in this class';
+            body.innerHTML =
+                '<div style="display:flex; gap:1rem; padding:1.2rem; background:linear-gradient(135deg, rgba(59,130,246,0.06), rgba(37,99,235,0.02)); border-radius:0.9rem; flex-wrap:wrap; align-items:center;">' +
+                    '<div style="width:62px; height:62px; border-radius:1.1rem; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; display:grid; place-items:center; font-size:1.5rem; font-weight:800;">' +
+                        esc((CT_INFO.full_name || '?').charAt(0).toUpperCase()) +
+                    '</div>' +
+                    '<div style="flex:1; min-width:180px;">' +
+                        '<h3 style="margin:0 0 0.25rem; font-size:1.1rem;">' + esc(CT_INFO.full_name) + '</h3>' +
+                        '<p style="margin:0; color:var(--muted); font-size:0.85rem;">' + esc(CT_INFO.job_title) + '</p>' +
+                        (CT_INFO.cnic ? '<p style="margin:0.2rem 0 0; color:var(--muted); font-size:0.82rem;">CNIC: ' + esc(CT_INFO.cnic) + '</p>' : '') +
+                        (CT_INFO.phone ? '<p style="margin:0.2rem 0 0; color:var(--muted); font-size:0.82rem;">Phone: ' + esc(CT_INFO.phone) + '</p>' : '') +
+                        '<p style="margin:0.2rem 0 0; color:var(--muted); font-size:0.82rem;">' + subjectLine + '</p>' +
+                    '</div>' +
+                    '<div style="display:flex; gap:0.5rem; flex-wrap:wrap;">' +
+                        '<a href="/portal/' + SCHEMA + '/staff/' + CT_INFO.id + '/" ' +
+                           'style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.45rem 0.85rem; ' +
+                           'border-radius:0.55rem; background:var(--surface-alt); color:var(--text); text-decoration:none; ' +
+                           'font-size:0.82rem; font-weight:600; border:1px solid var(--border);">View Profile</a>' +
+                        '<button type="button" id="ctReplaceBtn" ' +
+                            'style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.45rem 0.85rem; ' +
+                            'border-radius:0.55rem; background:#f59e0b; color:#fff; border:none; cursor:pointer; ' +
+                            'font-size:0.82rem; font-weight:600;">Replace</button>' +
+                        '<button type="button" id="ctRemoveBtn" ' +
+                            'style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.45rem 0.85rem; ' +
+                            'border-radius:0.55rem; background:#dc2626; color:#fff; border:none; cursor:pointer; ' +
+                            'font-size:0.82rem; font-weight:600;">Remove</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div id="ctPickerSection" style="display:none; margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid var(--border);">' +
+                    '<h4 style="margin:0 0 0.75rem; font-size:0.95rem;">Choose a Replacement Class Teacher</h4>' +
+                    '<p style="margin:0 0 0.75rem; color:var(--muted); font-size:0.82rem;">Only subject teachers (of any class) are eligible.</p>' +
+                    '<div id="ctPickerList"></div>' +
+                '</div>';
+        }
+        wireCTEvents();
+    }
+
+    function renderCTPicker() {
+        var wrap = document.getElementById('ctPickerList');
+        if (!wrap) return;
+        var items = CT_CANDS || [];
+        var html = '';
+        var shown = 0;
+        items.forEach(function (c) {
+            if (CT_INFO && CT_INFO.id === c.id) return;
+            shown++;
+            var meta = [];
+            if (c.teaches) meta.push('Teaches ' + c.teaches);
+            if (c.ct_of && c.ct_of.length) meta.push('Class Teacher of ' + c.ct_of.join(', '));
+            html +=
+                '<div style="display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.75rem; ' +
+                'border:1px solid var(--border); border-radius:0.7rem; margin-bottom:0.5rem; background:var(--surface-alt);">' +
+                    '<div style="flex:1; min-width:0;">' +
+                        '<strong style="display:block;">' + esc(c.full_name) + '</strong>' +
+                        (c.job_title ? '<span style="color:var(--muted); font-size:0.8rem;">' + esc(c.job_title) + '</span>' : '') +
+                        (meta.length ? '<div style="color:var(--muted); font-size:0.78rem; margin-top:0.15rem;">' + esc(meta.join(' \u00b7 ')) + '</div>' : '') +
+                    '</div>' +
+                    '<button type="button" data-ct-id="' + c.id + '" class="ct-pick-btn" ' +
+                        'style="padding:0.4rem 0.9rem; border-radius:2rem; border:none; cursor:pointer; ' +
+                        'background:var(--primary); color:#fff; font-weight:600; font-size:0.8rem;">Assign</button>' +
+                '</div>';
+        });
+        if (shown === 0) {
+            html = '<p style="color:var(--muted);">No eligible subject teachers are available.</p>';
+        }
+        wrap.innerHTML = html;
+        wrap.querySelectorAll('.ct-pick-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                assignClassTeacher(btn.getAttribute('data-ct-id'));
+            });
+        });
+    }
+
+    function wireCTEvents() {
+        var assignBtn = document.getElementById('ctAssignBtn');
+        if (assignBtn) {
+            assignBtn.addEventListener('click', function () {
+                var body = document.getElementById('ctModalBody');
+                body.innerHTML =
+                    '<h4 style="margin:0 0 0.75rem; font-size:0.95rem;">Choose a Class Teacher</h4>' +
+                    '<p style="margin:0 0 0.75rem; color:var(--muted); font-size:0.82rem;">Only subject teachers (of any class) are eligible.</p>' +
+                    '<div id="ctPickerList"></div>' +
+                    '<button type="button" id="ctBackBtn" ' +
+                        'style="margin-top:0.75rem; padding:0.5rem 1rem; border-radius:0.6rem; background:var(--surface-alt); ' +
+                        'border:1px solid var(--border); cursor:pointer; color:var(--text); font-weight:600;">Back</button>';
+                renderCTPicker();
+                document.getElementById('ctBackBtn').addEventListener('click', renderCTModal);
+            });
+        }
+        var replaceBtn = document.getElementById('ctReplaceBtn');
+        if (replaceBtn) {
+            replaceBtn.addEventListener('click', function () {
+                var s = document.getElementById('ctPickerSection');
+                if (s.style.display === 'none') {
+                    renderCTPicker();
+                    s.style.display = 'block';
+                    s.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } else {
+                    s.style.display = 'none';
+                }
+            });
+        }
+        var removeBtn = document.getElementById('ctRemoveBtn');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function () {
+                if (!confirm('Remove the class teacher from this class?')) return;
+                assignClassTeacher('');
+            });
+        }
+    }
+
+    function assignClassTeacher(teacherId) {
+        apiPost(
+            '/portal/' + SCHEMA + '/my-classes/' + CLASS_ID + '/assign-class-teacher/',
+            { teacher_id: teacherId }
+        ).then(function (r) {
+            if (!r.ok || !r.data.success) {
+                alert((r.data && r.data.error) || 'Failed to assign class teacher.');
+                return;
+            }
+            window.location.reload();
+        }).catch(function () {
+            alert('Network error.');
+        });
+    }
+
+    // ================================================================
+    // Subject Teachers modal
+    // ================================================================
+    function renderSTModal() {
+        var body = document.getElementById('stModalBody');
+        var html = '';
+
+        if (!SUBJECT_ROWS || SUBJECT_ROWS.length === 0) {
+            html += '<p style="color:var(--muted); text-align:center; padding:1rem 0;">' +
+                    'No subjects are assigned to this class yet. Use the section below to add one.</p>';
+        } else {
+            html += '<div style="overflow-x:auto;">' +
+                    '<table style="width:100%; border-collapse:collapse; font-size:0.88rem;">' +
+                    '<thead><tr>' +
+                        '<th style="text-align:left; padding:0.55rem; background:var(--surface-alt); border-bottom:1px solid var(--border); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Subject</th>' +
+                        '<th style="text-align:left; padding:0.55rem; background:var(--surface-alt); border-bottom:1px solid var(--border); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Teacher</th>' +
+                        '<th style="text-align:right; padding:0.55rem; background:var(--surface-alt); border-bottom:1px solid var(--border); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Actions</th>' +
+                    '</tr></thead><tbody>';
+            SUBJECT_ROWS.forEach(function (row) {
+                var teacherCell;
+                if (row.teacher_id) {
+                    teacherCell = '<strong>' + esc(row.teacher_name) + '</strong>';
+                    if (row.is_class_teacher) {
+                        teacherCell += ' <span style="background:#10b981; color:#fff; padding:0.1rem 0.5rem; border-radius:1rem; font-size:0.68rem; font-weight:700;">CLASS TEACHER</span>';
+                    }
+                } else {
+                    teacherCell = '<em style="color:var(--muted);">Unassigned</em>';
+                }
+                html += '<tr data-subject-id="' + row.subject_id + '">' +
+                    '<td style="padding:0.6rem 0.55rem; border-bottom:1px solid var(--border);"><strong>' + esc(row.subject_name) + '</strong></td>' +
+                    '<td style="padding:0.6rem 0.55rem; border-bottom:1px solid var(--border);" class="st-teacher-cell">' + teacherCell + '</td>' +
+                    '<td style="padding:0.6rem 0.55rem; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap;">' +
+                        '<button type="button" class="st-change-btn" data-subject-id="' + row.subject_id + '" ' +
+                            'style="padding:0.35rem 0.7rem; border-radius:0.5rem; border:1px solid var(--border); ' +
+                            'background:var(--surface-alt); cursor:pointer; font-size:0.78rem; font-weight:600; margin-right:0.3rem;">' +
+                            (row.teacher_id ? 'Change' : 'Assign') + '</button>' +
+                        (row.teacher_id ?
+                            '<button type="button" class="st-remove-btn" data-subject-id="' + row.subject_id + '" ' +
+                                'style="padding:0.35rem 0.7rem; border-radius:0.5rem; border:1px solid #dc2626; ' +
+                                'background:transparent; color:#dc2626; cursor:pointer; font-size:0.78rem; font-weight:600;">Remove</button>' : '') +
+                    '</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // Add / update subject-teacher section
+        html += '<div style="margin-top:1.5rem; padding-top:1.25rem; border-top:1px solid var(--border);">' +
+            '<h4 style="margin:0 0 0.75rem; font-size:0.95rem;">Add / Update Subject Teacher</h4>' +
+            '<div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end;">' +
+                '<div style="flex:1; min-width:170px;">' +
+                    '<label style="display:block; font-size:0.75rem; color:var(--muted); margin-bottom:0.25rem; font-weight:600;">Subject</label>' +
+                    '<select id="stNewSubject" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; background:var(--surface-alt); color:var(--text);">' +
+                        '<option value="">-- Select Subject --</option>';
+        var existingSubjectIds = (SUBJECT_ROWS || []).map(function (r) { return r.subject_id; });
+        (ALL_SUBJECTS || []).forEach(function (s) {
+            var isExisting = existingSubjectIds.indexOf(s.id) !== -1;
+            html += '<option value="' + s.id + '">' + esc(s.name) + (isExisting ? ' (already in class)' : '') + '</option>';
+        });
+        html += '</select></div>' +
+                '<div style="flex:1; min-width:170px;">' +
+                    '<label style="display:block; font-size:0.75rem; color:var(--muted); margin-bottom:0.25rem; font-weight:600;">Teacher</label>' +
+                    '<select id="stNewTeacher" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; background:var(--surface-alt); color:var(--text);">' +
+                        '<option value="">-- Select Teacher --</option>';
+        (ALL_TEACHERS || []).forEach(function (t) {
+            html += '<option value="' + t.id + '">' + esc(t.full_name) + (t.job_title ? ' (' + esc(t.job_title) + ')' : '') + '</option>';
+        });
+        html += '</select></div>' +
+                '<button type="button" id="stAddBtn" ' +
+                    'style="padding:0.55rem 1.1rem; border-radius:0.6rem; border:none; ' +
+                    'background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; ' +
+                    'font-weight:700; font-size:0.85rem; cursor:pointer;">Save</button>' +
+            '</div>' +
+        '</div>';
+
+        body.innerHTML = html;
+        wireSTEvents();
+    }
+
+    function wireSTEvents() {
+        document.querySelectorAll('.st-change-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var subjectId = btn.getAttribute('data-subject-id');
+                var row = btn.closest('tr');
+                var cell = row.querySelector('.st-teacher-cell');
+                var currentTeacherId = null;
+                (SUBJECT_ROWS || []).forEach(function (r) {
+                    if (String(r.subject_id) === String(subjectId)) currentTeacherId = r.teacher_id;
+                });
+                var opts = '<option value="">-- Unassigned --</option>';
+                (ALL_TEACHERS || []).forEach(function (t) {
+                    var sel = (currentTeacherId && t.id === currentTeacherId) ? ' selected' : '';
+                    opts += '<option value="' + t.id + '"' + sel + '>' + esc(t.full_name) + '</option>';
+                });
+                cell.innerHTML = '<select class="st-inline-select" style="width:100%; padding:0.4rem; border:1px solid var(--border); border-radius:0.5rem; background:var(--surface); color:var(--text);">' + opts + '</select>';
+                var actionsCell = row.querySelector('td:last-child');
+                actionsCell.innerHTML =
+                    '<button type="button" class="st-inline-save" ' +
+                        'style="padding:0.35rem 0.7rem; border-radius:0.5rem; border:none; ' +
+                        'background:var(--primary); color:#fff; cursor:pointer; font-size:0.78rem; font-weight:600; margin-right:0.3rem;">Save</button>' +
+                    '<button type="button" class="st-inline-cancel" ' +
+                        'style="padding:0.35rem 0.7rem; border-radius:0.5rem; border:1px solid var(--border); ' +
+                        'background:var(--surface-alt); color:var(--text); cursor:pointer; font-size:0.78rem; font-weight:600;">Cancel</button>';
+                actionsCell.querySelector('.st-inline-save').addEventListener('click', function () {
+                    var sel = cell.querySelector('.st-inline-select');
+                    assignSubjectTeacher(subjectId, sel.value);
+                });
+                actionsCell.querySelector('.st-inline-cancel').addEventListener('click', renderSTModal);
+            });
+        });
+        document.querySelectorAll('.st-remove-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (!confirm('Remove this subject teacher?')) return;
+                assignSubjectTeacher(btn.getAttribute('data-subject-id'), '');
+            });
+        });
+        var addBtn = document.getElementById('stAddBtn');
+        if (addBtn) {
+            addBtn.addEventListener('click', function () {
+                var subj = document.getElementById('stNewSubject').value;
+                var teach = document.getElementById('stNewTeacher').value;
+                if (!subj) { alert('Please choose a subject.'); return; }
+                if (!teach) { alert('Please choose a teacher.'); return; }
+                assignSubjectTeacher(subj, teach);
+            });
+        }
+    }
+
+    function assignSubjectTeacher(subjectId, teacherId) {
+        apiPost(
+            '/portal/' + SCHEMA + '/my-classes/' + CLASS_ID + '/assign-subject-teacher/',
+            { subject_id: subjectId, teacher_id: teacherId }
+        ).then(function (r) {
+            if (!r.ok || !r.data.success) {
+                alert((r.data && r.data.error) || 'Failed.');
+                return;
+            }
+            window.location.reload();
+        }).catch(function () {
+            alert('Network error.');
+        });
+    }
+
+    // ================================================================
+    // Modal open/close wiring
+    // ================================================================
+    function openModal(id) {
+        var o = document.getElementById(id);
+        if (o) o.classList.add('active');
+    }
+    function closeModal(id) {
+        var o = document.getElementById(id);
+        if (o) o.classList.remove('active');
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var ctBtn = document.getElementById('manageClassTeacherBtn');
+        if (ctBtn) {
+            ctBtn.addEventListener('click', function () {
+                renderCTModal();
+                openModal('ctModal');
+            });
+        }
+        var stBtn = document.getElementById('manageSubjectTeachersBtn');
+        if (stBtn) {
+            stBtn.addEventListener('click', function () {
+                renderSTModal();
+                openModal('stModal');
+            });
+        }
+        var ctc = document.getElementById('ctModalClose');
+        if (ctc) ctc.addEventListener('click', function () { closeModal('ctModal'); });
+        var stc = document.getElementById('stModalClose');
+        if (stc) stc.addEventListener('click', function () { closeModal('stModal'); });
+        ['ctModal', 'stModal'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('click', function (e) {
+                    if (e.target === el) el.classList.remove('active');
+                });
+            }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                closeModal('ctModal');
+                closeModal('stModal');
+            }
+        });
+    });
+})();
+</script>
+<!-- ============ END CLASS_STAFF_MANAGEMENT_v1 ============ -->
+
 <!-- ============ Manage Periods Timetable Modal (MANAGE_PERIODS_TIMETABLE_v1) ============ -->
 <div id="timetableModal" class="timetable-modal-overlay">
     <div class="timetable-modal-content">
@@ -666,6 +1085,7 @@
     var SCHEMA = '{{ tenant.schema_name|escapejs }}';
     var CLASS_DISPLAY_NAME = '{{ class_display_name|escapejs }}';
     var ASSIGNED_TIMETABLE = {{ assigned_timetable_json|safe }} || null;
+    var PERIOD_TEACHER_MAP = {{ period_teacher_map_json|safe }} || {};
 
     function esc(s) {
         if (s === null || s === undefined) return '';
@@ -704,11 +1124,20 @@
                 else byOrder[p.order] = p;
             });
 
+            var _dayNum = d.day_of_week;
             for (var i = 1; i <= maxPeriods; i++) {
                 var p = byOrder[i];
                 if (p) {
-                    tbody += '<td><div class="period-cell"><strong>P' + i + '</strong><small>' +
-                             esc(p.start) + '-' + esc(p.end) + '</small></div></td>';
+                    var _assigned = PERIOD_TEACHER_MAP[_dayNum + '|' + i];
+                    if (_assigned && _assigned.subject) {
+                        var _inner = '<strong>' + esc(_assigned.subject) + '</strong>';
+                        if (_assigned.teacher) {
+                            _inner += '<small>(' + esc(_assigned.teacher) + ')</small>';
+                        }
+                        tbody += '<td><div class="period-cell">' + _inner + '</div></td>';
+                    } else {
+                        tbody += '<td><div class="period-cell"><strong>P' + i + '</strong></div></td>';
+                    }
                 } else {
                     tbody += '<td class="empty-period">&mdash;</td>';
                 }

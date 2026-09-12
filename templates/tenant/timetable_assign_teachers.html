@@ -1,0 +1,549 @@
+{% extends 'tenant/base.html' %}
+{% load static %}
+{% block title %}Assign Periods to Teachers | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .page-header {
+        display:flex; justify-content:space-between; align-items:center;
+        flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;
+    }
+    .page-title {
+        font-size:1.8rem; font-weight:700;
+        background:linear-gradient(135deg,var(--primary),var(--primary-dark));
+        -webkit-background-clip:text; background-clip:text; color:transparent;
+    }
+    .page-desc { color:var(--muted); }
+
+    .card {
+        background:var(--surface); border-radius:var(--radius);
+        border:1px solid var(--border); padding:1rem;
+        margin-bottom:1.5rem; box-shadow:var(--shadow-sm);
+    }
+    .card-header {
+        display:flex; align-items:center; gap:0.75rem;
+        padding-bottom:0.75rem; border-bottom:1px solid var(--border);
+        margin-bottom:1rem; flex-wrap:wrap;
+    }
+    .card-header h3 { flex:1; font-size:1.1rem; font-weight:600; margin:0; }
+
+    .btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-warning {
+        display:inline-flex; align-items:center; gap:0.5rem;
+        padding:0.4rem 0.9rem; border-radius:2rem;
+        font-weight:500; font-size:0.9rem;
+        text-decoration:none; border:none; cursor:pointer;
+        transition:0.2s;
+    }
+    .btn-primary { background:var(--primary); color:white; }
+    .btn-primary:hover { background:var(--primary-dark); }
+    .btn-secondary { background:var(--surface-alt); color:var(--text); border:1px solid var(--border); }
+    .btn-secondary:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-success { background:#10b981; color:white; }
+    .btn-success:hover { background:#059669; }
+    .btn-success:disabled { opacity:0.5; cursor:not-allowed; }
+    .btn-lg { padding:0.6rem 1.2rem; font-size:1rem; font-weight:600; }
+    .btn-sm { padding:0.3rem 0.7rem; font-size:0.78rem; }
+
+    .data-table { width:100%; border-collapse:collapse; font-size:0.9rem; }
+    .data-table th, .data-table td {
+        border:1px solid var(--border); padding:0.6rem 0.8rem;
+        text-align:left; vertical-align:middle;
+    }
+    .data-table th {
+        background:var(--surface-alt); font-weight:600;
+        font-size:0.78rem; text-transform:uppercase;
+        letter-spacing:0.4px; color:var(--muted);
+    }
+    .data-table tbody tr:hover { background:var(--surface-alt); }
+
+    .empty-row { text-align:center; color:var(--muted); padding:2rem 1rem; }
+
+    .tag {
+        display:inline-block; padding:0.2rem 0.65rem;
+        border-radius:2rem; font-size:0.75rem; font-weight:600;
+        background:var(--surface-alt); color:var(--muted);
+        border:1px solid var(--border);
+    }
+    .tag-blue {
+        background:rgba(59,130,246,0.12); color:#1d4ed8;
+        border-color:rgba(59,130,246,0.3);
+    }
+    .tag-green {
+        background:rgba(16,185,129,0.12); color:#047857;
+        border-color:rgba(16,185,129,0.3);
+    }
+    .text-muted { color:var(--muted); }
+
+    /* Modal */
+    .overlay {
+        position:fixed; inset:0; background:rgba(15,23,42,0.65);
+        z-index:99999; display:none; align-items:flex-start; justify-content:center;
+        backdrop-filter:blur(6px); padding:2rem 1rem; overflow-y:auto;
+    }
+    .overlay.active { display:flex; }
+    .overlay-content {
+        background:var(--surface,#fff); border-radius:1rem;
+        padding:1.5rem 1.75rem; max-width:1100px; width:100%;
+        box-shadow:0 25px 70px rgba(0,0,0,0.45);
+        border:1px solid var(--border);
+        animation: modalIn 0.18s ease;
+    }
+    @keyframes modalIn {
+        from { transform: translateY(8px) scale(0.98); opacity: 0; }
+        to   { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    .overlay-content h2 { margin:0 0 1rem; font-size:1.25rem; }
+    .form-group { margin-bottom:1rem; }
+    .form-group label {
+        display:block; font-weight:600; font-size:0.85rem;
+        color:var(--muted); margin-bottom:0.35rem;
+    }
+    .form-control {
+        width:100%; padding:0.55rem; border-radius:0.5rem;
+        border:1px solid var(--border); background:var(--surface-alt);
+        color:var(--text); font-size:0.9rem;
+    }
+    .form-actions {
+        display:flex; justify-content:flex-end; gap:0.75rem;
+        margin-top:1.25rem; padding-top:1rem;
+        border-top:1px solid var(--border);
+    }
+
+    /* Grid */
+    .assign-grid {
+        width:100%; border-collapse:collapse; font-size:0.85rem;
+        margin-top:1rem;
+    }
+    .assign-grid th, .assign-grid td {
+        border:1px solid var(--border); padding:0.4rem;
+        text-align:center; vertical-align:top;
+    }
+    .assign-grid th {
+        background:var(--surface-alt); font-weight:600;
+        font-size:0.72rem; text-transform:uppercase;
+        letter-spacing:0.4px; color:var(--muted);
+    }
+    .assign-grid .day-label {
+        font-weight:600; background:var(--surface-alt);
+        white-space:nowrap; text-align:left; padding:0.5rem 0.75rem;
+        vertical-align:middle;
+    }
+    .assign-grid .period-col {
+        min-width:110px;
+    }
+    .assign-grid select {
+        width:100%; padding:0.35rem;
+        border-radius:0.4rem; border:1px solid var(--border);
+        background:var(--surface); color:var(--text);
+        font-size:0.8rem; cursor:pointer;
+    }
+    .assign-grid select:focus {
+        outline:none; border-color:var(--primary);
+        box-shadow:0 0 0 2px rgba(59,130,246,0.15);
+    }
+    .assign-grid .teacher-hint {
+        display:block; font-size:0.68rem;
+        color:var(--muted); margin-top:0.25rem;
+        min-height:0.85rem; line-height:1.1;
+    }
+    .assign-grid .teacher-hint.has-teacher { color:var(--primary); font-weight:600; }
+    .assign-grid .break-col {
+        background:#fef3c7;
+        color:#92400e; font-weight:600;
+        padding:0.4rem 0.35rem;
+    }
+
+    @media (max-width:900px) {
+        .page-header { flex-direction:column; align-items:flex-start; }
+        .assign-grid { font-size:0.78rem; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Assign Periods to Teachers</h1>
+        <p class="page-desc">Assign subjects (with their class teachers) to each period slot of a class's periods timetable.</p>
+    </div>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}" class="btn-secondary btn-lg" style="text-decoration:none;">← Back to Periods</a>
+        <button type="button" id="openAssignTeachersBtn" class="btn-primary btn-lg">📅 Assign Periods to Teachers</button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Classes with Assigned Timetables</h3>
+        <span class="text-muted" style="font-size:0.85rem;">{{ class_rows|length }} class{{ class_rows|length|pluralize }}</span>
+    </div>
+
+    {% if class_rows %}
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width:40%;">Class</th>
+                    <th style="width:25%;">Timetable</th>
+                    <th style="width:20%;">Assigned Periods</th>
+                    <th style="width:15%; text-align:right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in class_rows %}
+                <tr>
+                    <td><strong>{{ row.class_display_name }}</strong></td>
+                    <td>
+                        <span class="tag tag-blue">{{ row.timetable_title }}</span>
+                        {% if row.timetable_label %}
+                        <span class="text-muted" style="font-size:0.8rem;"> · {{ row.timetable_label }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.assigned_count %}
+                        <span class="tag tag-green">{{ row.assigned_count }}/{{ row.total_periods }}</span>
+                        {% else %}
+                        <span class="tag">{{ row.assigned_count }}/{{ row.total_periods }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:right; white-space:nowrap;">
+                        <button type="button" class="btn-secondary btn-sm open-manage-btn" data-class-id="{{ row.class_id }}">Manage</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-row">
+        No classes have a periods timetable assigned yet.
+        <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}">Assign one</a> first.
+    </div>
+    {% endif %}
+</div>
+
+{% if classes_without_timetable %}
+<div class="card" style="border-left:4px solid #f59e0b;">
+    <div class="card-header">
+        <h3>Classes Without an Assigned Timetable</h3>
+        <span class="text-muted" style="font-size:0.85rem;">{{ classes_without_timetable|length }}</span>
+    </div>
+    <p class="text-muted" style="margin:0 0 0.75rem;">
+        These classes don't have a periods timetable yet. Assign one first, then come back to assign teachers.
+    </p>
+    <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+        {% for c in classes_without_timetable %}
+        <span class="tag">{{ c.display_name }}</span>
+        {% endfor %}
+    </div>
+    <div style="margin-top:0.9rem;">
+        <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}" class="btn-secondary btn-sm" style="text-decoration:none;">Go to Assign Timetables →</a>
+    </div>
+</div>
+{% endif %}
+
+<!-- ===== Assign Modal ===== -->
+<div id="assignTeachersOverlay" class="overlay">
+    <div class="overlay-content">
+        <h2>Assign Periods to Teachers</h2>
+
+        <div class="form-group">
+            <label for="classSelector">Class *</label>
+            <select id="classSelector" class="form-control">
+                <option value="">-- Select Class --</option>
+                {% for row in class_rows %}
+                <option value="{{ row.class_id }}">{{ row.class_display_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="modalBody">
+            <p class="text-muted" style="text-align:center; padding:1.5rem 0;">
+                Select a class to load its periods timetable.
+            </p>
+        </div>
+
+        <div class="form-actions">
+            <button type="button" id="cancelAssignBtn" class="btn-secondary">Cancel</button>
+            <button type="button" id="saveAssignBtn" class="btn-success" disabled>Save Assignments</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    var ASSIGN_URL = '/portal/' + SCHEMA + '/timetable/assign/';
+    var overlay = document.getElementById('assignTeachersOverlay');
+    var openBtn = document.getElementById('openAssignTeachersBtn');
+    var cancelBtn = document.getElementById('cancelAssignBtn');
+    var saveBtn = document.getElementById('saveAssignBtn');
+    var classSel = document.getElementById('classSelector');
+    var modalBody = document.getElementById('modalBody');
+
+    var CURRENT_CLASS_ID = null;
+    var CURRENT_DATA = null;
+    var CURRENT_SELECTS = [];
+
+    function esc(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+        });
+    }
+
+    function openModal() {
+        overlay.classList.add('active');
+    }
+    function closeModal() {
+        overlay.classList.remove('active');
+    }
+
+    function reset() {
+        classSel.value = '';
+        CURRENT_CLASS_ID = null;
+        CURRENT_DATA = null;
+        CURRENT_SELECTS = [];
+        modalBody.innerHTML =
+            '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">' +
+            'Select a class to load its periods timetable.</p>';
+        saveBtn.disabled = true;
+    }
+
+    function loadClass(classId) {
+        CURRENT_CLASS_ID = classId;
+        modalBody.innerHTML =
+            '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>';
+        saveBtn.disabled = true;
+
+        fetch('/portal/' + SCHEMA + '/api/timetable/teacher-assignments/' + classId + '/', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            CURRENT_DATA = data;
+            if (!data.has_timetable) {
+                modalBody.innerHTML =
+                    '<div style="text-align:center; padding:1.5rem 0;">' +
+                        '<p class="text-muted" style="margin:0 0 1rem;">' +
+                            '<strong>' + esc(data.class_display) + '</strong> does not have a periods timetable assigned yet.' +
+                        '</p>' +
+                        '<a href="' + ASSIGN_URL + '" class="btn-primary" style="text-decoration:none;">' +
+                            '📅 Assign Periods Timetable to this Class' +
+                        '</a>' +
+                    '</div>';
+                return;
+            }
+            renderGrid(data);
+            saveBtn.disabled = false;
+        })
+        .catch(function (err) {
+            console.error(err);
+            modalBody.innerHTML =
+                '<p style="color:#dc2626; text-align:center; padding:1rem 0;">Failed to load class data.</p>';
+        });
+    }
+
+    function renderGrid(data) {
+        var days = data.timetable_days || [];
+        var subjects = data.subjects || [];
+        var existing = data.existing || {};
+
+        if (subjects.length === 0) {
+            modalBody.innerHTML =
+                '<div style="padding:1rem; border:1px dashed var(--border); border-radius:0.6rem; color:var(--muted); text-align:center;">' +
+                    'This class has no subject teachers assigned yet. ' +
+                    'Please assign subjects/teachers to this class first (Manage Class Teacher / Manage Subject Teachers).' +
+                '</div>';
+            saveBtn.disabled = true;
+            return;
+        }
+
+        var maxPeriods = 0;
+        var maxBreakAfter = 0;
+        days.forEach(function (d) {
+            var pc = parseInt(d.periods_count, 10) || 0;
+            if (pc > maxPeriods) maxPeriods = pc;
+            var ba = parseInt(d.break_after, 10) || 0;
+            if (ba > maxBreakAfter) maxBreakAfter = ba;
+        });
+        var hasBreak = maxBreakAfter > 0 && (parseInt(data.break_duration, 10) || 0) > 0;
+
+        var html = '<div style="overflow-x:auto;">';
+        html += '<table class="assign-grid">';
+        html += '<thead><tr><th style="text-align:left;">Day</th>';
+        for (var i = 1; i <= maxPeriods; i++) {
+            html += '<th class="period-col">P' + i + '</th>';
+            if (hasBreak && i === maxBreakAfter) {
+                html += '<th class="break-col">Break</th>';
+            }
+        }
+        html += '</tr></thead><tbody>';
+
+        CURRENT_SELECTS = [];
+
+        days.forEach(function (day) {
+            var dayNum = day.day_of_week;
+            var dayLabel = day.day_label || ('Day ' + dayNum);
+            var dayPeriods = day.periods_count || 0;
+
+            html += '<tr>';
+            html += '<td class="day-label">' + esc(dayLabel) + '</td>';
+
+            for (var i = 1; i <= maxPeriods; i++) {
+                if (i > dayPeriods) {
+                    html += '<td class="empty-period">—</td>';
+                    if (hasBreak && i === maxBreakAfter) {
+                        html += '<td class="break-col">—</td>';
+                    }
+                    continue;
+                }
+                var key = dayNum + '|' + i;
+                var selVal = '';
+                if (existing[key] && existing[key].subject_id) {
+                    selVal = String(existing[key].subject_id);
+                }
+                var opts = '<option value="">— Select —</option>';
+                var teacherForSel = '';
+                subjects.forEach(function (s) {
+                    var selected = (String(s.subject_id) === selVal) ? ' selected' : '';
+                    opts += '<option value="' + s.subject_id + '"' + selected + '>' +
+                            esc(s.subject_name) + '</option>';
+                    if (String(s.subject_id) === selVal) {
+                        teacherForSel = s.teacher_name || '';
+                    }
+                });
+
+                html += '<td>' +
+                    '<select class="cell-subject" data-day="' + dayNum + '" data-order="' + i + '">' +
+                        opts +
+                    '</select>' +
+                    '<span class="teacher-hint' + (teacherForSel ? ' has-teacher' : '') + '">' +
+                        (teacherForSel ? '(' + esc(teacherForSel) + ')' : '') +
+                    '</span>' +
+                '</td>';
+
+                if (hasBreak && i === maxBreakAfter) {
+                    html += '<td class="break-col">Break</td>';
+                }
+            }
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html += '<p class="text-muted" style="font-size:0.8rem; margin-top:0.75rem;">' +
+                'Only subjects with an assigned teacher in this class can be picked. ' +
+                'The teacher name is shown automatically.</p>';
+
+        modalBody.innerHTML = html;
+
+        // Wire up selects to show teacher hint immediately
+        var selectMap = {};
+        subjects.forEach(function (s) { selectMap[String(s.subject_id)] = s.teacher_name || ''; });
+
+        modalBody.querySelectorAll('.cell-subject').forEach(function (sel) {
+            CURRENT_SELECTS.push(sel);
+            sel.addEventListener('change', function () {
+                var hint = sel.parentNode.querySelector('.teacher-hint');
+                var t = selectMap[sel.value] || '';
+                hint.textContent = t ? '(' + t + ')' : '';
+                hint.className = 'teacher-hint' + (t ? ' has-teacher' : '');
+            });
+        });
+    }
+
+    function saveAssignments() {
+        if (!CURRENT_CLASS_ID || !CURRENT_DATA || !CURRENT_DATA.has_timetable) return;
+
+        var payload = { assignments: [] };
+        CURRENT_SELECTS.forEach(function (sel) {
+            var day = parseInt(sel.getAttribute('data-day'), 10);
+            var order = parseInt(sel.getAttribute('data-order'), 10);
+            var subjectId = sel.value ? parseInt(sel.value, 10) : null;
+            payload.assignments.push({
+                day: day,
+                order: order,
+                subject_id: subjectId,
+            });
+        });
+
+        saveBtn.disabled = true;
+        var orig = saveBtn.textContent;
+        saveBtn.textContent = 'Saving…';
+
+        function getCookie(name) {
+            var v = null;
+            if (document.cookie) {
+                document.cookie.split(';').forEach(function (c) {
+                    c = c.trim();
+                    if (c.substring(0, name.length + 1) === (name + '=')) {
+                        v = decodeURIComponent(c.substring(name.length + 1));
+                    }
+                });
+            }
+            return v;
+        }
+
+        fetch('/portal/' + SCHEMA + '/api/timetable/teacher-assignments/' + CURRENT_CLASS_ID + '/save/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+        .then(function (res) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = orig;
+            if (!res.ok || !res.data.success) {
+                alert('Error: ' + ((res.data && res.data.error) || 'Unknown error'));
+                return;
+            }
+            window.location.reload();
+        })
+        .catch(function (err) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = orig;
+            alert('Network error: ' + err.message);
+        });
+    }
+
+    if (openBtn) openBtn.addEventListener('click', function () {
+        reset();
+        openModal();
+    });
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (overlay) overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
+    });
+
+    if (classSel) classSel.addEventListener('change', function () {
+        if (this.value) {
+            loadClass(this.value);
+        } else {
+            reset();
+        }
+    });
+
+    if (saveBtn) saveBtn.addEventListener('click', saveAssignments);
+
+    // "Manage" buttons in the table
+    document.querySelectorAll('.open-manage-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var cid = btn.getAttribute('data-class-id');
+            reset();
+            openModal();
+            classSel.value = cid;
+            loadClass(cid);
+        });
+    });
+})();
+</script>
+{% endblock %}
