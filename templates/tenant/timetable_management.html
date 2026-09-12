@@ -309,6 +309,7 @@
     <!-- Add Slot + Manage Labels -->
     <div class="flex mb-1" style="gap:0.5rem;">
         <button type="button" id="addSlotBtn" class="btn-primary btn-lg">+ Add Slot</button>
+        <button type="button" id="editTimingBtn" class="btn-secondary btn-lg" title="Batch-edit start/end times for a label">&#9201; Edit Timing</button>
         <button type="button" id="manageLabelsBtn" class="btn-secondary btn-lg" title="Create / edit / delete reusable labels">🏷️ Manage Labels</button>
     </div>
 
@@ -733,6 +734,58 @@
     </div>
 </div>
 
+
+<!-- ===== EDIT_TIMING_v1 : Edit Timing modal ===== -->
+<div id="editTimingModal" class="slot-modal-overlay" style="align-items: flex-start; padding-top: 2rem;">
+    <div class="slot-modal-box" style="max-width: 760px;">
+        <h3>&#9201; Edit Timing &mdash; Set All Days at Once</h3>
+        <p class="text-muted" style="font-size:0.85rem; margin:0 0 1rem 0;">
+            Select a label, then enter the new Start / End time. All days under that label will be updated together when you click <strong>Apply Changes</strong>.
+        </p>
+
+        <div class="form-group">
+            <label for="editTimingLabelSelect">Label</label>
+            <select id="editTimingLabelSelect" class="form-control">
+                <option value="">-- Select Label --</option>
+            </select>
+        </div>
+
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <div class="form-group" style="flex:1; min-width:140px;">
+                <label for="editTimingNewStart">New Start Time</label>
+                <input type="time" id="editTimingNewStart" class="form-control">
+            </div>
+            <div class="form-group" style="flex:1; min-width:140px;">
+                <label for="editTimingNewEnd">New End Time</label>
+                <input type="time" id="editTimingNewEnd" class="form-control">
+            </div>
+        </div>
+
+        <div id="editTimingDaysWrap" style="display:none; margin-top:0.5rem;">
+            <h4 style="margin:0 0 0.4rem 0; font-size:0.95rem;">Days under this label (current timing)</h4>
+            <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:0.5rem;">
+                <table class="schedule-table" style="margin:0;">
+                    <thead>
+                        <tr>
+                            <th>Day</th>
+                            <th>Current Start</th>
+                            <th>Current End</th>
+                            <th>Periods</th>
+                        </tr>
+                    </thead>
+                    <tbody id="editTimingDaysBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top:1rem;">
+            <button type="button" class="btn-cancel" id="editTimingCancelBtn">Cancel</button>
+            <button type="button" class="btn-save" id="editTimingApplyBtn" disabled>Apply Changes</button>
+        </div>
+    </div>
+</div>
+<!-- ===== END EDIT_TIMING_v1 ===== -->
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         console.log('[Timetable] DOM loaded, initializing...');
@@ -970,24 +1023,35 @@
                 m.classList.remove('active');
             });
             if (rowData) {
-                modalTitle.textContent = 'Edit Slot';
+                // EDIT_TIMING_v1: on edit, freeze everything except Periods.
+                modalTitle.textContent = 'Edit Slot (Periods only)';
                 modalDay.value = rowData.day;
                 modalDay.disabled = true;
                 modalLabel.value = rowData.label;
+                modalLabel.disabled = true;
                 modalStart.value = rowData.start;
+                modalStart.disabled = true;
                 modalEnd.value = rowData.end;
+                modalEnd.disabled = true;
                 modalPeriods.value = rowData.periods;
+                modalPeriods.disabled = false;
                 modalDuration.value = rowData.duration;
+                modalDuration.disabled = true;
                 editingRow = rowData.rowElement;
             } else {
                 modalTitle.textContent = 'Add Slot';
                 modalDay.value = '';
                 modalDay.disabled = false;
                 modalLabel.value = '';
+                modalLabel.disabled = false;
                 modalStart.value = universalStart.value || '08:00';
+                modalStart.disabled = false;
                 modalEnd.value = universalEnd.value || '14:00';
+                modalEnd.disabled = false;
                 modalPeriods.value = universalPeriods.value || 8;
+                modalPeriods.disabled = false;
                 updateModalDuration();
+                modalDuration.disabled = false;
                 editingRow = null;
             }
             slotModal.classList.add('active');
@@ -1634,6 +1698,161 @@
 
         renderLabelDropdown();
         renderLabelsList();
+
+        // ===== EDIT_TIMING_v1 : batch-edit timings for a label =====
+        (function setupEditTiming() {
+            var editTimingModal      = document.getElementById('editTimingModal');
+            var editTimingBtn        = document.getElementById('editTimingBtn');
+            var editTimingLabelSelect= document.getElementById('editTimingLabelSelect');
+            var editTimingNewStart   = document.getElementById('editTimingNewStart');
+            var editTimingNewEnd     = document.getElementById('editTimingNewEnd');
+            var editTimingDaysWrap   = document.getElementById('editTimingDaysWrap');
+            var editTimingDaysBody   = document.getElementById('editTimingDaysBody');
+            var editTimingApplyBtn   = document.getElementById('editTimingApplyBtn');
+            var editTimingCancelBtn  = document.getElementById('editTimingCancelBtn');
+
+            if (!editTimingModal || !editTimingBtn) return;
+
+            var SLOTS_BY_LABEL = {{ slots_by_label_json|safe }} || {};
+
+            function populateLabelDropdown() {
+                // Rebuild option list from SLOTS_BY_LABEL keys
+                editTimingLabelSelect.innerHTML = '<option value="">-- Select Label --</option>';
+                Object.keys(SLOTS_BY_LABEL).forEach(function (lbl) {
+                    var opt = document.createElement('option');
+                    opt.value = lbl;
+                    opt.textContent = lbl;
+                    editTimingLabelSelect.appendChild(opt);
+                });
+            }
+
+            function updateApplyState() {
+                var lbl = editTimingLabelSelect.value;
+                var slots = SLOTS_BY_LABEL[lbl] || [];
+                var s = editTimingNewStart.value;
+                var e = editTimingNewEnd.value;
+                editTimingApplyBtn.disabled = !(lbl && slots.length && s && e && s < e);
+            }
+
+            function renderDays(slots) {
+                editTimingDaysBody.innerHTML = '';
+                slots.forEach(function (slot) {
+                    var tr = document.createElement('tr');
+                    tr.innerHTML =
+                        '<td class="day-label">' + slot.day_label + '</td>' +
+                        '<td>' + slot.start + '</td>' +
+                        '<td>' + slot.end + '</td>' +
+                        '<td>' + slot.periods + '</td>';
+                    editTimingDaysBody.appendChild(tr);
+                });
+            }
+
+            function openEditTiming() {
+                populateLabelDropdown();
+                editTimingLabelSelect.value = '';
+                editTimingNewStart.value = '';
+                editTimingNewEnd.value = '';
+                editTimingDaysWrap.style.display = 'none';
+                editTimingDaysBody.innerHTML = '';
+                editTimingApplyBtn.disabled = true;
+                editTimingModal.classList.add('active');
+            }
+
+            function closeEditTiming() {
+                editTimingModal.classList.remove('active');
+            }
+
+            editTimingBtn.addEventListener('click', openEditTiming);
+            editTimingCancelBtn.addEventListener('click', closeEditTiming);
+            editTimingModal.addEventListener('click', function (e) {
+                if (e.target === editTimingModal) closeEditTiming();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && editTimingModal.classList.contains('active')) {
+                    closeEditTiming();
+                }
+            });
+
+            editTimingLabelSelect.addEventListener('change', function () {
+                var lbl = this.value;
+                var slots = SLOTS_BY_LABEL[lbl] || [];
+                if (slots.length) {
+                    var first = slots[0];
+                    var allSame = slots.every(function (s) {
+                        return s.start === first.start && s.end === first.end;
+                    });
+                    if (allSame) {
+                        editTimingNewStart.value = first.start;
+                        editTimingNewEnd.value = first.end;
+                    } else {
+                        editTimingNewStart.value = '';
+                        editTimingNewEnd.value = '';
+                    }
+                } else {
+                    editTimingNewStart.value = '';
+                    editTimingNewEnd.value = '';
+                }
+                renderDays(slots);
+                editTimingDaysWrap.style.display = slots.length ? 'block' : 'none';
+                updateApplyState();
+            });
+
+            editTimingNewStart.addEventListener('change', updateApplyState);
+            editTimingNewEnd.addEventListener('change', updateApplyState);
+
+            editTimingApplyBtn.addEventListener('click', async function () {
+                var lbl = editTimingLabelSelect.value;
+                var newStart = editTimingNewStart.value;
+                var newEnd = editTimingNewEnd.value;
+                var slots = SLOTS_BY_LABEL[lbl] || [];
+                if (!lbl || !newStart || !newEnd || !slots.length) return;
+                if (newStart >= newEnd) {
+                    await showAlert('End time must be after start time.', 'Invalid Time');
+                    return;
+                }
+
+                if (typeof HAS_PERIOD_TIMETABLES !== 'undefined' && HAS_PERIOD_TIMETABLES) {
+                    var ok = await showConfirm(
+                        'Warning: Existing Periods Timetables will have their period timings updated for this label. No day will be removed unless the slot itself is deleted.\n\nContinue?',
+                        'Timing Change Warning'
+                    );
+                    if (!ok) return;
+                }
+
+                var updates = slots.map(function (s) {
+                    return { day_of_week: s.day, start: newStart, end: newEnd };
+                });
+
+                editTimingApplyBtn.disabled = true;
+                var _orig = editTimingApplyBtn.textContent;
+                editTimingApplyBtn.textContent = 'Saving\u2026';
+
+                try {
+                    var res = await fetch('/portal/' + schema + '/api/timetable/day-schedules/batch-update/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ label: lbl, updates: updates })
+                    });
+                    var data = await res.json();
+                    if (!res.ok || !data.success) {
+                        await showAlert('Error: ' + (data.error || 'Unknown error'), 'Save Failed');
+                        editTimingApplyBtn.disabled = false;
+                        editTimingApplyBtn.textContent = _orig;
+                        return;
+                    }
+                    window.location.reload();
+                } catch (err) {
+                    console.error(err);
+                    await showAlert('Network error: ' + err.message, 'Error');
+                    editTimingApplyBtn.disabled = false;
+                    editTimingApplyBtn.textContent = _orig;
+                }
+            });
+        })();
+        // ===== END EDIT_TIMING_v1 =====
     });
 </script>
 {% endblock %}

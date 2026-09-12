@@ -17,6 +17,7 @@ from .views.timetable import (
     api_add_period, api_delete_period, api_update_period, api_get_timetable,
     api_save_timetable, api_save_day_schedules, api_update_holiday,
     api_list_labels, api_add_label, api_update_label, api_delete_label,
+    api_batch_update_label_times,
 )
 from .views.periods import periods_management, api_update_break, api_add_bunch, api_delete_bunch
 from .views.timetable_assignments import (
@@ -351,6 +352,8 @@ urlpatterns = [
 
 
     path('portal/<slug:schema_name>/api/timetable/day-schedules/', portal_wrapper(login_required_for_schema(api_save_day_schedules)), name='api_timetable_day_schedules'),
+    # ===== EDIT_TIMING_v1 =====
+    path('portal/<slug:schema_name>/api/timetable/day-schedules/batch-update/', portal_wrapper(login_required_for_schema(api_batch_update_label_times)), name='api_timetable_day_schedules_batch_update'),
 
     # ===== SCHEDULE LABEL API =====
     path('portal/<slug:schema_name>/api/timetable/labels/list/', portal_wrapper(login_required_for_schema(api_list_labels)), name='api_timetable_labels_list'),

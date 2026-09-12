@@ -124,9 +124,21 @@ def timetable_management(request, schema_name):
 
         all_day_schedules = DaySchedule.objects.filter(academic_calendar=calendar).order_by('day_of_week', 'order')
         day_schedules = {}
+        slots_by_label = {}
         for ds in all_day_schedules:
             if ds.day_of_week not in weekly_holiday_days:
                 day_schedules.setdefault(ds.day_of_week, []).append(ds)
+            _lbl = (ds.label or '').strip()
+            if _lbl:
+                slots_by_label.setdefault(_lbl, []).append({
+                    'id': ds.id,
+                    'day': ds.day_of_week,
+                    'day_label': ds.get_day_of_week_display(),
+                    'start': ds.start_time.strftime('%H:%M'),
+                    'end': ds.end_time.strftime('%H:%M'),
+                    'periods': ds.periods,
+                    'duration': ds.duration,
+                })
 
     with schema_context(schema_name):
         try:
@@ -159,6 +171,7 @@ def timetable_management(request, schema_name):
         'schedule_labels': schedule_labels,
         'months': months,
         'days': days,
+        'slots_by_label_json': json.dumps(slots_by_label),
     }
     return render(request, 'tenant/timetable_management.html', context)
 
@@ -254,6 +267,66 @@ def api_save_day_schedules(request, schema_name):
         logger.info(f"Successfully created {total_created} day schedules for schema {schema_name}")
 
     return JsonResponse({'success': True, 'created': total_created, 'deleted': deleted_all})
+
+
+# ========== EDIT_TIMING_v1 : batch-update timing for a label ==========
+@csrf_exempt
+@require_http_methods(["POST"])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_batch_update_label_times(request, schema_name):
+    """Batch-update start/end times for all DaySchedule rows of a label.
+
+    Body: { "label": "Senior",
+            "updates": [ { "day_of_week": 0, "start": "08:00", "end": "14:00" }, ... ] }
+    """
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    label = (data.get('label') or '').strip()
+    updates = data.get('updates') or []
+    if not label:
+        return JsonResponse({'error': 'Label is required'}, status=400)
+    if not isinstance(updates, list) or not updates:
+        return JsonResponse({'error': 'updates must be a non-empty list'}, status=400)
+
+    with schema_context(schema_name):
+        calendar, _ = AcademicCalendar.objects.get_or_create(pk=1)
+        updated_count = 0
+        for item in updates:
+            try:
+                day = int(item.get('day_of_week'))
+                start_str = item.get('start')
+                end_str = item.get('end')
+            except (TypeError, ValueError):
+                continue
+            if day is None or not start_str or not end_str:
+                continue
+            try:
+                start_time = datetime.strptime(start_str, '%H:%M').time()
+                end_time = datetime.strptime(end_str, '%H:%M').time()
+            except ValueError:
+                continue
+            if start_time >= end_time:
+                return JsonResponse({'error': 'End time must be after start time for day ' + str(day)}, status=400)
+
+            ds = DaySchedule.objects.filter(
+                academic_calendar=calendar, label=label, day_of_week=day
+            ).first()
+            if not ds:
+                continue
+            ds.start_time = start_time
+            ds.end_time = end_time
+            total_min = (end_time.hour * 60 + end_time.minute) - (start_time.hour * 60 + start_time.minute)
+            if total_min > 0 and ds.periods > 0:
+                ds.duration = max(1, total_min // ds.periods)
+            ds.save(update_fields=['start_time', 'end_time', 'duration'])
+            updated_count += 1
+
+        return JsonResponse({'success': True, 'updated': updated_count})
+# ========== END EDIT_TIMING_v1 ==========
 
 
 # ========== HOLIDAY API ENDPOINTS ==========

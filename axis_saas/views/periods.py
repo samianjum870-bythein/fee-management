@@ -178,16 +178,20 @@ def _reconcile_timetables(schema_name):
             if not sched:
                 days_changed = True
                 continue
-            if sched['start'] != day.get('start') or sched['end'] != day.get('end'):
-                days_changed = True
-                continue
 
             try:
                 old_count = int(day.get('periods_count') or 0)
             except (TypeError, ValueError):
                 old_count = 0
 
-            if sched['periods'] != old_count:
+            # EDIT_TIMING_v1: recompute when start/end OR periods_count
+            # changed. Never drop the day just because its timing
+            # changed -- update it in place instead.
+            if (
+                sched['start'] != day.get('start')
+                or sched['end'] != day.get('end')
+                or sched['periods'] != old_count
+            ):
                 try:
                     start_t = datetime.strptime(sched['start'], '%H:%M').time()
                     end_t = datetime.strptime(sched['end'], '%H:%M').time()
@@ -208,6 +212,8 @@ def _reconcile_timetables(schema_name):
                     break_after, break_duration,
                 )
                 day['periods_count'] = sched['periods']
+                day['start'] = sched['start']
+                day['end'] = sched['end']
                 day['periods'] = periods_data
                 day['break_after'] = break_after
                 days_changed = True
