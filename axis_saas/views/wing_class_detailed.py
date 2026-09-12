@@ -11,7 +11,8 @@ from django.shortcuts import render, get_object_or_404
 from django.db.models import Count
 from django_tenants.utils import schema_context
 
-from ..models import SchoolClass, Student, ClassSubject
+from ..models import SchoolClass, Student, ClassSubject, ClassTimetableAssignment, PeriodsTimetable
+import json
 from .helpers import (
     get_tenant, require_tenant_type, require_school_feature, is_mobile_user_agent,
 )
@@ -60,10 +61,28 @@ def _build_context(schema_name, tenant, class_id):
 
         display_name = get_class_display_name(school_class, tenant.tenant_type)
 
+        # MANAGE_PERIODS_TIMETABLE_v1: assigned periods timetable
+        try:
+            _tt_assignment = ClassTimetableAssignment.objects.select_related('timetable').filter(school_class=school_class).first()
+        except Exception:
+            _tt_assignment = None
+        assigned_timetable = None
+        if _tt_assignment and _tt_assignment.timetable:
+            _tt = _tt_assignment.timetable
+            assigned_timetable = {
+                'id': _tt.id,
+                'title': _tt.title,
+                'label': _tt.label or '',
+                'break_duration': _tt.break_duration or 0,
+                'days': _tt.days or [],
+            }
+
     return {
         'tenant': tenant,
         'class_obj': school_class,
         'class_display_name': display_name,
+        'assigned_timetable': assigned_timetable,
+        'assigned_timetable_json': json.dumps(assigned_timetable or {}),
         'students': students,
         'analytics': analytics,
         'class_teacher': class_teacher,

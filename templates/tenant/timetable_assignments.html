@@ -130,6 +130,7 @@
 {% endblock %}
 
 {% block body %}
+{# MANAGE_PERIODS_TIMETABLE_v2: clickable class name + View Class button #}
 <div class="page-header">
     <div>
         <h1 class="page-title">Assign Timetable to Class</h1>
@@ -161,7 +162,12 @@
             <tbody>
                 {% for a in assignments %}
                 <tr>
-                    <td><strong>{{ a.class_display_name }}</strong></td>
+                    <td>
+                        <a href="{% url 'class_detailed' schema_name=tenant.schema_name class_id=a.school_class.id %}"
+                           style="color:var(--primary); font-weight:600; text-decoration:none;">
+                            {{ a.class_display_name }}
+                        </a>
+                    </td>
                     <td>
                         <span class="tag tag-blue">{{ a.timetable.title }}</span>
                         {% if a.timetable.label %}
@@ -170,6 +176,8 @@
                     </td>
                     <td class="text-muted" style="font-size:0.85rem;">{{ a.assigned_at|date:"Y-m-d H:i" }}</td>
                     <td style="text-align:right; white-space:nowrap;">
+                        <a href="{% url 'class_detailed' schema_name=tenant.schema_name class_id=a.school_class.id %}"
+                           class="btn-secondary btn-sm" style="text-decoration:none; margin-right:0.3rem;">View Class</a>
                         <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}?highlight={{ a.timetable.id }}"
                            class="btn-secondary btn-sm" style="text-decoration:none;">View Timetable</a>
                         <form method="post" action="{% url 'api_unassign_timetable' schema_name=tenant.schema_name %}"
