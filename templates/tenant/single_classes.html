@@ -683,6 +683,13 @@
             </div>
         </div>
         <div class="class-card-actions">
+            <button type="button" class="action-icon view-btn" title="View class details">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+                View
+            </button>
             <button type="button" class="action-icon delete-btn" title="Delete class">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
@@ -818,6 +825,13 @@
     }
 
     document.querySelectorAll('.class-card').forEach(card => {
+        const viewBtn = card.querySelector('.view-btn');
+        if (viewBtn) {
+            viewBtn.addEventListener('click', () => {
+                const id = card.dataset.classId;
+                window.location.href = `/portal/${SCHEMA}/my-classes/${id}/`;
+            });
+        }
         const delBtn = card.querySelector('.delete-btn');
         if (delBtn) {
             delBtn.addEventListener('click', async () => {

@@ -1,0 +1,435 @@
+{% extends 'tenant/base.html' %}
+{% load fee_extras %}
+{% load static %}
+{% block title %}{{ class_display_name }} | {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+
+    /* ---- Back link ---- */
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.85rem;
+        font-weight: 600;
+        padding: 0.4rem 0.85rem;
+        border-radius: 0.65rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        transition: all 0.2s ease;
+        margin-bottom: 1.25rem;
+    }
+    .back-link:hover {
+        color: var(--primary);
+        border-color: var(--primary);
+        transform: translateX(-2px);
+    }
+
+    /* ---- Page header ---- */
+    .page-header {
+        margin-bottom: 1.75rem;
+        padding-bottom: 1.25rem;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+    }
+    .page-header::after {
+        content: '';
+        position: absolute;
+        bottom: -1px; left: 0;
+        width: 64px; height: 3px;
+        border-radius: 3px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    }
+    .page-title {
+        font-size: 1.85rem;
+        font-weight: 800;
+        letter-spacing: -0.6px;
+        margin: 0;
+        line-height: 1.2;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        overflow-wrap: anywhere;
+    }
+    .page-desc {
+        color: var(--muted);
+        margin: 0.4rem 0 0;
+        font-size: 0.92rem;
+        font-weight: 500;
+    }
+
+    /* ---- KPI strip ---- */
+    .kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 0.9rem;
+        margin-bottom: 1.75rem;
+    }
+    .kpi-card {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        padding: 1rem 1.15rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: var(--shadow-sm);
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.22s ease, box-shadow 0.22s ease;
+    }
+    .kpi-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0;
+        width: 4px; height: 100%;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    }
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow);
+    }
+    .kpi-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(59,130,246,0.14), rgba(37,99,235,0.04));
+        color: var(--primary);
+        flex-shrink: 0;
+    }
+    .kpi-body {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .kpi-label {
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: 0.65px;
+        color: var(--muted);
+        font-weight: 700;
+    }
+    .kpi-value {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--text);
+        line-height: 1.15;
+        letter-spacing: -0.4px;
+    }
+
+    /* ---- Section cards ---- */
+    .section-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1.1rem;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+    .section-header {
+        padding: 0.9rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-alt);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .section-header h2 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: -0.15px;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .section-body { padding: 1.25rem; }
+    .empty-inline {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-style: italic;
+    }
+
+    /* ---- Class teacher feature ---- */
+    .teacher-feature {
+        display: flex;
+        align-items: center;
+        gap: 1.15rem;
+        padding: 1.25rem;
+        background: linear-gradient(135deg, rgba(59,130,246,0.06), rgba(37,99,235,0.02));
+        border-radius: 0.9rem;
+        flex-wrap: wrap;
+    }
+    .teacher-avatar {
+        width: 62px;
+        height: 62px;
+        border-radius: 1.1rem;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: #fff;
+        font-size: 1.5rem;
+        font-weight: 800;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        box-shadow: 0 8px 20px -8px rgba(59,130,246,0.6);
+    }
+    .teacher-info { flex: 1; min-width: 180px; }
+    .teacher-info h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: -0.2px;
+        color: var(--text);
+    }
+    .teacher-info p {
+        margin: 0.25rem 0 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+    }
+
+    /* ---- Data table ---- */
+    .table-responsive { overflow-x: auto; }
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .data-table th, .data-table td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        font-size: 0.86rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+    }
+    .data-table th {
+        background: var(--surface-alt);
+        font-weight: 700;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.55px;
+        color: var(--muted);
+    }
+    .data-table tbody tr:last-child td { border-bottom: none; }
+    .data-table tbody tr:hover { background: var(--surface-alt); }
+
+    /* ---- Badges ---- */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.22rem 0.7rem;
+        border-radius: 2rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        line-height: 1.3;
+        white-space: nowrap;
+    }
+    .badge-success {
+        background: rgba(16, 185, 129, 0.12);
+        color: #047857;
+        border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .badge-warn {
+        background: rgba(245, 158, 11, 0.14);
+        color: #b45309;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .badge-muted {
+        background: var(--surface-alt);
+        color: var(--muted);
+        border: 1px solid var(--border);
+    }
+
+    /* ---- Action buttons / links ---- */
+    .btn-view {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.95rem;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: #fff;
+        border: none;
+        border-radius: 0.7rem;
+        font-weight: 700;
+        font-size: 0.82rem;
+        text-decoration: none;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+        box-shadow: 0 6px 16px -6px rgba(59,130,246,0.55);
+        font-family: inherit;
+    }
+    .btn-view:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px -6px rgba(59,130,246,0.65);
+    }
+    .action-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.35rem 0.75rem;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 0.55rem;
+        color: var(--text);
+        text-decoration: none;
+        font-size: 0.78rem;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+    .action-link:hover {
+        color: var(--primary);
+        border-color: var(--primary);
+        transform: translateY(-1px);
+    }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 768px) {
+        .page-title { font-size: 1.5rem; }
+        .kpi-value { font-size: 1.3rem; }
+        .teacher-feature { flex-direction: column; align-items: flex-start; }
+        .data-table th, .data-table td { padding: 0.6rem 0.7rem; font-size: 0.8rem; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<a href="{% url 'classes_management' schema_name=tenant.schema_name %}" class="back-link">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    Back to Classes
+</a>
+
+<div class="page-header">
+    <h1 class="page-title">{{ class_display_name }}</h1>
+    <p class="page-desc">Class details, teachers, and students</p>
+</div>
+
+<!-- Analytics strip -->
+<div class="kpi-strip">
+    <div class="kpi-card">
+        <div class="kpi-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+        <div class="kpi-body"><span class="kpi-label">Total Students</span><span class="kpi-value">{{ analytics.visible }}</span></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="kpi-body"><span class="kpi-label">Active</span><span class="kpi-value">{{ analytics.total_active }}</span></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+        <div class="kpi-body"><span class="kpi-label">Suspended</span><span class="kpi-value">{{ analytics.total_suspended }}</span></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg></div>
+        <div class="kpi-body"><span class="kpi-label">Male</span><span class="kpi-value">{{ analytics.males }}</span></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg></div>
+        <div class="kpi-body"><span class="kpi-label">Female</span><span class="kpi-value">{{ analytics.females }}</span></div>
+    </div>
+</div>
+
+<!-- Class Teacher -->
+<div class="section-card">
+    <div class="section-header"><h2>Class Teacher</h2></div>
+    <div class="section-body">
+        {% if class_teacher %}
+        <div class="teacher-feature">
+            <div class="teacher-avatar">{{ class_teacher.full_name|slice:":1"|upper }}</div>
+            <div class="teacher-info">
+                <h3>{{ class_teacher.full_name }}</h3>
+                <p>{{ class_teacher.job_title }}{% if class_teacher.email %} · {{ class_teacher.email }}{% endif %}{% if class_teacher.phone %} · {{ class_teacher.phone }}{% endif %}</p>
+            </div>
+            <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="btn-view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                View Profile
+            </a>
+        </div>
+        {% else %}
+        <p class="empty-inline">No class teacher assigned to this class yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Subject Teachers -->
+<div class="section-card">
+    <div class="section-header"><h2>Subject Teachers ({{ subject_assignments|length }})</h2></div>
+    {% if subject_assignments %}
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Teacher</th>
+                    <th>Assigned Since</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in subject_assignments %}
+                <tr>
+                    <td><strong>{{ a.subject.name }}</strong></td>
+                    <td>{% if a.teacher %}{{ a.teacher.full_name }}{% else %}<em>Unassigned</em>{% endif %}</td>
+                    <td>{{ a.created_at|date:"Y-m-d" }}</td>
+                    <td>{% if a.teacher %}<span class="badge badge-success">Active</span>{% else %}<span class="badge badge-muted">No teacher</span>{% endif %}</td>
+                    <td>{% if a.teacher %}<a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=a.teacher.id %}" class="action-link">View Profile</a>{% else %}&mdash;{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="section-body"><p class="empty-inline">No subjects assigned to this class yet.</p></div>
+    {% endif %}
+</div>
+
+<!-- Students -->
+<div class="section-card">
+    <div class="section-header"><h2>Students ({{ students|length }})</h2></div>
+    {% if students %}
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Roll No</th>
+                    <th>Full Name</th>
+                    <th>Father Name</th>
+                    <th>Gender</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in students %}
+                <tr>
+                    <td><strong>{{ s.roll_number|default:"—" }}</strong></td>
+                    <td>{{ s.name }}</td>
+                    <td>{{ s.father_name }}</td>
+                    <td>{% if s.gender == 'male' %}Male{% elif s.gender == 'female' %}Female{% else %}&mdash;{% endif %}</td>
+                    <td>
+                        {% if s.status == 'active' %}<span class="badge badge-success">Active</span>
+                        {% elif s.status == 'suspended' %}<span class="badge badge-warn">Suspended</span>
+                        {% else %}<span class="badge badge-muted">{{ s.get_status_display }}</span>{% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'student_profile' schema_name=tenant.schema_name student_id=s.id %}" class="action-link">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            View Profile
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="section-body"><p class="empty-inline">No active or suspended students in this class.</p></div>
+    {% endif %}
+</div>
+{% endblock %}

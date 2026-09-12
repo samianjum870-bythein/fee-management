@@ -31,3 +31,9 @@ from .wing_classes import *  # noqa: F401,F403
 from .wing_classes import wing_classes_view, classes_management_view  # noqa: F401
 from .single_classes import *  # noqa: F401,F403
 from .single_classes import single_classes_view  # noqa: F401
+
+# --- Class Detailed page views — added by add_class_detailed_page ---
+from .wing_class_detailed import *  # noqa: F401,F403
+from .wing_class_detailed import wing_class_detailed_view, class_detailed_view  # noqa: F401
+from .single_class_detailed import *  # noqa: F401,F403
+from .single_class_detailed import single_class_detailed_view  # noqa: F401
