@@ -300,6 +300,42 @@ def api_save_day_schedules(request, schema_name):
             )
             DaySchedule.objects.filter(id__in=dup_ids).delete()
 
+        # ---------- Optimistic lock pre-check (TIMETABLE_OPTIMISTIC_LOCK_V1) ----------
+        # The client round-trips each row's `updated_at` as
+        # `client_updated_at`. If that timestamp differs from the DB's
+        # current value for the same natural key, another session
+        # already touched that row — refuse the whole save rather
+        # than silently overwrite their change. Rows with NULL
+        # updated_at (legacy) and rows with an empty client_updated_at
+        # are treated as "no version info — allow overwrite" so
+        # pre-V5 data doesn't hard-fail on first edit.
+        conflicts = []
+        for _item in schedules_data:
+            try:
+                _day = int(_item.get('day'))
+            except (TypeError, ValueError):
+                continue
+            _label = (_item.get('label') or '').strip()
+            _key = (_day, _label.lower())
+            _ds = existing_map.get(_key)
+            if _ds is None or not _ds.updated_at:
+                continue
+            _client_ver = (_item.get('client_updated_at') or '').strip()
+            if not _client_ver:
+                continue
+            if _client_ver != _ds.updated_at.isoformat():
+                _day_name = dict(TimetableEntry.DAY_CHOICES).get(_day, str(_day))
+                conflicts.append(f"{_day_name} / {_label}")
+        if conflicts:
+            return JsonResponse({
+                'error': (
+                    'Another session modified these row(s) since this page '
+                    'was loaded: ' + ', '.join(conflicts) +
+                    '. Reload the page and re-apply your changes.'
+                ),
+                'conflicts': conflicts,
+            }, status=409)
+
         incoming_keys = set()
         created_count = 0
         updated_count = 0
@@ -370,11 +406,23 @@ def api_save_day_schedules(request, schema_name):
             f"created={created_count}, updated={updated_count}, deleted={deleted_count}"
         )
 
+        # TIMETABLE_OPTIMISTIC_LOCK_V1: return per-row updated_at so the
+        # client can refresh its DOM attributes and avoid false conflicts
+        # on the next autosave.
+        updated_at_map = {}
+        try:
+            for _ds in DaySchedule.objects.filter(academic_calendar=calendar):
+                _k = f"{_ds.day_of_week}|{(_ds.label or '').strip().lower()}"
+                updated_at_map[_k] = _ds.updated_at.isoformat() if _ds.updated_at else ''
+        except Exception:
+            updated_at_map = {}
+
     return JsonResponse({
         'success': True,
         'created': created_count,
         'updated': updated_count,
         'deleted': deleted_count,
+        'updated_at_map': updated_at_map,
     })
 
 
@@ -405,6 +453,10 @@ def api_batch_update_label_times(request, schema_name):
         return JsonResponse({'error': 'updates must be a non-empty list'}, status=400)
 
     with schema_context(schema_name):
+        # TIMETABLE_OPTIMISTIC_LOCK_V1: refuse to silently no-op when a
+        # stale client sends a label that no longer exists.
+        if not ScheduleLabel.objects.filter(name__iexact=label).exists():
+            return JsonResponse({'error': f"Label '{label}' not found"}, status=404)
         calendar, _ = AcademicCalendar.objects.get_or_create(pk=1)
         updated_count = 0
         for item in updates:

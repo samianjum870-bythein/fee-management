@@ -92,18 +92,35 @@ def _get_session_key(schema_name):
 
 def _timetable_to_dict(tt):
     """Convert a PeriodsTimetable row into the JSON shape the UI expects."""
+    # TIMETABLE_PERIODS_SAVE_V1: expose how many classes are currently
+    # assigned to this timetable so the client's delete-confirm dialog
+    # can warn the admin before silently unassigning them (the delete
+    # cascades to ClassTimetableAssignment via on_delete=CASCADE).
+    try:
+        _assigned = ClassTimetableAssignment.objects.filter(timetable=tt).count()
+    except Exception:
+        _assigned = 0
     return {
         'id': tt.id,
         'title': tt.title,
         'label': tt.label or '',
         'break_duration': tt.break_duration or 0,
         'days': tt.days or [],
+        'assigned_class_count': _assigned,
     }
 
 
 def _load_timetables():
-    """Load all persisted periods timetables (id-ordered)."""
-    return [_timetable_to_dict(tt) for tt in PeriodsTimetable.objects.order_by('id')]
+    """Load all persisted periods timetables.
+
+    TIMETABLE_PERIODS_V2: grouped by label, then title, then id so a
+    long list of timetables reads naturally instead of in insertion
+    order.
+    """
+    return [
+        _timetable_to_dict(tt)
+        for tt in PeriodsTimetable.objects.order_by('label', 'title', 'id')
+    ]
 
 
 def _migrate_session_to_db(request, schema_name):
@@ -230,8 +247,53 @@ def _reconcile_timetables(schema_name):
     if updated_objs:
         PeriodsTimetable.objects.bulk_update(updated_objs, ['days'])
     if delete_ids:
+        # TIMETABLE_PERIODS_V2: capture what we're about to delete BEFORE
+        # the delete happens, so we can surface a Notification to the
+        # admin. Previously these vanished silently along with every
+        # ClassTimetableAssignment row that pointed at them.
+        _deleted_info = []
+        try:
+            for _tt in PeriodsTimetable.objects.filter(id__in=delete_ids):
+                try:
+                    _assigned = ClassTimetableAssignment.objects.filter(
+                        timetable=_tt
+                    ).count()
+                except Exception:
+                    _assigned = 0
+                _deleted_info.append({
+                    'title': _tt.title or '(untitled)',
+                    'label': _tt.label or '',
+                    'assigned': _assigned,
+                })
+        except Exception:
+            _deleted_info = []
+
         ClassTimetableAssignment.objects.filter(timetable_id__in=delete_ids).delete()
         PeriodsTimetable.objects.filter(id__in=delete_ids).delete()
+
+        try:
+            from ..models import Notification as _Notification
+            for _info in _deleted_info:
+                _msg = (
+                    f"Timetable '{_info['title']}' was auto-deleted because "
+                    f"its calendar slots no longer exist in the Academic "
+                    f"Calendar."
+                )
+                if _info['assigned']:
+                    _msg += (
+                        f" {_info['assigned']} class(es) were unassigned "
+                        f"from it."
+                    )
+                # Keep within the 255-char CharField.
+                _Notification.objects.create(
+                    message=_msg[:255],
+                    link=f'/portal/{schema_name}/timetable/periods/',
+                )
+        except Exception as _exc:
+            logger.warning(
+                'TIMETABLE_PERIODS_V2: could not write delete '
+                'notification for schema %s: %s', schema_name, _exc,
+            )
 
 
 # ---------------------------------------------------------------------
@@ -266,7 +328,10 @@ def periods_management(request, schema_name):
                 for ds in schedules
             ]
 
-        _reconcile_timetables(schema_name)
+        # TIMETABLE_OPTIMISTIC_LOCK_V1: reconciliation used to run on every
+        # page load here. It is now triggered by DaySchedule post_save /
+        # post_delete signals (see axis_saas/signals.py), so a page view
+        # no longer pays the O(#timetables × #days) cost on every GET.
         timetables = _load_timetables()
 
     context = {
@@ -363,6 +428,27 @@ def api_add_bunch(request, schema_name):
             break_after, break_duration,
         )
 
+        # TIMETABLE_PERIODS_V3: reject a day whose break swallowed
+        # every minute of the class window. Without this guard the
+        # day was persisted with an empty periods list, which then
+        # rendered as a row of em-dashes and looked like a valid
+        # (but empty) timetable. start < end and periods >= 1 have
+        # already been validated above, so the ONLY way periods_data
+        # is empty here is the break-is-too-large case.
+        if not periods_data:
+            _day_total = (
+                (end_t.hour * 60 + end_t.minute)
+                - (start_t.hour * 60 + start_t.minute)
+            )
+            return JsonResponse({
+                'error': (
+                    f"Break duration ({break_duration} min) is too "
+                    f"large to fit inside day {day_of_week}'s "
+                    f"class time ({_day_total} min). Reduce the "
+                    f"break or lengthen the class window."
+                )
+            }, status=400)
+
         computed_days.append({
             'day_of_week': day_of_week,
             'day_label': day_names.get(day_of_week, str(day_of_week)),
@@ -377,6 +463,40 @@ def api_add_bunch(request, schema_name):
     computed_days.sort(key=lambda x: x['day_of_week'])
 
     with schema_context(schema_name):
+        # TIMETABLE_PERIODS_SAVE_V1: verify every requested slot still
+        # exists in the tenant's DaySchedule under the given label, with
+        # exactly the start / end / periods the client sent. Without
+        # this, a stale tab or a direct API call can persist a
+        # timetable whose days aren't in the calendar; the next
+        # reconcile would then silently drop them. We reject the whole
+        # save so the client can refresh and re-apply.
+        for _cd in computed_days:
+            _day = _cd['day_of_week']
+            _sched = (
+                DaySchedule.objects
+                .filter(label__iexact=label, day_of_week=_day)
+                .first()
+            )
+            if _sched is None:
+                return JsonResponse({
+                    'error': (
+                        f'Slot for day {_day} not found under label '
+                        f'"{label}". Reload the page and try again.'
+                    )
+                }, status=400)
+            if (
+                _sched.start_time.strftime('%H:%M') != _cd['start']
+                or _sched.end_time.strftime('%H:%M') != _cd['end']
+                or _sched.periods != _cd['periods_count']
+            ):
+                return JsonResponse({
+                    'error': (
+                        f'Slot mismatch for day {_day} under label '
+                        f'"{label}". The calendar may have changed. '
+                        f'Reload the page and try again.'
+                    )
+                }, status=400)
+
         if edit_id is not None:
             try:
                 tt = PeriodsTimetable.objects.get(id=edit_id)
@@ -421,8 +541,31 @@ def api_delete_bunch(request, schema_name):
     except (TypeError, ValueError):
         return JsonResponse({'error': 'id required'}, status=400)
 
+    # TIMETABLE_PERIODS_V2: when classes are assigned, the caller must
+    # explicitly pass force=true. This stops a direct API call from
+    # silently unassigning every class that uses the timetable. The
+    # client always sends force=true after its own confirm dialog.
+    _force = bool(data.get('force', False))
+
     with schema_context(schema_name):
-        PeriodsTimetable.objects.filter(id=tt_id).delete()
+        _tt = PeriodsTimetable.objects.filter(id=tt_id).first()
+        if _tt is None:
+            return JsonResponse({'error': 'Timetable not found'}, status=404)
+
+        _assigned = ClassTimetableAssignment.objects.filter(
+            timetable=_tt
+        ).count()
+        if _assigned > 0 and not _force:
+            return JsonResponse({
+                'error': (
+                    f'{_assigned} class(es) use this timetable. '
+                    f'Confirm deletion with force=true.'
+                ),
+                'assigned_class_count': _assigned,
+                'requires_force': True,
+            }, status=409)
+
+        _tt.delete()
         timetables = _load_timetables()
     return JsonResponse({'success': True, 'timetables': timetables})
 

@@ -85,3 +85,54 @@ def clear_cache_on_feerecord(sender, instance, **kwargs):
         invalidate_tenant_cache(schema_name, 'dashboard_stats')
         invalidate_tenant_cache(schema_name, 'defaulters_stats')
         invalidate_tenant_cache(schema_name, 'vouchers_stats')
+
+
+# ========== TIMETABLE_OPTIMISTIC_LOCK_V1: signal-driven reconcile ==========
+#
+# Previously _reconcile_timetables() ran synchronously on every GET of
+# /timetable/periods/, which is wasteful when nothing has changed.
+#
+# We now fire it on the commit of any transaction that saves or deletes
+# a DaySchedule row. To keep a single view (which may save N rows) from
+# triggering N reconciles, the callback is debounced per-request using
+# thread-local state. Since the process is synchronous, one thread ==
+# one request, so the set is safe.
+import threading as _tt_lock_threading
+
+_tt_lock_state = _tt_lock_threading.local()
+
+
+def _tt_lock_schedule_reconcile(schema_name):
+    if not schema_name or schema_name == 'public':
+        return
+    pending = getattr(_tt_lock_state, 'schemas', None)
+    if pending is None:
+        pending = set()
+        _tt_lock_state.schemas = pending
+    if schema_name in pending:
+        return
+    pending.add(schema_name)
+
+    def _run():
+        # Clear the debounce flag first, then run.
+        pending.discard(schema_name)
+        try:
+            from axis_saas.views.periods import _reconcile_timetables
+            _reconcile_timetables(schema_name)
+        except Exception as exc:
+            logger.warning(
+                'TIMETABLE_OPTIMISTIC_LOCK_V1: reconcile failed for '
+                'schema %s: %s', schema_name, exc,
+            )
+
+    from django.db import transaction as _tt_lock_tx
+    _tt_lock_tx.on_commit(_run)
+
+
+from axis_saas.models import DaySchedule as _TT_LOCK_DaySchedule
+
+
+@receiver(post_save, sender=_TT_LOCK_DaySchedule)
+@receiver(post_delete, sender=_TT_LOCK_DaySchedule)
+def _tt_lock_on_dayschedule_change(sender, instance, **kwargs):
+    _tt_lock_schedule_reconcile(connection.schema_name)

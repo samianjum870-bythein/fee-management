@@ -867,6 +867,11 @@ class DaySchedule(models.Model):
     periods = models.PositiveIntegerField(default=8, help_text="Number of periods on this day.")
     duration = models.PositiveIntegerField(default=45, help_text="Duration per period in minutes.")
     is_active = models.BooleanField(default=True)
+    # TIMETABLE_OPTIMISTIC_LOCK_V1: used to detect concurrent edits.
+    # Null on legacy rows created before this field existed; the save
+    # endpoint treats a NULL updated_at as "no version info — allow
+    # overwrite" so pre-V5 data doesn't hard-fail on first edit.
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     break_after = models.PositiveIntegerField(null=True, blank=True, help_text="After which period (1-indexed) the break occurs.")
     break_duration = models.PositiveIntegerField(default=0, help_text="Duration of break in minutes.")

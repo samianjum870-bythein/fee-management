@@ -177,6 +177,22 @@
     <p class="text-muted" style="margin:0;">No timetable generated yet. Click <strong>Create New Timetable</strong> to start.</p>
 </div>
 
+<!-- SEARCH (TIMETABLE_SEARCH_FIX_V1) -->
+<div id="ttSearchWrap" class="form-group" style="max-width:420px; margin-bottom:1rem;">
+    <input type="text" id="ttSearchInput" class="form-control"
+           placeholder="🔍 Search timetables by title or label..."
+           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+           oninput="window.__ttApplyFilter__ &amp;&amp; window.__ttApplyFilter__()">
+    <small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.72rem;">
+        Filters the list below by matching titles and labels (case-insensitive).
+    </small>
+</div>
+
+<!-- NO-RESULTS (TIMETABLE_SEARCH_FIX_V1) -->
+<div id="ttSearchNoResults" class="card" style="display:none; text-align:center; color:var(--muted);">
+    <p style="margin:0;">No timetables match your search.</p>
+</div>
+
 <!-- ALL TIMETABLES STACKED -->
 <div id="timetablesContainer"></div>
 
@@ -240,6 +256,9 @@
                     <h3 style="margin:1rem 0 0.5rem 0; font-size:1.05rem;">Break After Which Period?</h3>
                     <p class="text-muted" style="font-size:0.82rem; margin:0 0 0.6rem 0;">
                         Choose the break position for each selected day. Pick <em>No break</em> to skip.
+                        <br>
+                        <strong>Note:</strong> the break <em>duration</em> set above applies to the whole
+                        timetable; the <em>position</em> can differ per day.
                     </p>
                     <div id="breakAfterList"></div>
                 </div>
@@ -278,6 +297,8 @@
 
     let TIMETABLES = {{ timetables_json|safe }} || [];
     let editingId = null;      // null = add mode, int = edit that index
+    // TIMETABLE_PERIODS_V2: preserve 'See Timings' state across re-renders.
+    const timingsOpenIds = new Set();
 
     // ---- Custom confirm dialog (returns Promise<boolean>) ----
     function showTtConfirm(opts) {
@@ -336,6 +357,9 @@
     const generateBtn       = document.getElementById('generateBtn');
     const container         = document.getElementById('timetablesContainer');
     const emptyState        = document.getElementById('emptyState');
+    // TIMETABLE_PERIODS_V2: search controls.
+    const ttSearchWrap      = document.getElementById('ttSearchWrap');
+    const ttSearchInput     = document.getElementById('ttSearchInput');
 
     // ---- CSRF ----
     function getCsrfToken() {
@@ -395,12 +419,18 @@
         container.innerHTML = '';
         if (!TIMETABLES || TIMETABLES.length === 0) {
             emptyState.style.display = 'block';
+            if (ttSearchWrap) ttSearchWrap.style.display = 'none';
             return;
         }
         emptyState.style.display = 'none';
+        // TIMETABLE_PERIODS_V2: show search whenever there is at least one
+        // timetable.
+        if (ttSearchWrap) ttSearchWrap.style.display = 'block';
         TIMETABLES.forEach(function (tt, idx) {
             container.appendChild(buildCard(tt, idx));
         });
+        // Re-apply any active filter so live search survives a re-render.
+        if (typeof applyTtFilter === 'function') applyTtFilter();
     }
 
     function buildCard(tt, idx) {
@@ -408,17 +438,34 @@
         card.className = 'card';
         card.dataset.index = String(idx);
         card.dataset.ttId = String(tt.id);
+        // TIMETABLE_PERIODS_V2: search index for this card.
+        card.dataset.searchText = (
+            (tt.title || '') + ' ' + (tt.label || '')
+        ).toLowerCase();
 
         // Header
         const header = document.createElement('div');
         header.className = 'card-header';
         header.style.justifyContent = 'space-between';
+        // TIMETABLE_PERIODS_V2: break_duration alone doesn't mean the
+        // timetable has any break. Only show 'Break: N min' when at least
+        // one day actually has break_after set.
+        const _hasBreak = (tt.days || []).some(function (d) {
+            return d.break_after && tt.break_duration > 0;
+        });
+        const _breakLabel = _hasBreak
+            ? ' | Break: ' + tt.break_duration + ' min'
+            : ' | No break';
+        const _assigned = tt.assigned_class_count || 0;
+        const _assignedBadge = _assigned > 0
+            ? ' <span class="tt-badge" title="Number of classes currently assigned to this timetable">Used by ' + _assigned + ' class(es)</span>'
+            : '';
         header.innerHTML =
             '<div>' +
-                '<h2 style="margin:0; font-size:1.2rem;">' + escapeHtml(tt.title) + '</h2>' +
+                '<h2 style="margin:0; font-size:1.2rem;">' + escapeHtml(tt.title) + _assignedBadge + '</h2>' +
                 '<span class="text-muted" style="font-size:0.85rem;">' +
                     'Label: <strong>' + escapeHtml(tt.label) + '</strong>' +
-                    (tt.break_duration ? ' | Break: ' + tt.break_duration + ' min' : ' | No break') +
+                    _breakLabel +
                 '</span>' +
             '</div>' +
             '<div style="display:flex; gap:0.5rem; flex-wrap:wrap;">' +
@@ -447,11 +494,20 @@
 
         // Wire buttons
         const toggleBtn = header.querySelector('.toggle-view-btn');
+        // TIMETABLE_PERIODS_V2: restore the timings/periods view for cards
+        // the user had open in this session.
+        if (timingsOpenIds.has(tt.id)) {
+            timingsView.style.display = 'block';
+            periodsView.style.display = 'none';
+            toggleBtn.textContent = 'See Periods Timetable';
+        }
         toggleBtn.addEventListener('click', function () {
             const showTimings = timingsView.style.display === 'none';
             timingsView.style.display = showTimings ? 'block' : 'none';
             periodsView.style.display = showTimings ? 'none' : 'block';
             toggleBtn.textContent = showTimings ? 'See Periods Timetable' : 'See Timings';
+            if (showTimings) timingsOpenIds.add(tt.id);
+            else timingsOpenIds.delete(tt.id);
         });
 
         header.querySelector('.edit-btn').addEventListener('click', function () {
@@ -460,11 +516,18 @@
 
         header.querySelector('.delete-btn').addEventListener('click', async function () {
             const dayCount = (tt.days || []).length;
+            // TIMETABLE_PERIODS_V3: this is now a GENERIC confirm.
+            // The class-count-specific warning (with a FRESH count
+            // from the server) is shown as a second confirm inside
+            // deleteTimetable() when the server responds 409. The
+            // stale `tt.assigned_class_count` baked into this page
+            // is deliberately NOT used here.
+            const _msg = 'You are about to permanently delete "' + (tt.title || 'this timetable') + '" '
+                       + '(Label: ' + (tt.label || '-') + ').\n\n'
+                       + 'This will remove all its ' + dayCount + ' day(s) and period timings.';
             const ok = await showTtConfirm({
                 title: 'Delete this timetable?',
-                message: 'You are about to permanently delete "' + (tt.title || 'this timetable') + '" '
-                       + '(Label: ' + (tt.label || '-') + ').\n\n'
-                       + 'This will remove all its ' + dayCount + ' day(s) and period timings.',
+                message: _msg,
                 hint: 'This action cannot be undone.',
                 yesLabel: "Yes, I'm sure",
                 noLabel: 'Cancel'
@@ -557,6 +620,13 @@
         formTitle.value = '';
         formLabel.value = '';
         formLabel.disabled = false;
+        // TIMETABLE_PERIODS_V2: restore the original label hint.
+        try {
+            const _hintEl = formLabel.parentNode.querySelector('small.text-muted');
+            if (_hintEl && _hintEl.dataset.originalHint) {
+                _hintEl.textContent = _hintEl.dataset.originalHint;
+            }
+        } catch (e) {}
         slotsBody.innerHTML = '';
         slotsSection.style.display = 'none';
         breakAfterSection.style.display = 'none';
@@ -575,6 +645,15 @@
         formTitle.value = tt.title || '';
         formLabel.value = tt.label || '';
         formLabel.disabled = true;   // keep label locked when editing
+        // TIMETABLE_PERIODS_V2: explain why the label field is disabled
+        // so the admin doesn't read it as a broken control.
+        try {
+            const _hintEl = formLabel.parentNode.querySelector('small.text-muted');
+            if (_hintEl) {
+                _hintEl.dataset.originalHint = _hintEl.dataset.originalHint || _hintEl.textContent;
+                _hintEl.textContent = 'Label is locked in edit mode because the days come from that label\'s calendar slots. To change the label, delete this timetable and create a new one.';
+            }
+        } catch (e) {}
         breakDurationEl.value = tt.break_duration || 0;
 
         renderSlotsForLabel(tt.label, id);
@@ -583,8 +662,13 @@
         // Restore break_after dropdown values after slots render
         setTimeout(function () {
             const selfMap = slotsUsedBySelf(id);
+            // TIMETABLE_PERIODS_SAVE_V1: only tick the slots that belong
+            // to THIS timetable. The previous code force-checked every
+            // visible checkbox, so editing a 3-slot timetable and saving
+            // silently promoted it to every slot on the label.
             document.querySelectorAll('#slotsBody .slot-checkbox').forEach(function (cb) {
-                cb.checked = true;
+                const _key = cb.dataset.day + '|' + cb.dataset.start + '|' + cb.dataset.end;
+                cb.checked = selfMap.has(_key);
             });
             applyTimingRule();
             updateBreakAfterSection();
@@ -801,6 +885,32 @@
         const duration = parseInt(breakDurationEl.value) || 0;
         const checked = Array.from(document.querySelectorAll('#slotsBody .slot-checkbox')).filter(function (cb) { return cb.checked; });
 
+        // TIMETABLE_PERIODS_V3: client-side guard against break_duration
+        // swallowing a day's entire class window. If the server still
+        // rejects (e.g. calendar changed since page load), the alert
+        // below will be followed by the server error message.
+        if (duration > 0) {
+            for (const _cb of checked) {
+                const _dayKey = _cb.dataset.day + '|' + _cb.dataset.start + '|' + _cb.dataset.end;
+                const _sel = document.querySelector('.break-after-select[data-day-key="' + _dayKey + '"]');
+                const _breakAfter = _sel ? _sel.value : '';
+                if (!_breakAfter) continue; // no break on this day
+                const _sp = String(_cb.dataset.start).split(':');
+                const _ep = String(_cb.dataset.end).split(':');
+                const _startMin = (parseInt(_sp[0], 10) || 0) * 60 + (parseInt(_sp[1], 10) || 0);
+                const _endMin   = (parseInt(_ep[0], 10) || 0) * 60 + (parseInt(_ep[1], 10) || 0);
+                const _dayTotal = _endMin - _startMin;
+                if (_dayTotal > 0 && duration >= _dayTotal) {
+                    alert(
+                        'Break duration (' + duration + ' min) is too large for ' +
+                        _cb.dataset.dayLabel + ' (' + _dayTotal + ' min).\n\n' +
+                        'Reduce the break, or remove the break from that day.'
+                    );
+                    return;
+                }
+            }
+        }
+
         const days = checked.map(function (cb) {
             const dayKey = cb.dataset.day + '|' + cb.dataset.start + '|' + cb.dataset.end;
             const sel = document.querySelector('.break-after-select[data-day-key="' + dayKey + '"]');
@@ -858,15 +968,45 @@
     // ================================================================
     async function deleteTimetable(id) {
         try {
-            const res = await fetch('/portal/' + SCHEMA + '/api/timetable/periods/bunch/delete/', {
+            const url = '/portal/' + SCHEMA + '/api/timetable/periods/bunch/delete/';
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            };
+
+            // TIMETABLE_PERIODS_V3: first attempt WITHOUT force so the
+            // server tells us the FRESH assigned_class_count instead of
+            // trusting the stale value baked into the page at render
+            // time (two tabs, or an admin assigned a class in between).
+            let res = await fetch(url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCsrfToken()
-                },
+                headers: headers,
                 body: JSON.stringify({ id: id })
             });
-            const data = await res.json();
+            let data = await res.json();
+
+            // 409 → classes are assigned. Show a fresh-count confirm.
+            if (res.status === 409 && data.requires_force) {
+                const fresh = data.assigned_class_count || 0;
+                const ok = await showTtConfirm({
+                    title: 'Classes are using this timetable',
+                    message: fresh + ' class(es) currently use this timetable.\n\n'
+                           + 'Deleting it will leave them without a timetable.',
+                    hint: 'This action cannot be undone.',
+                    yesLabel: 'Delete anyway',
+                    noLabel: 'Cancel'
+                });
+                if (!ok) return;
+
+                // Second attempt WITH force.
+                res = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ id: id, force: true })
+                });
+                data = await res.json();
+            }
+
             if (!res.ok || !data.success) {
                 alert('Error: ' + (data.error || 'Unknown error'));
                 return;
@@ -879,9 +1019,77 @@
     }
 
     // ================================================================
+    // SEARCH (TIMETABLE_SEARCH_FIX_V1)
+    // ================================================================
+    // Rewritten to be bulletproof:
+    //   * iterates container.children directly (no reliance on
+    //     querySelectorAll class matches)
+    //   * hides via style.setProperty / shows via removeProperty
+    //   * counts visible cards and toggles a 'no results' element
+    //   * logs each pass when window.TIMETABLE_DEBUG is true
+    function applyTtFilter() {
+        if (!ttSearchInput || !container) return;
+        const q = (ttSearchInput.value || '').trim().toLowerCase();
+        const noResultsEl = document.getElementById('ttSearchNoResults');
+        const kids = container.children;
+        let total = 0;
+        let visible = 0;
+        for (let i = 0; i < kids.length; i++) {
+            const card = kids[i];
+            // Only consider real timetable cards.
+            if (!card || !card.classList || !card.classList.contains('card')) continue;
+            if (!card.dataset || !card.dataset.ttId) continue;
+            total += 1;
+            const hay = card.dataset.searchText || '';
+            const match = !q || hay.indexOf(q) !== -1;
+            if (match) {
+                card.style.removeProperty('display');
+                visible += 1;
+            } else {
+                card.style.setProperty('display', 'none', 'important');
+            }
+        }
+        if (noResultsEl) {
+            noResultsEl.style.display = (q && total > 0 && visible === 0) ? 'block' : 'none';
+        }
+        if (window.TIMETABLE_DEBUG) {
+            console.log('[TimetableSearch] q=', JSON.stringify(q),
+                        'total=', total, 'visible=', visible);
+        }
+    }
+
+    // Expose so the inline oninput attribute can call it as a fallback.
+    window.__ttApplyFilter__ = applyTtFilter;
+
+    // Primary wiring: direct listener on the input.
+    if (ttSearchInput) {
+        ttSearchInput.addEventListener('input', applyTtFilter);
+        ttSearchInput.addEventListener('change', applyTtFilter);
+        ttSearchInput.addEventListener('keyup', applyTtFilter);
+    }
+
+    // Fallback wiring: document-level delegation. Even if the direct
+    // listener never attaches (unlikely, but cheap insurance), this
+    // catches the same event from anywhere on the page.
+    document.addEventListener('input', function (e) {
+        if (e && e.target && e.target.id === 'ttSearchInput') {
+            applyTtFilter();
+        }
+    });
+
+    // ================================================================
     // INIT
     // ================================================================
     renderAll();
+
+    // TIMETABLE_SEARCH_FIX_V1: one extra pass after the browser has
+    // finished attaching listeners, in case anything above raced.
+    try {
+        if (ttSearchInput) {
+            ttSearchInput.addEventListener('input', applyTtFilter);
+            if (ttSearchInput.value) applyTtFilter();
+        }
+    } catch (e) {}
 
     // Highlight + scroll to a specific timetable if ?highlight=<id> is in the URL
     (function () {

@@ -3,45 +3,43 @@
 axis_patcher.py
 ===============
 
-TIMETABLE_LABEL_AUDIT_V1
-------------------------
+TIMETABLE_SEARCH_FIX_V1
+-----------------------
 
-Fixes the incomplete label-rename cascade. After TIMETABLE_LABEL_RENAME_V1
-was applied, a rename only reached the calendar table on the timetable
-management page — everywhere else (Periods Timetable page, Class Detail
-pages, Assign Teachers, etc.) kept showing the stale text. Two reasons:
+The live search box on the Periods Timetable page wasn't filtering.
+Two likely failure modes on the applied V2 patch:
 
-  1. `filter(label__iexact=old_name)` misses rows whose label has
-     different whitespace ("seniors " vs "seniors"). So the cascade was
-     silently partial.
-  2. Data that was already broken BEFORE V1 existed was never repaired.
+  1. The `input` event listener may not have attached (some browsers/
+     extensions, or an element-reference mismatch, silently no-op the
+     `addEventListener` call). With no listener, typing does nothing.
 
-What this patcher does:
+  2. Even when it does attach, there was no visual feedback: typing a
+     query that matched nothing left all cards visible if the class
+     matcher or `dataset` key didn't line up. Hard to tell "not working"
+     from "no matches".
 
-  A. Rewrites api_update_label so the cascade matches on
-     `.strip().lower()` on BOTH sides — legacy rows with trailing
-     whitespace or mixed case are caught. Response now includes a
-     `verify` block exposing the current DB state so DevTools can
-     confirm the cascade actually ran.
+This patcher replaces the search wiring with a belt-and-suspenders
+implementation that is hard to break:
 
-  B. Adds two new endpoints:
-       GET  /api/timetable/labels/audit/   - report stale / orphan labels
-       POST /api/timetable/labels/repair/  - auto-fix case/whitespace
-                                             variants to canonical text
-                                             (safe: only touches labels
-                                              that DO have a canonical
-                                              ScheduleLabel).
+  * The search input gets an inline `oninput` fallback in the HTML, so
+    even if `addEventListener` fails to run, a global function is
+    invoked on every keystroke.
+  * A second, document-level `input` delegation listener catches the
+    same event if the direct listener is somehow detached.
+  * `applyTtFilter` is rewritten to iterate over `container.children`
+    directly (no `querySelectorAll('.card[data-tt-id]')` class-match
+    dependency), use `style.setProperty('display', 'none')` /
+    `removeProperty('display')` for hide/show, and count matches.
+  * A "No timetables match your search" card appears when the query
+    filters everything out.
+  * The search wrap is made visible by default (removed the inline
+    `display:none`); renderAll still toggles it off when the list is
+    empty.
+  * Optional `window.TIMETABLE_DEBUG = true` in DevTools logs each
+    filter pass (query, total cards, visible count) for diagnosis.
 
-  C. Adds a management command `fix_orphan_labels` that runs the same
-     audit + repair across every tenant schema, so pre-V1 corruption
-     gets cleaned up.
-
-  D. Wires up the two new URLs in public_urls.py.
-
-Does NOT touch:
-  * Orphan labels (no matching ScheduleLabel at all) — those need a
-    human decision, so we only report them.
-  * api_delete_label behaviour.
+Files modified:
+  - templates/tenant/timetable_periods.html
 
 Idempotent. Safe to run multiple times.
 
@@ -50,13 +48,12 @@ Usage:
 """
 
 import argparse
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
 
-MARKER = "TIMETABLE_LABEL_AUDIT_V1"
+MARKER = "TIMETABLE_SEARCH_FIX_V1"
 
 
 def _log(msg):
@@ -90,267 +87,188 @@ def _write(path: Path, content: str, dry_run: bool, verbose: bool) -> bool:
 
 
 # =====================================================================
-# STEP 1 — axis_saas/views/timetable.py
-#
-# Strategy: replace the entire api_update_label function using a regex
-# that runs from its decorator (which has the V1 marker comment) to the
-# start of api_delete_label. This is robust against small whitespace
-# differences in the body.
+# STEP 1 — templates/tenant/timetable_periods.html
 # =====================================================================
 
-# ---- 1a. New api_update_label + two new views, to be injected ----
-NEW_API_UPDATE_AND_AUDIT = r'''@csrf_exempt
-@require_http_methods(["POST"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-@transaction.atomic  # TIMETABLE_LABEL_AUDIT_V1: rename must be all-or-nothing
-def api_update_label(request, schema_name):
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    lbl_id = data.get('id')
-    name = (data.get('name') or '').strip()
-    description = (data.get('description') or '').strip()
-    if not lbl_id:
-        return JsonResponse({'error': 'id required'}, status=400)
-    if not name:
-        return JsonResponse({'error': 'Label name is required'}, status=400)
-    if len(name) > 50:
-        return JsonResponse({'error': 'Label name too long (max 50 chars)'}, status=400)
-    with schema_context(schema_name):
-        try:
-            lbl = ScheduleLabel.objects.get(id=lbl_id)
-        except ScheduleLabel.DoesNotExist:
-            return JsonResponse({'error': 'Label not found'}, status=404)
-        if ScheduleLabel.objects.filter(name__iexact=name).exclude(id=lbl_id).exists():
-            return JsonResponse({'error': f"Another label '{name}' already exists"}, status=400)
+# ---- 1a. Search wrap: remove display:none, add inline oninput, add hint ----
+SEARCH_HTML_OLD = (
+    "<!-- SEARCH (TIMETABLE_PERIODS_V2) -->\n"
+    "<div id=\"ttSearchWrap\" class=\"form-group\" style=\"max-width:380px; margin-bottom:1rem; display:none;\">\n"
+    "    <input type=\"text\" id=\"ttSearchInput\" class=\"form-control\"\n"
+    "           placeholder=\"\U0001f50d Search timetables by title or label...\">\n"
+    "</div>\n"
+)
 
-        old_name = (lbl.name or '').strip()
-        old_key = old_name.lower()
-        new_key = name.strip().lower()
-
-        day_schedules_updated = 0
-        timetables_updated = 0
-
-        if old_key and old_key != new_key:
-            # TIMETABLE_LABEL_AUDIT_V1: ScheduleLabel.name is canonical but
-            # DaySchedule.label and PeriodsTimetable.label are denormalized
-            # copies of that text. If the rename doesn't cascade everywhere,
-            # the calendar table below, the Periods Timetable page, and every
-            # class detail page keep showing the stale string forever.
-            #
-            # Matching uses `.strip().lower()` on BOTH sides so legacy rows
-            # with trailing whitespace or mixed case are still caught. The
-            # CI unique constraint (unique_label_per_day_ci) guarantees at
-            # most one case variant per (calendar, day), so this cannot
-            # accidentally steal a differently-cased sibling row.
-
-            # ---- Find DaySchedule rows to rename -------------------------
-            ds_to_update = []
-            ds_days = set()
-            for ds in DaySchedule.objects.all():
-                if (ds.label or '').strip().lower() == old_key:
-                    ds_to_update.append(ds.id)
-                    ds_days.add(ds.day_of_week)
-
-            # ---- Collision guard -----------------------------------------
-            if ds_to_update:
-                collisions = list(
-                    DaySchedule.objects
-                    .filter(day_of_week__in=ds_days)
-                    .exclude(id__in=ds_to_update)
-                    .values_list('label', 'day_of_week')
-                )
-                clashing = [
-                    d for l, d in collisions
-                    if (l or '').strip().lower() == new_key
-                ]
-                if clashing:
-                    day_names = dict(TimetableEntry.DAY_CHOICES)
-                    collision_labels = ', '.join(
-                        day_names.get(d, str(d)) for d in sorted(set(clashing))
-                    )
-                    return JsonResponse({
-                        'error': (
-                            f"Cannot rename '{old_name}' to '{name}': the new "
-                            f"name is already used on {collision_labels}. "
-                            f"Rename or delete those slots first, then try again."
-                        )
-                    }, status=400)
-
-            # ---- Apply DaySchedule cascade -------------------------------
-            if ds_to_update:
-                day_schedules_updated = (
-                    DaySchedule.objects
-                    .filter(id__in=ds_to_update)
-                    .update(label=name)
-                )
-
-            # ---- Find & update PeriodsTimetable rows ---------------------
-            tt_to_update = []
-            for tt in PeriodsTimetable.objects.all():
-                if (tt.label or '').strip().lower() == old_key:
-                    tt_to_update.append(tt.id)
-            if tt_to_update:
-                timetables_updated = (
-                    PeriodsTimetable.objects
-                    .filter(id__in=tt_to_update)
-                    .update(label=name)
-                )
-
-        lbl.name = name
-        lbl.description = description[:150]
-        lbl.save()
-
-        # ---- Post-write verification block -------------------------------
-        # Surfaces the current DB state so the frontend / DevTools can
-        # confirm the cascade actually ran.
-        try:
-            verify = {
-                'schedule_label_names': list(
-                    ScheduleLabel.objects.order_by('name').values_list('name', flat=True)
-                ),
-                'day_schedule_labels': sorted(set(
-                    (l or '') for l in DaySchedule.objects.values_list('label', flat=True)
-                )),
-                'timetable_labels': sorted(set(
-                    (l or '') for l in PeriodsTimetable.objects.values_list('label', flat=True)
-                )),
-            }
-        except Exception:
-            verify = None
-
-        return JsonResponse({
-            'success': True,
-            'label': {'id': lbl.id, 'name': lbl.name, 'description': lbl.description or ''},
-            'cascaded': {
-                'day_schedules_updated': day_schedules_updated,
-                'timetables_updated': timetables_updated,
-                'old_name': old_name,
-                'new_name': name,
-            },
-            'verify': verify,
-        })
-
-
-@csrf_exempt
-@require_http_methods(["GET"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-def api_audit_labels(request, schema_name):
-    """TIMETABLE_LABEL_AUDIT_V1: report label references that have drifted
-    away from their canonical ScheduleLabel.
-
-    Categories:
-      * orphans         - label text exists on DaySchedule / PeriodsTimetable
-                          but no ScheduleLabel matches it at all.
-      * case_variants   - label text matches a ScheduleLabel only after
-                          .strip().lower() (so the rendered text differs).
-    """
-    with schema_context(schema_name):
-        canonical_by_key = {}
-        for l in ScheduleLabel.objects.all():
-            canonical_by_key[(l.name or '').strip().lower()] = l.name
-
-        def _scan(values):
-            orphans = {}
-            variants = {}
-            for v in values:
-                key = (v or '').strip().lower()
-                if not key:
-                    continue
-                if key not in canonical_by_key:
-                    orphans[v] = orphans.get(v, 0) + 1
-                elif v != canonical_by_key[key]:
-                    variants[v] = variants.get(v, 0) + 1
-            return orphans, variants
-
-        ds_orphans, ds_variants = _scan(DaySchedule.objects.values_list('label', flat=True))
-        tt_orphans, tt_variants = _scan(PeriodsTimetable.objects.values_list('label', flat=True))
-
-        return JsonResponse({
-            'schedule_labels': list(
-                ScheduleLabel.objects.order_by('name').values_list('name', flat=True)
-            ),
-            'day_schedule_orphans': ds_orphans,
-            'day_schedule_case_variants': ds_variants,
-            'timetable_orphans': tt_orphans,
-            'timetable_case_variants': tt_variants,
-            'clean': not (ds_orphans or ds_variants or tt_orphans or tt_variants),
-        })
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('timetable_management')
-@transaction.atomic  # TIMETABLE_LABEL_AUDIT_V1
-def api_repair_labels(request, schema_name):
-    """TIMETABLE_LABEL_AUDIT_V1: rewrite every DaySchedule / PeriodsTimetable
-    label that matches a canonical ScheduleLabel only after
-    .strip().lower() — so "Seniors " becomes "seniors".
-
-    Orphan labels (no matching ScheduleLabel at all) are NOT touched; the
-    caller decides what those should become.
-    """
-    with schema_context(schema_name):
-        canonical_by_key = {}
-        for l in ScheduleLabel.objects.all():
-            canonical_by_key[(l.name or '').strip().lower()] = l.name
-
-        # DaySchedule
-        ds_by_target = {}
-        for ds in DaySchedule.objects.all():
-            key = (ds.label or '').strip().lower()
-            if key in canonical_by_key and ds.label != canonical_by_key[key]:
-                ds_by_target.setdefault(canonical_by_key[key], []).append(ds.id)
-        ds_fixed = 0
-        for target, ids in ds_by_target.items():
-            ds_fixed += DaySchedule.objects.filter(id__in=ids).update(label=target)
-
-        # PeriodsTimetable
-        tt_by_target = {}
-        for tt in PeriodsTimetable.objects.all():
-            key = (tt.label or '').strip().lower()
-            if key in canonical_by_key and tt.label != canonical_by_key[key]:
-                tt_by_target.setdefault(canonical_by_key[key], []).append(tt.id)
-        tt_fixed = 0
-        for target, ids in tt_by_target.items():
-            tt_fixed += PeriodsTimetable.objects.filter(id__in=ids).update(label=target)
-
-        return JsonResponse({
-            'success': True,
-            'day_schedules_repaired': ds_fixed,
-            'timetables_repaired': tt_fixed,
-        })
-'''
-
-
-# Regex to grab the WHOLE existing api_update_label block, from its decorator
-# line (which contains the V1 marker) up to (but NOT including) the next
-# decorated function `api_delete_label`.
-REPLACE_PATTERN = re.compile(
-    r'@csrf_exempt\s*\n'
-    r'@require_http_methods\(\["POST"\]\)\s*\n'
-    r'@require_tenant_type\(\[' +
-    r"'school', 'wing_school', 'single_small_school'\]\)\s*\n"
-    r'@require_school_feature\(' +
-    r"'timetable_management'\)\s*\n"
-    r'@transaction\.atomic\s*#\s*TIMETABLE_LABEL_RENAME_V1.*?' +
-    r'(?=@csrf_exempt\s*\n'
-    r'@require_http_methods\(\["POST"\]\)\s*\n'
-    r'@require_tenant_type\(\[' +
-    r"'school', 'wing_school', 'single_small_school'\]\)\s*\n"
-    r'@require_school_feature\(' +
-    r"'timetable_management'\)\s*\n"
-    r'def\s+api_delete_label)',
-    re.DOTALL,
+SEARCH_HTML_NEW = (
+    "<!-- SEARCH (TIMETABLE_SEARCH_FIX_V1) -->\n"
+    "<div id=\"ttSearchWrap\" class=\"form-group\" style=\"max-width:420px; margin-bottom:1rem;\">\n"
+    "    <input type=\"text\" id=\"ttSearchInput\" class=\"form-control\"\n"
+    "           placeholder=\"\U0001f50d Search timetables by title or label...\"\n"
+    "           autocomplete=\"off\" autocorrect=\"off\" autocapitalize=\"off\" spellcheck=\"false\"\n"
+    "           oninput=\"window.__ttApplyFilter__ &amp;&amp; window.__ttApplyFilter__()\">\n"
+    "    <small class=\"text-muted\" style=\"display:block; margin-top:0.35rem; font-size:0.72rem;\">\n"
+    "        Filters the list below by matching titles and labels (case-insensitive).\n"
+    "    </small>\n"
+    "</div>\n"
+    "\n"
+    "<!-- NO-RESULTS (TIMETABLE_SEARCH_FIX_V1) -->\n"
+    "<div id=\"ttSearchNoResults\" class=\"card\" style=\"display:none; text-align:center; color:var(--muted);\">\n"
+    "    <p style=\"margin:0;\">No timetables match your search.</p>\n"
+    "</div>\n"
 )
 
 
-def patch_view_timetable(path: Path, dry_run: bool, verbose: bool) -> bool:
-    _log(f"Patching view: {path}")
+# ---- 1b. Replace the search block (function + wiring) ----
+SEARCH_FN_OLD = (
+    "    // ================================================================\n"
+    "    // SEARCH (TIMETABLE_PERIODS_V2)\n"
+    "    // ================================================================\n"
+    "    function applyTtFilter() {\n"
+    "        if (!ttSearchInput) return;\n"
+    "        const q = (ttSearchInput.value || '').trim().toLowerCase();\n"
+    "        container.querySelectorAll('.card[data-tt-id]').forEach(function (card) {\n"
+    "            const hay = card.dataset.searchText || '';\n"
+    "            card.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';\n"
+    "        });\n"
+    "    }\n"
+    "    if (ttSearchInput) {\n"
+    "        ttSearchInput.addEventListener('input', applyTtFilter);\n"
+    "    }\n"
+)
+
+SEARCH_FN_NEW = (
+    "    // ================================================================\n"
+    "    // SEARCH (TIMETABLE_SEARCH_FIX_V1)\n"
+    "    // ================================================================\n"
+    "    // Rewritten to be bulletproof:\n"
+    "    //   * iterates container.children directly (no reliance on\n"
+    "    //     querySelectorAll class matches)\n"
+    "    //   * hides via style.setProperty / shows via removeProperty\n"
+    "    //   * counts visible cards and toggles a 'no results' element\n"
+    "    //   * logs each pass when window.TIMETABLE_DEBUG is true\n"
+    "    function applyTtFilter() {\n"
+    "        if (!ttSearchInput || !container) return;\n"
+    "        const q = (ttSearchInput.value || '').trim().toLowerCase();\n"
+    "        const noResultsEl = document.getElementById('ttSearchNoResults');\n"
+    "        const kids = container.children;\n"
+    "        let total = 0;\n"
+    "        let visible = 0;\n"
+    "        for (let i = 0; i < kids.length; i++) {\n"
+    "            const card = kids[i];\n"
+    "            // Only consider real timetable cards.\n"
+    "            if (!card || !card.classList || !card.classList.contains('card')) continue;\n"
+    "            if (!card.dataset || !card.dataset.ttId) continue;\n"
+    "            total += 1;\n"
+    "            const hay = card.dataset.searchText || '';\n"
+    "            const match = !q || hay.indexOf(q) !== -1;\n"
+    "            if (match) {\n"
+    "                card.style.removeProperty('display');\n"
+    "                visible += 1;\n"
+    "            } else {\n"
+    "                card.style.setProperty('display', 'none', 'important');\n"
+    "            }\n"
+    "        }\n"
+    "        if (noResultsEl) {\n"
+    "            noResultsEl.style.display = (q && total > 0 && visible === 0) ? 'block' : 'none';\n"
+    "        }\n"
+    "        if (window.TIMETABLE_DEBUG) {\n"
+    "            console.log('[TimetableSearch] q=', JSON.stringify(q),\n"
+    "                        'total=', total, 'visible=', visible);\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    // Expose so the inline oninput attribute can call it as a fallback.\n"
+    "    window.__ttApplyFilter__ = applyTtFilter;\n"
+    "\n"
+    "    // Primary wiring: direct listener on the input.\n"
+    "    if (ttSearchInput) {\n"
+    "        ttSearchInput.addEventListener('input', applyTtFilter);\n"
+    "        ttSearchInput.addEventListener('change', applyTtFilter);\n"
+    "        ttSearchInput.addEventListener('keyup', applyTtFilter);\n"
+    "    }\n"
+    "\n"
+    "    // Fallback wiring: document-level delegation. Even if the direct\n"
+    "    // listener never attaches (unlikely, but cheap insurance), this\n"
+    "    // catches the same event from anywhere on the page.\n"
+    "    document.addEventListener('input', function (e) {\n"
+    "        if (e && e.target && e.target.id === 'ttSearchInput') {\n"
+    "            applyTtFilter();\n"
+    "        }\n"
+    "    });\n"
+)
+
+
+# ---- 1c. renderAll: use .style.removeProperty / setProperty for wrap ----
+RENDER_TOGGLE_OLD = (
+    "        emptyState.style.display = 'block';\n"
+    "        if (ttSearchWrap) ttSearchWrap.style.display = 'none';\n"
+    "        return;\n"
+    "    }\n"
+    "    emptyState.style.display = 'none';\n"
+    "    // TIMETABLE_PERIODS_V2: show search whenever there is at least one\n"
+    "    // timetable.\n"
+    "    if (ttSearchWrap) ttSearchWrap.style.display = 'block';\n"
+)
+
+RENDER_TOGGLE_NEW = (
+    "        emptyState.style.display = 'block';\n"
+    "        if (ttSearchWrap) ttSearchWrap.style.setProperty('display', 'none');\n"
+    "        // TIMETABLE_SEARCH_FIX_V1: also hide the 'no results' block\n"
+    "        // when there are simply no timetables.\n"
+    "        try {\n"
+    "            const _nr = document.getElementById('ttSearchNoResults');\n"
+    "            if (_nr) _nr.style.setProperty('display', 'none');\n"
+    "        } catch (e) {}\n"
+    "        return;\n"
+    "    }\n"
+    "    emptyState.style.display = 'none';\n"
+    "    // TIMETABLE_SEARCH_FIX_V1: keep the search bar visible whenever\n"
+    "    // there is at least one timetable.\n"
+    "    if (ttSearchWrap) ttSearchWrap.style.removeProperty('display');\n"
+)
+
+
+# ---- 1d. renderAll: apply filter at end (already does; keep same) ----
+# No change needed: renderAll already calls applyTtFilter() at the end via
+# the guard `if (typeof applyTtFilter === 'function') applyTtFilter();`.
+# That guard still holds because applyTtFilter is a hoisted function
+# declaration.
+
+# ---- 1e. Init: call applyTtFilter once at the very end ----
+INIT_OLD = (
+    "    // ================================================================\n"
+    "    // INIT\n"
+    "    // ================================================================\n"
+    "    renderAll();\n"
+)
+
+INIT_NEW = (
+    "    // ================================================================\n"
+    "    // INIT\n"
+    "    // ================================================================\n"
+    "    renderAll();\n"
+    "\n"
+    "    // TIMETABLE_SEARCH_FIX_V1: one extra pass after the browser has\n"
+    "    // finished attaching listeners, in case anything above raced.\n"
+    "    try {\n"
+    "        if (ttSearchInput) {\n"
+    "            ttSearchInput.addEventListener('input', applyTtFilter);\n"
+    "            if (ttSearchInput.value) applyTtFilter();\n"
+    "        }\n"
+    "    } catch (e) {}\n"
+)
+
+
+TEMPLATE_EDITS = [
+    ("search wrap + no-results element", SEARCH_HTML_OLD,   SEARCH_HTML_NEW),
+    ("rewrite applyTtFilter + wiring",   SEARCH_FN_OLD,     SEARCH_FN_NEW),
+    ("renderAll: display toggling",      RENDER_TOGGLE_OLD, RENDER_TOGGLE_NEW),
+    ("INIT: extra listener pass",        INIT_OLD,          INIT_NEW),
+]
+
+
+def patch_template(path: Path, dry_run: bool, verbose: bool) -> bool:
+    _log(f"Patching template: {path}")
     content = _read(path)
     if content is None:
         return False
@@ -359,247 +277,23 @@ def patch_view_timetable(path: Path, dry_run: bool, verbose: bool) -> bool:
         _log("  - already patched, skipping")
         return True
 
-    if "TIMETABLE_LABEL_RENAME_V1" not in content:
-        _log("  ERROR: TIMETABLE_LABEL_RENAME_V1 marker not present — "
-             "run the V1 patcher first")
-        return False
+    applied = 0
+    for label, old, new in TEMPLATE_EDITS:
+        if old not in content:
+            _log(f"  WARN: anchor not found for '{label}'")
+            continue
+        content = content.replace(old, new, 1)
+        _log(f"  + {label}")
+        applied += 1
 
-    m = REPLACE_PATTERN.search(content)
-    if not m:
-        _log("  ERROR: could not locate api_update_label block via regex")
-        return False
+    # Marker just after {% block body %} for idempotency detection.
+    anchor = "{% block body %}\n"
+    if anchor in content and MARKER not in content:
+        content = content.replace(anchor, anchor + "{# " + MARKER + " #}\n", 1)
 
-    new_content = content[:m.start()] + NEW_API_UPDATE_AND_AUDIT + "\n\n" + content[m.end():]
-    _log("  + api_update_label rewritten (robust strip+lower cascade + verify block)")
-    _log("  + api_audit_labels added")
-    _log("  + api_repair_labels added")
-    return _write(path, new_content, dry_run, verbose)
-
-
-# =====================================================================
-# STEP 2 — axis_saas/public_urls.py : wire up the two new endpoints
-# =====================================================================
-URLS_IMPORT_OLD = (
-    "from .views.timetable import (\n"
-    "    timetable_management, api_update_calendar, api_add_holiday, api_delete_holiday,\n"
-    "    api_add_period, api_delete_period, api_update_period, api_get_timetable,\n"
-    "    api_save_timetable, api_save_day_schedules, api_update_holiday,\n"
-    "    api_list_labels, api_add_label, api_update_label, api_delete_label,\n"
-    "    api_batch_update_label_times,\n"
-    ")\n"
-)
-
-URLS_IMPORT_NEW = (
-    "from .views.timetable import (\n"
-    "    timetable_management, api_update_calendar, api_add_holiday, api_delete_holiday,\n"
-    "    api_add_period, api_delete_period, api_update_period, api_get_timetable,\n"
-    "    api_save_timetable, api_save_day_schedules, api_update_holiday,\n"
-    "    api_list_labels, api_add_label, api_update_label, api_delete_label,\n"
-    "    api_batch_update_label_times,\n"
-    "    api_audit_labels, api_repair_labels,  # TIMETABLE_LABEL_AUDIT_V1\n"
-    ")\n"
-)
-
-
-URLS_ROUTE_OLD = (
-    "    path('portal/<slug:schema_name>/api/timetable/labels/delete/', "
-    "portal_wrapper(login_required_for_schema(api_delete_label)), "
-    "name='api_timetable_labels_delete'),\n"
-)
-
-URLS_ROUTE_NEW = (
-    "    path('portal/<slug:schema_name>/api/timetable/labels/delete/', "
-    "portal_wrapper(login_required_for_schema(api_delete_label)), "
-    "name='api_timetable_labels_delete'),\n"
-    "    # ===== TIMETABLE_LABEL_AUDIT_V1 =====\n"
-    "    path('portal/<slug:schema_name>/api/timetable/labels/audit/', "
-    "portal_wrapper(login_required_for_schema(api_audit_labels)), "
-    "name='api_timetable_labels_audit'),\n"
-    "    path('portal/<slug:schema_name>/api/timetable/labels/repair/', "
-    "portal_wrapper(login_required_for_schema(api_repair_labels)), "
-    "name='api_timetable_labels_repair'),\n"
-)
-
-
-def patch_public_urls(path: Path, dry_run: bool, verbose: bool) -> bool:
-    _log(f"Patching URLs: {path}")
-    content = _read(path)
-    if content is None:
-        return False
-
-    if "api_timetable_labels_audit" in content:
-        _log("  - already patched, skipping")
-        return True
-
-    changed = False
-
-    if URLS_IMPORT_OLD in content:
-        content = content.replace(URLS_IMPORT_OLD, URLS_IMPORT_NEW, 1)
-        _log("  + added imports for api_audit_labels / api_repair_labels")
-        changed = True
-    else:
-        _log("  WARN: timetable import block anchor not found")
-
-    if URLS_ROUTE_OLD in content:
-        content = content.replace(URLS_ROUTE_OLD, URLS_ROUTE_NEW, 1)
-        _log("  + added audit + repair URL routes")
-        changed = True
-    else:
-        _log("  WARN: labels/delete URL anchor not found")
-
-    if not changed:
-        return True
+    if applied == 0:
+        _log("  WARN: no edits were applied")
     return _write(path, content, dry_run, verbose)
-
-
-# =====================================================================
-# STEP 3 — axis_saas/management/commands/fix_orphan_labels.py
-# =====================================================================
-MGMT_CMD_FILENAME = "fix_orphan_labels.py"
-
-MGMT_CMD_CONTENT = '''# axis_saas/management/commands/fix_orphan_labels.py
-#
-# TIMETABLE_LABEL_AUDIT_V1
-# Audit (and optionally repair) DaySchedule / PeriodsTimetable labels that
-# have drifted away from their canonical ScheduleLabel.
-#
-#   python manage.py fix_orphan_labels                       # audit all tenants
-#   python manage.py fix_orphan_labels --apply               # fix case/ws variants
-#   python manage.py fix_orphan_labels --schema school1      # one tenant only
-#   python manage.py fix_orphan_labels --schema school1 --apply
-#
-from django.core.management.base import BaseCommand
-from django_tenants.utils import schema_context
-
-from axis_saas.models import (
-    SchoolClient, ScheduleLabel, DaySchedule, PeriodsTimetable,
-)
-
-
-class Command(BaseCommand):
-    help = ("Audit / repair DaySchedule.label and PeriodsTimetable.label "
-            "references that no longer match a canonical ScheduleLabel.name.")
-
-    def add_arguments(self, parser):
-        parser.add_argument('--schema', help='Only process this tenant schema')
-        parser.add_argument('--apply', action='store_true',
-                            help='Actually repair case/whitespace variants '
-                                 '(default: audit only)')
-
-    def handle(self, *args, **options):
-        tenants = SchoolClient.objects.exclude(schema_name='public')
-        if options.get('schema'):
-            tenants = tenants.filter(schema_name=options['schema'])
-
-        if not tenants.exists():
-            self.stdout.write(self.style.WARNING('No tenants to process.'))
-            return
-
-        total_ds_fixed = 0
-        total_tt_fixed = 0
-        total_ds_orphans = 0
-        total_tt_orphans = 0
-
-        for tenant in tenants:
-            self.stdout.write(f"\n=== {tenant.schema_name} ({tenant.name}) ===")
-            with schema_context(tenant.schema_name):
-                canonical_by_key = {}
-                for l in ScheduleLabel.objects.all():
-                    canonical_by_key[(l.name or '').strip().lower()] = l.name
-
-                ds_orphans, ds_variants = {}, {}
-                for v in DaySchedule.objects.values_list('label', flat=True):
-                    key = (v or '').strip().lower()
-                    if not key:
-                        continue
-                    if key not in canonical_by_key:
-                        ds_orphans[v] = ds_orphans.get(v, 0) + 1
-                    elif v != canonical_by_key[key]:
-                        ds_variants[v] = ds_variants.get(v, 0) + 1
-
-                tt_orphans, tt_variants = {}, {}
-                for v in PeriodsTimetable.objects.values_list('label', flat=True):
-                    key = (v or '').strip().lower()
-                    if not key:
-                        continue
-                    if key not in canonical_by_key:
-                        tt_orphans[v] = tt_orphans.get(v, 0) + 1
-                    elif v != canonical_by_key[key]:
-                        tt_variants[v] = tt_variants.get(v, 0) + 1
-
-                self.stdout.write(
-                    f"  Canonical labels: {sorted(canonical_by_key.values())}"
-                )
-                if ds_variants:
-                    self.stdout.write(self.style.WARNING(
-                        f"  DaySchedule case/ws variants: {ds_variants}"
-                    ))
-                if tt_variants:
-                    self.stdout.write(self.style.WARNING(
-                        f"  PeriodsTimetable case/ws variants: {tt_variants}"
-                    ))
-                if ds_orphans:
-                    self.stdout.write(self.style.ERROR(
-                        f"  DaySchedule ORPHANS (no ScheduleLabel): {ds_orphans}"
-                    ))
-                if tt_orphans:
-                    self.stdout.write(self.style.ERROR(
-                        f"  PeriodsTimetable ORPHANS: {tt_orphans}"
-                    ))
-
-                total_ds_orphans += sum(ds_orphans.values())
-                total_tt_orphans += sum(tt_orphans.values())
-
-                if not ds_variants and not tt_variants and not ds_orphans and not tt_orphans:
-                    self.stdout.write(self.style.SUCCESS("  Clean ✔"))
-                    continue
-
-                if not options['apply']:
-                    self.stdout.write("  (audit only; pass --apply to repair variants)")
-                    continue
-
-                # Repair case/ws variants only
-                ds_by_target = {}
-                for ds in DaySchedule.objects.all():
-                    key = (ds.label or '').strip().lower()
-                    if key in canonical_by_key and ds.label != canonical_by_key[key]:
-                        ds_by_target.setdefault(canonical_by_key[key], []).append(ds.id)
-                ds_fixed = 0
-                for target, ids in ds_by_target.items():
-                    ds_fixed += DaySchedule.objects.filter(id__in=ids).update(label=target)
-
-                tt_by_target = {}
-                for tt in PeriodsTimetable.objects.all():
-                    key = (tt.label or '').strip().lower()
-                    if key in canonical_by_key and tt.label != canonical_by_key[key]:
-                        tt_by_target.setdefault(canonical_by_key[key], []).append(tt.id)
-                tt_fixed = 0
-                for target, ids in tt_by_target.items():
-                    tt_fixed += PeriodsTimetable.objects.filter(id__in=ids).update(label=target)
-
-                self.stdout.write(self.style.SUCCESS(
-                    f"  Repaired: DaySchedule={ds_fixed}, PeriodsTimetable={tt_fixed}"
-                ))
-                total_ds_fixed += ds_fixed
-                total_tt_fixed += tt_fixed
-
-        self.stdout.write(self.style.SUCCESS(
-            f"\nDone. Totals: ds_repaired={total_ds_fixed}, tt_repaired={total_tt_fixed}, "
-            f"ds_orphans={total_ds_orphans}, tt_orphans={total_tt_orphans}"
-        ))
-'''
-
-
-def patch_management_command(target: Path, dry_run: bool, verbose: bool) -> bool:
-    cmd_path = (target / 'axis_saas' / 'management' / 'commands'
-                / MGMT_CMD_FILENAME)
-    _log(f"Writing management command: {cmd_path}")
-    if cmd_path.exists():
-        existing = _read(cmd_path)
-        if existing and MARKER in existing:
-            _log("  - already present, skipping")
-            return True
-    return _write(cmd_path, MGMT_CMD_CONTENT, dry_run, verbose)
 
 
 # =====================================================================
@@ -608,10 +302,10 @@ def patch_management_command(target: Path, dry_run: bool, verbose: bool) -> bool
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "TIMETABLE_LABEL_AUDIT_V1 — Cascade label renames robustly "
-            "(strip+lower matching), add audit / repair endpoints, and "
-            "add a management command to retroactively fix labels that "
-            "drifted before this patch existed."
+            "TIMETABLE_SEARCH_FIX_V1 — Rewrite the Periods Timetable live "
+            "search with defensive wiring (inline oninput + direct listener "
+            "+ document delegation), a 'no results' state, and optional "
+            "debug logging."
         )
     )
     parser.add_argument('--dry-run', action='store_true')
@@ -631,65 +325,68 @@ def main() -> int:
     ok = True
 
     print('-' * 60)
-    _log("STEP 1: axis_saas/views/timetable.py")
-    ok &= patch_view_timetable(
-        target / 'axis_saas' / 'views' / 'timetable.py',
+    _log("STEP 1: templates/tenant/timetable_periods.html")
+    ok &= patch_template(
+        target / 'templates' / 'tenant' / 'timetable_periods.html',
         args.dry_run, args.verbose,
     )
-
-    print('-' * 60)
-    _log("STEP 2: axis_saas/public_urls.py")
-    ok &= patch_public_urls(
-        target / 'axis_saas' / 'public_urls.py',
-        args.dry_run, args.verbose,
-    )
-
-    print('-' * 60)
-    _log("STEP 3: axis_saas/management/commands/fix_orphan_labels.py")
-    ok &= patch_management_command(target, args.dry_run, args.verbose)
 
     print('-' * 60)
     if ok:
         _log("DONE.")
         if not args.dry_run:
             _log("")
-            _log("NEXT STEPS (very important, do these in order):")
+            _log("NEXT STEPS:")
             _log("")
-            _log("  1. RESTART Django. The view changes only take effect")
-            _log("     after the dev server / gunicorn process restarts.")
-            _log("     If you skip this step, the OLD api_update_label will")
-            _log("     keep running and the bug will look unfixed.")
+            _log("  1. Hard-refresh the browser (Ctrl+F5 / Cmd+Shift+R).")
+            _log("     No server restart needed — this patcher only touches")
+            _log("     a template.")
             _log("")
-            _log("  2. Retroactively repair any data that was already broken")
-            _log("     (renamed while the old code was running):")
-            _log("       python manage.py fix_orphan_labels            # audit")
-            _log("       python manage.py fix_orphan_labels --apply    # fix")
-            _log("     Read the output. Anything listed under ORPHANS has no")
-            _log("     matching ScheduleLabel and needs a manual decision.")
+            _log("  2. Open the Periods Timetable page.")
             _log("")
-            _log("  3. Hard-refresh the browser (Ctrl+F5 / Cmd+Shift+R).")
+            _log("  3. The search bar should now be visible at the top of the")
+            _log("     page (above the timetable cards).")
             _log("")
-            _log("  4. Test the rename again:")
-            _log("       - Manage Labels → ✎ Edit → change name → Save.")
-            _log("       - Open DevTools → Network → click the update request.")
-            _log("       - Look at the response JSON. It now contains a")
-            _log("         `cascaded` and a `verify` block, e.g.:")
-            _log("           \"cascaded\": {\"day_schedules_updated\": 3, ...}")
-            _log("           \"verify\": {\"day_schedule_labels\": [\"seniors middle\"], ...}")
-            _log("       - If `day_schedules_updated` is > 0 and")
-            _log("         `verify.day_schedule_labels` shows the new name,")
-            _log("         the DB cascade worked.")
+            _log("  4. Type part of a title or label. Cards should filter")
+            _log("     live as you type.")
             _log("")
-            _log("  5. Now open any OTHER page that shows labels:")
-            _log("       - /portal/<schema>/timetable/periods/")
-            _log("       - /portal/<schema>/my-classes/<id>/  (assigned timetable)")
-            _log("     They should all show the NEW label after reload.")
+            _log("  5. Type something that matches nothing (e.g. 'zzzzz').")
+            _log("     You should see a card reading:")
+            _log("       'No timetables match your search.'")
             _log("")
-            _log("  6. To run an on-demand audit any time:")
-            _log("       GET /portal/<schema>/api/timetable/labels/audit/")
-            _log("       POST /portal/<schema>/api/timetable/labels/repair/")
-            _log("     Both are CSRF-protected via the session, so use the")
-            _log("     browser (logged in) or curl with the CSRF cookie.")
+            _log("  6. Clear the search box. All cards should re-appear.")
+            _log("")
+            _log("  7. If it STILL doesn't filter, open DevTools console and run:")
+            _log("       window.TIMETABLE_DEBUG = true;")
+            _log("     Then type in the search box. You should see log lines:")
+            _log("       [TimetableSearch] q= 'sen' total= 3 visible= 1")
+            _log("     * If NO log lines appear, the input listener never fires.")
+            _log("       Check that no other script throws before this block.")
+            _log("     * If log lines appear but the wrong count is reported,")
+            _log("       the dataset.searchText values are wrong. Inspect one")
+            _log("       card in Elements → Properties and check data-search-text.")
+            _log("     * If log lines appear with correct counts but cards don't")
+            _log("       visually hide, a CSS rule with higher specificity is")
+            _log("       overriding the inline style. Search the page's CSS for")
+            _log("       a '.card' rule with 'display: something !important'.")
+            _log("")
+            _log("  Notes on the design:")
+            _log("   - Three independent wiring paths attach the filter:")
+            _log("       (1) inline oninput on the <input>")
+            _log("       (2) direct addEventListener on the input")
+            _log("       (3) document-level input delegation")
+            _log("     Any one of them is sufficient; the redundancy is")
+            _log("     deliberate so a single failed attach can't disable")
+            _log("     search entirely.")
+            _log("   - The 'no results' card is separate from the empty state")
+            _log("     so 'you have no timetables' and 'your search matched")
+            _log("     nothing' are visually distinct.")
+            _log("   - Cards are hidden with 'display: none !important' via")
+            _log("     style.setProperty so any weakly-authored stylesheet")
+            _log("     rule is overridden; showing uses removeProperty so the")
+            _log("     original stylesheet value wins again.")
+            _log("   - The filter survives a re-render (edit/delete triggers")
+            _log("     renderAll(), which re-runs applyTtFilter() at the end).")
         return 0
     _log("FAILED: one or more steps did not complete.")
     return 1
