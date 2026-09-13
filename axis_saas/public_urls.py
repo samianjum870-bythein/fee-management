@@ -1,3 +1,4 @@
+import functools
 import logging
 
 from django.contrib import admin
@@ -68,7 +69,15 @@ def ensure_schoolclient(schema_name):
             raise Http404(f"Tenant '{schema_name}' does not exist.")
 
 def portal_wrapper(view_func):
-    """Wrapper that ensures SchoolClient exists before calling the view."""
+    """Wrapper that ensures SchoolClient exists before calling the view.
+
+    LEAVE_ADMIN_APPROVE_FIX_02: use `functools.wraps` so that any view
+    attributes (notably `csrf_exempt`) propagate to the URL-resolved
+    callable. Without this, Django's CSRF middleware could not see the
+    `csrf_exempt` flag set on the inner view, and every POST to those
+    endpoints would be CSRF-checked regardless.
+    """
+    @functools.wraps(view_func)
     def wrapper(request, schema_name, *args, **kwargs):
         tenant = ensure_schoolclient(schema_name)
         if tenant is None:
@@ -132,6 +141,13 @@ def school_logout(request, schema_name):
     return redirect('school_login', schema_name=schema_name)
 
 def login_required_for_schema(view_func):
+    """Ensure the admin session is authenticated for this schema.
+
+    LEAVE_ADMIN_APPROVE_FIX_02: `functools.wraps` is required so that
+    `csrf_exempt` on the wrapped view survives the indirection. See
+    `portal_wrapper` above.
+    """
+    @functools.wraps(view_func)
     def wrapper(request, schema_name, *args, **kwargs):
         if not request.session.get('school_admin_authenticated') or request.session.get('school_admin_schema') != schema_name:
             return redirect('school_login', schema_name=schema_name)

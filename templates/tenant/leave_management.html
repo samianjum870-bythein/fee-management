@@ -320,33 +320,54 @@
     };
 
     // ----- approve / reject -----
+    // LEAVE_ADMIN_APPROVE_FIX_02: prefer reading the CSRF token from the
+    // cookie at request time. `{{ csrf_token }}` is baked at page-render
+    // time and can drift if the cookie is rotated (e.g. after a fresh
+    // login in another tab). Django writes the same secret into the
+    // `csrftoken` cookie, so reading it here keeps the two in sync.
+    function __readCsrfCookie() {
+        var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
     function postJson(url, body) {
-        // LEAVE_ADMIN_APPROVE_FIX_01: read the response as TEXT first
-        // so that a non-JSON reply (login redirect, HTML error page,
-        // CSRF 403 etc.) surfaces as a clear error message instead of
-        // silently rejecting the promise.
+        var token = __readCsrfCookie() || CSRF;
         return fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': CSRF,
+                'X-CSRFToken': token,
                 'X-Requested-With': 'XMLHttpRequest'
             },
             body: JSON.stringify(body || {}),
-            credentials: 'same-origin'
+            credentials: 'same-origin',
+            redirect: 'follow'
         }).then(function(r) {
+            // If the response was redirected to the login page, bail out
+            // with a clear message and send the user to login.
+            if (r.redirected && /\/(login|logout)\/?/i.test(r.url)) {
+                var err = new Error(
+                    'Your admin session has expired. Redirecting to login…'
+                );
+                err.__sessionExpired = true;
+                err.__loginUrl = r.url;
+                throw err;
+            }
+
             return r.text().then(function(text) {
                 var data;
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
                     var snippet = text.substring(0, 200).replace(/\s+/g, ' ');
-                    throw new Error(
+                    var err = new Error(
                         'Server returned non-JSON response (HTTP ' +
                         r.status + '). ' +
-                        'This usually means you were logged out or the ' +
+                        'This usually means you were logged out, or the ' +
                         'server hit an error. First 200 chars: ' + snippet
                     );
+                    err.__httpStatus = r.status;
+                    throw err;
                 }
                 return { ok: r.ok, status: r.status, data: data };
             });
@@ -365,6 +386,11 @@
             })
             .catch(function(err) {
                 console.error('[approveLeave]', err);
+                if (err && err.__sessionExpired && err.__loginUrl) {
+                    alert('Your session has expired. Redirecting to login…');
+                    window.location.href = err.__loginUrl;
+                    return;
+                }
                 alert('Could not approve leave:\n\n' + err.message);
             });
     };
@@ -381,6 +407,11 @@
             })
             .catch(function(err) {
                 console.error('[rejectLeave]', err);
+                if (err && err.__sessionExpired && err.__loginUrl) {
+                    alert('Your session has expired. Redirecting to login…');
+                    window.location.href = err.__loginUrl;
+                    return;
+                }
                 alert('Could not reject leave:\n\n' + err.message);
             });
     };
@@ -422,6 +453,11 @@
             })
             .catch(function(err) {
                 console.error('[savePolicy]', err);
+                if (err && err.__sessionExpired && err.__loginUrl) {
+                    alert('Your session has expired. Redirecting to login…');
+                    window.location.href = err.__loginUrl;
+                    return;
+                }
                 alert('Could not save policy:\n\n' + err.message);
             });
     };
