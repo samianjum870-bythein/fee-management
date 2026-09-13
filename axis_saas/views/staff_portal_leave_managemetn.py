@@ -1,5 +1,14 @@
 """AXIS views - Leave Management (staff portal / mobile side).
 
+LEAVE_MANAGEMENT_V2
+-------------------
+  * `_get_active_leave(staff)` returns the approved leave that
+    currently covers today (if any).
+  * `_validate_request` refuses a new application if the staff
+    member is currently on an approved leave.
+  * `staff_leave_policy_api` now includes `active_leave`.
+  * `staff_leave_management` passes `active_leave` to the template.
+
 Filename intentionally kept as specified by the project owner
 ("leave_managemetn"), do not rename.
 """
@@ -9,7 +18,7 @@ from calendar import monthrange
 from datetime import date, datetime, timedelta
 
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -28,6 +37,8 @@ def _get_or_create_policy():
 
 
 def _serialize_staff_leave(lv):
+    if lv is None:
+        return None
     return {
         'id': lv.id,
         'leave_type': lv.leave_type,
@@ -44,6 +55,32 @@ def _serialize_staff_leave(lv):
         'reviewed_at': lv.reviewed_at.isoformat() if lv.reviewed_at else '',
         'created_at': lv.created_at.isoformat(),
     }
+
+
+def _get_active_leave(staff, ref_date=None):
+    """Return the approved LeaveRequest that covers `ref_date` (default: today).
+
+    An "active" leave is one that:
+      * has status == 'approved', and
+      * start_date <= ref_date <= end_date.
+
+    If multiple cover the same day, the earliest one wins.
+    """
+    if staff is None:
+        return None
+    if ref_date is None:
+        ref_date = date.today()
+    return (
+        LeaveRequest.objects
+        .filter(
+            staff=staff,
+            status='approved',
+            start_date__lte=ref_date,
+            end_date__gte=ref_date,
+        )
+        .order_by('start_date', 'id')
+        .first()
+    )
 
 
 def _month_used_days(staff, ref_date, exclude_id=None):
@@ -85,14 +122,37 @@ def _week_used_days(staff, ref_date, exclude_id=None):
 
 
 def _validate_request(staff, start_date, end_date, policy):
+    """Return list of validation error strings (empty if valid).
+
+    Order matters: the "currently on leave" rule is checked first so
+    the user sees the most relevant message instead of a generic
+    overlap error.
+    """
     errors = []
+
+    # 0) Staff is currently inside an approved leave window.
+    active = _get_active_leave(staff)
+    if active is not None:
+        errors.append(
+            f"You are currently on an approved leave from "
+            f"{active.start_date.strftime('%d %b %Y')} to "
+            f"{active.end_date.strftime('%d %b %Y')} "
+            f"({active.total_days} day"
+            f"{'s' if active.total_days > 1 else ''}). "
+            f"You cannot apply for a new leave until this one ends."
+        )
+        return errors
+
+    # 1) Date ordering.
     if start_date > end_date:
         errors.append('Start date must be before or on end date.')
         return errors
 
+    # 2) Backdated check.
     if not policy.allow_backdated and start_date < date.today():
         errors.append('You cannot apply for a leave starting in the past.')
 
+    # 3) Consecutive-day cap.
     total_days = (end_date - start_date).days + 1
     if total_days > policy.max_consecutive_days:
         errors.append(
@@ -100,6 +160,7 @@ def _validate_request(staff, start_date, end_date, policy):
             f'{policy.max_consecutive_days}.'
         )
 
+    # 4) Overlap with any existing (non-rejected, non-cancelled) leave.
     overlap = LeaveRequest.objects.filter(
         staff=staff,
         start_date__lte=end_date,
@@ -108,6 +169,7 @@ def _validate_request(staff, start_date, end_date, policy):
     if overlap.exists():
         errors.append('This leave overlaps with an existing leave request.')
 
+    # 5) Monthly quota.
     used_month = _month_used_days(staff, start_date)
     first_day = start_date.replace(day=1)
     last_day = start_date.replace(day=monthrange(start_date.year, start_date.month)[1])
@@ -122,6 +184,7 @@ def _validate_request(staff, start_date, end_date, policy):
             f'You have used {used_month} this month.'
         )
 
+    # 6) Weekly quota.
     used_week = _week_used_days(staff, start_date)
     week_start = start_date - timedelta(days=start_date.weekday())
     week_end = week_start + timedelta(days=6)
@@ -148,7 +211,6 @@ def staff_leave_management(request):
     with schema_context(schema_name):
         staff = Staff.objects.filter(pk=staff_id).first()
         if not staff:
-            from django.shortcuts import redirect
             return redirect('staff_login')
         policy = _get_or_create_policy()
         today = date.today()
@@ -156,6 +218,7 @@ def staff_leave_management(request):
         used_week = _week_used_days(staff, today)
         remaining_month = max(0, policy.max_leaves_per_month - used_month)
         remaining_week = max(0, policy.max_leaves_per_week - used_week)
+        active_leave = _get_active_leave(staff, today)
 
         context = {
             'staff': staff,
@@ -169,6 +232,7 @@ def staff_leave_management(request):
             'used_week': used_week,
             'remaining_month': remaining_month,
             'remaining_week': remaining_week,
+            'active_leave': active_leave,
             'today': today.isoformat(),
             'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
         }
@@ -201,6 +265,7 @@ def staff_leave_policy_api(request):
         today = date.today()
         used_month = _month_used_days(staff, today)
         used_week = _week_used_days(staff, today)
+        active_leave = _get_active_leave(staff, today)
         return JsonResponse({
             'ok': True,
             'max_leaves_per_month': policy.max_leaves_per_month,
@@ -211,6 +276,7 @@ def staff_leave_policy_api(request):
             'used_week': used_week,
             'remaining_month': max(0, policy.max_leaves_per_month - used_month),
             'remaining_week': max(0, policy.max_leaves_per_week - used_week),
+            'active_leave': _serialize_staff_leave(active_leave),
         })
 
 
@@ -287,5 +353,5 @@ def staff_leave_cancel_api(request, leave_id):
         if leave.status not in ('pending', 'approved'):
             return JsonResponse({'ok': False, 'error': 'This leave cannot be cancelled.'}, status=400)
         leave.status = 'cancelled'
-        leave.save(update_fields=['status'])
+        leave.save(update_fields=['status', 'updated_at'])
         return JsonResponse({'ok': True, 'leave': _serialize_staff_leave(leave)})
