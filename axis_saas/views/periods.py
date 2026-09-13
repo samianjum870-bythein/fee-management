@@ -420,12 +420,6 @@ def api_add_bunch(request, schema_name):
         break_duration = 0
     days = data.get('days') or []
 
-    # TIMETABLE_FK_REFACTOR_V1: resolve the label text to a ScheduleLabel
-    # once, up front. Reject the whole save if it doesn't exist.
-    _schedule_label = None
-    if label_text:
-        _schedule_label = ScheduleLabel.objects.filter(name__iexact=label_text).first()
-
     edit_id = data.get('edit_id')
     if edit_id is not None:
         try:
@@ -437,12 +431,22 @@ def api_add_bunch(request, schema_name):
         return JsonResponse({'error': 'Title is required'}, status=400)
     if not label_text:
         return JsonResponse({'error': 'Label is required'}, status=400)
-    if _schedule_label is None:
-        return JsonResponse(
-            {'error': f"Label '{label_text}' not found."}, status=400,
-        )
     if not days:
         return JsonResponse({'error': 'Select at least one slot'}, status=400)
+
+    # TIMETABLE_FK_REFACTOR_V1_FIX: resolve the label INSIDE the tenant
+    # schema. The previous lookup ran outside schema_context(), so it
+    # queried the public schema instead of the tenant's — every label
+    # created via /timetable/ → Manage Labels (which writes into the
+    # tenant schema) came back as "not found" here.
+    with schema_context(schema_name):
+        _schedule_label = ScheduleLabel.objects.filter(
+            name__iexact=label_text
+        ).first()
+        if _schedule_label is None:
+            return JsonResponse(
+                {'error': f"Label '{label_text}' not found."}, status=400,
+            )
 
     day_names = dict(DaySchedule.DAY_CHOICES)
     computed_days = []

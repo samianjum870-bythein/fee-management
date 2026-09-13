@@ -157,6 +157,58 @@
         from { transform: scale(0.95); opacity: 0; }
         to { transform: scale(1); opacity: 1; }
     }
+    /* ===== PER_DAY_BREAK_V1: per-row break placement =====
+       Each day's break is rendered at that day's own break_after
+       position instead of a single fixed Break column that only
+       matched the maximum break_after across all days. */
+    .timetable-grid-rows {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        font-size: 0.9rem;
+        background: var(--surface);
+    }
+    .timetable-grid-rows .timetable-row {
+        display: flex;
+        align-items: stretch;
+        border-bottom: 1px solid var(--border);
+    }
+    .timetable-grid-rows .timetable-row:last-child { border-bottom: none; }
+    .timetable-grid-rows .timetable-row > div {
+        flex: 1 1 0;
+        padding: 0.5rem 0.35rem;
+        text-align: center;
+        border-right: 1px solid var(--border);
+        min-width: 60px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+    .timetable-grid-rows .timetable-row > div:last-child { border-right: none; }
+    .timetable-grid-rows .timetable-row > .day-label {
+        flex: 0 0 auto;
+        min-width: 90px;
+        font-weight: 600;
+        background: var(--surface-alt);
+        white-space: nowrap;
+    }
+    .timetable-grid-rows .empty-period { color: var(--muted); }
+    .timetable-grid-rows .break-cell {
+        background: #fef3c7;
+        border: 2px dashed #f59e0b !important;
+        border-radius: 4px;
+        margin: 2px 0;
+    }
+    .timetable-grid-rows .break-cell strong { display: block; color: #92400e; }
+    .timetable-grid-rows .break-cell small { display: block; color: #92400e; font-size: 0.72rem; margin-top: 2px; }
+    .timetable-grid-rows .period-cell strong { display: block; }
+    .timetable-grid-rows .period-cell small { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+    /* ===== END PER_DAY_BREAK_V1 ===== */
+
 </style>
 {% endblock %}
 
@@ -479,7 +531,7 @@
         const periodsView = document.createElement('div');
         periodsView.className = 'periods-view';
         periodsView.style.overflowX = 'auto';
-        const periodsTable = document.createElement('table');
+        const periodsTable = document.createElement('div');
         periodsTable.className = 'timetable-grid';
         periodsTable.innerHTML = buildPeriodsTableHTML(tt);
         periodsView.appendChild(periodsTable);
@@ -540,53 +592,54 @@
     }
 
     function buildPeriodsTableHTML(tt) {
-        let maxPeriods = 0;
-        tt.days.forEach(function (d) { if (d.periods_count > maxPeriods) maxPeriods = d.periods_count; });
-        let maxBreakAfter = 0;
-        tt.days.forEach(function (d) { if (d.break_after && d.break_after > maxBreakAfter) maxBreakAfter = d.break_after; });
-        const hasBreak = maxBreakAfter > 0 && tt.break_duration > 0;
+    /* PER_DAY_BREAK_V1: render each day's break at that day's own
+       break_after position instead of a single fixed Break column. */
+    var maxPeriods = 0;
+    (tt.days || []).forEach(function (d) {
+        var pc = parseInt(d.periods_count, 10) || 0;
+        if (pc > maxPeriods) maxPeriods = pc;
+    });
 
-        let thead = '<thead><tr><th>Day</th>';
-        for (let i = 1; i <= maxPeriods; i++) {
-            thead += '<th>P' + i + '</th>';
-            if (hasBreak && i === maxBreakAfter) thead += '<th class="break-col">Break</th>';
-        }
-        thead += '</tr></thead>';
-
-        let tbody = '<tbody>';
-        tt.days.forEach(function (d) {
-            tbody += '<tr>';
-            tbody += '<td class="day-label">' + escapeHtml(d.day_label) + '</td>';
-
-            const byOrder = {};
-            let breakPeriod = null;
-            d.periods.forEach(function (p) {
-                if (p.is_break) breakPeriod = p;
-                else byOrder[p.order] = p;
-            });
-
-            for (let i = 1; i <= maxPeriods; i++) {
-                const p = byOrder[i];
-                if (p) {
-                    tbody += '<td><div class="period-cell"><strong>P' + i + '</strong><small>' +
-                             p.start + '-' + p.end + '</small></div></td>';
-                } else {
-                    tbody += '<td class="empty-period">—</td>';
-                }
-                if (hasBreak && i === maxBreakAfter) {
-                    if (breakPeriod && d.break_after === i) {
-                        tbody += '<td class="break-col"><div class="break-cell"><strong>Break</strong><small>' +
-                                 breakPeriod.start + '-' + breakPeriod.end + '</small></div></td>';
-                    } else {
-                        tbody += '<td class="break-col" style="opacity:0.35;">—</td>';
-                    }
-                }
-            }
-            tbody += '</tr>';
+    var html = '<div class="timetable-grid-rows">';
+    (tt.days || []).forEach(function (d) {
+        var dayBreakAfter = parseInt(d.break_after, 10) || 0;
+        var dayPeriodsCount = parseInt(d.periods_count, 10) || 0;
+        var byOrder = {};
+        var breakPeriod = null;
+        (d.periods || []).forEach(function (p) {
+            if (p.is_break) breakPeriod = p;
+            else byOrder[p.order] = p;
         });
-        tbody += '</tbody>';
-        return thead + tbody;
-    }
+
+        html += '<div class="timetable-row">';
+        html += '<div class="day-label">' + escapeHtml(d.day_label) + '</div>';
+
+        for (var i = 1; i <= maxPeriods; i++) {
+            var p = byOrder[i];
+            if (p) {
+                html += '<div class="period-cell">' +
+                            '<strong>P' + i + '</strong>' +
+                            '<small>' + p.start + '-' + p.end + '</small>' +
+                        '</div>';
+            } else if (i <= dayPeriodsCount) {
+                html += '<div class="period-cell"><strong>P' + i + '</strong></div>';
+            } else {
+                html += '<div class="period-cell empty-period">&mdash;</div>';
+            }
+
+            if (breakPeriod && dayBreakAfter === i) {
+                html += '<div class="break-cell">' +
+                            '<strong>Break</strong>' +
+                            '<small>' + breakPeriod.start + '-' + breakPeriod.end + '</small>' +
+                        '</div>';
+            }
+        }
+
+        html += '</div>';
+    });
+    html += '</div>';
+    return html;
+}
 
     function buildTimingsHTML(tt) {
         let html = '';

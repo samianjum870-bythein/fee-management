@@ -170,6 +170,107 @@
         .page-header { flex-direction:column; align-items:flex-start; }
         .assign-grid { font-size:0.78rem; }
     }
+    /* ===== PER_DAY_BREAK_V2: per-row break placement in the assign grid =====
+       Each day's break is rendered at that day's own break_after position
+       instead of a single fixed Break column that only matched the maximum
+       break_after across all days. */
+    .assign-grid-rows {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        background: var(--surface);
+        font-size: 0.85rem;
+    }
+    .assign-grid-rows .assign-row {
+        display: flex;
+        align-items: stretch;
+        border-bottom: 1px solid var(--border);
+    }
+    .assign-grid-rows .assign-row:last-child { border-bottom: none; }
+    .assign-grid-rows .assign-cell {
+        flex: 1 1 0;
+        padding: 0.4rem;
+        text-align: center;
+        border-right: 1px solid var(--border);
+        min-width: 110px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+    }
+    .assign-grid-rows .assign-cell:last-child { border-right: none; }
+    .assign-grid-rows .assign-cell.day-label {
+        flex: 0 0 auto;
+        width: 100px;
+        min-width: 100px;
+        font-weight: 600;
+        background: var(--surface-alt);
+        white-space: nowrap;
+        text-align: left;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 0.5rem 0.75rem;
+    }
+    .assign-grid-rows .assign-cell.empty-period {
+        color: var(--muted);
+        align-items: center;
+    }
+    .assign-grid-rows .assign-cell select {
+        width: 100%;
+        padding: 0.35rem;
+        border-radius: 0.4rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 0.8rem;
+        cursor: pointer;
+        box-sizing: border-box;
+    }
+    .assign-grid-rows .assign-cell select:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+    }
+    .assign-grid-rows .assign-cell .teacher-hint {
+        display: block;
+        font-size: 0.68rem;
+        color: var(--muted);
+        margin-top: 0.25rem;
+        min-height: 0.85rem;
+        line-height: 1.1;
+        text-align: center;
+    }
+    .assign-grid-rows .assign-cell .teacher-hint.has-teacher {
+        color: var(--primary);
+        font-weight: 600;
+    }
+    .assign-grid-rows .assign-cell .teacher-hint.has-conflict {
+        color: #dc2626;
+        font-weight: 700;
+    }
+    .assign-grid-rows .assign-cell.has-empty {
+        background: #fef2f2;
+        box-shadow: inset 0 0 0 2px #fca5a5;
+    }
+    .assign-grid-rows .assign-cell.has-conflict {
+        background: #fef2f2;
+        box-shadow: inset 0 0 0 2px #fca5a5;
+    }
+    .assign-grid-rows .assign-cell.break-col {
+        flex: 0 0 auto;
+        width: 70px;
+        min-width: 70px;
+        background: #fef3c7;
+        color: #92400e;
+        font-weight: 600;
+        padding: 0.4rem 0.35rem;
+        align-items: center;
+        justify-content: center;
+    }
+    /* ===== END PER_DAY_BREAK_V2 ===== */
 </style>
 {% endblock %}
 
@@ -409,25 +510,15 @@
         }
 
         var maxPeriods = 0;
-        var maxBreakAfter = 0;
         days.forEach(function (d) {
             var pc = parseInt(d.periods_count, 10) || 0;
             if (pc > maxPeriods) maxPeriods = pc;
-            var ba = parseInt(d.break_after, 10) || 0;
-            if (ba > maxBreakAfter) maxBreakAfter = ba;
         });
-        var hasBreak = maxBreakAfter > 0 && (parseInt(data.break_duration, 10) || 0) > 0;
 
+        /* PER_DAY_BREAK_V2: render each day's break at that day's own
+           break_after position instead of a single fixed Break column. */
         var html = '<div style="overflow-x:auto;">';
-        html += '<table class="assign-grid">';
-        html += '<thead><tr><th style="text-align:left;">Day</th>';
-        for (var i = 1; i <= maxPeriods; i++) {
-            html += '<th class="period-col">P' + i + '</th>';
-            if (hasBreak && i === maxBreakAfter) {
-                html += '<th class="break-col">Break</th>';
-            }
-        }
-        html += '</tr></thead><tbody>';
+        html += '<div class="assign-grid-rows">';
 
         CURRENT_SELECTS = [];
 
@@ -435,53 +526,51 @@
             var dayNum = day.day_of_week;
             var dayLabel = day.day_label || ('Day ' + dayNum);
             var dayPeriods = day.periods_count || 0;
+            var dayBreakAfter = parseInt(day.break_after, 10) || 0;
 
-            html += '<tr>';
-            html += '<td class="day-label">' + esc(dayLabel) + '</td>';
+            html += '<div class="assign-row">';
+            html += '<div class="assign-cell day-label">' + esc(dayLabel) + '</div>';
 
             for (var i = 1; i <= maxPeriods; i++) {
                 if (i > dayPeriods) {
-                    html += '<td class="empty-period">—</td>';
-                    if (hasBreak && i === maxBreakAfter) {
-                        html += '<td class="break-col">—</td>';
+                    html += '<div class="assign-cell empty-period">\u2014</div>';
+                } else {
+                    var key = dayNum + '|' + i;
+                    var selVal = '';
+                    if (existing[key] && existing[key].subject_id) {
+                        selVal = String(existing[key].subject_id);
                     }
-                    continue;
-                }
-                var key = dayNum + '|' + i;
-                var selVal = '';
-                if (existing[key] && existing[key].subject_id) {
-                    selVal = String(existing[key].subject_id);
-                }
-                var opts = '<option value="">— Select —</option>';
-                var teacherForSel = '';
-                subjects.forEach(function (s) {
-                    var selected = (String(s.subject_id) === selVal) ? ' selected' : '';
-                    opts += '<option value="' + s.subject_id + '"' + selected + '>' +
-                            esc(s.subject_name) + '</option>';
-                    if (String(s.subject_id) === selVal) {
-                        teacherForSel = s.teacher_name || '';
-                    }
-                });
+                    var opts = '<option value="">\u2014 Select \u2014</option>';
+                    var teacherForSel = '';
+                    subjects.forEach(function (s) {
+                        var selected = (String(s.subject_id) === selVal) ? ' selected' : '';
+                        opts += '<option value="' + s.subject_id + '"' + selected + '>' +
+                                esc(s.subject_name) + '</option>';
+                        if (String(s.subject_id) === selVal) {
+                            teacherForSel = s.teacher_name || '';
+                        }
+                    });
 
-                // INLINE_TIMETABLE_ASSIGN_V1: mark a cell as empty
-                // (red) when no subject-with-teacher is assigned.
-                var _isEmptyCell = !teacherForSel;
-                html += '<td' + (_isEmptyCell ? ' class="has-empty"' : '') + '>' +
-                    '<select class="cell-subject" data-day="' + dayNum + '" data-order="' + i + '">' +
-                        opts +
-                    '</select>' +
-                    '<span class="teacher-hint' + (teacherForSel ? ' has-teacher' : '') + '">' +
-                        (teacherForSel ? '(' + esc(teacherForSel) + ')' : '') +
-                    '</span>' +
-                '</td>';
+                    // INLINE_TIMETABLE_ASSIGN_V1: mark a cell as empty
+                    // (red) when no subject-with-teacher is assigned.
+                    var _isEmptyCell = !teacherForSel;
+                    html += '<div class="assign-cell' + (_isEmptyCell ? ' has-empty' : '') + '">' +
+                        '<select class="cell-subject" data-day="' + dayNum + '" data-order="' + i + '">' +
+                            opts +
+                        '</select>' +
+                        '<span class="teacher-hint' + (teacherForSel ? ' has-teacher' : '') + '">' +
+                            (teacherForSel ? '(' + esc(teacherForSel) + ')' : '') +
+                        '</span>' +
+                    '</div>';
+                }
 
-                if (hasBreak && i === maxBreakAfter) {
-                    html += '<td class="break-col">Break</td>';
+                if (dayBreakAfter === i) {
+                    html += '<div class="assign-cell break-col">Break</div>';
                 }
             }
-            html += '</tr>';
+            html += '</div>';
         });
-        html += '</tbody></table></div>';
+        html += '</div></div>';
 
         html += '<p class="text-muted" style="font-size:0.8rem; margin-top:0.75rem;">' +
                 'Only subjects with an assigned teacher in this class can be picked. ' +
