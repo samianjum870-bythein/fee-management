@@ -264,36 +264,68 @@
 
     // ----- approve / reject -----
     function postJson(url, body) {
+        // LEAVE_ADMIN_APPROVE_FIX_01: read the response as TEXT first
+        // so that a non-JSON reply (login redirect, HTML error page,
+        // CSRF 403 etc.) surfaces as a clear error message instead of
+        // silently rejecting the promise.
         return fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': CSRF
+                'X-CSRFToken': CSRF,
+                'X-Requested-With': 'XMLHttpRequest'
             },
-            body: JSON.stringify(body || {})
-        }).then(r => r.json().then(d => ({ ok: r.ok, data: d })));
+            body: JSON.stringify(body || {}),
+            credentials: 'same-origin'
+        }).then(function(r) {
+            return r.text().then(function(text) {
+                var data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    var snippet = text.substring(0, 200).replace(/\s+/g, ' ');
+                    throw new Error(
+                        'Server returned non-JSON response (HTTP ' +
+                        r.status + '). ' +
+                        'This usually means you were logged out or the ' +
+                        'server hit an error. First 200 chars: ' + snippet
+                    );
+                }
+                return { ok: r.ok, status: r.status, data: data };
+            });
+        });
     }
     window.approveLeave = function(id) {
         const remarks = prompt('Optional remarks for approval:', '');
         if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks }).then(function(res) {
-            if (!res.ok || !res.data.ok) {
-                alert(res.data.error || 'Failed to approve.');
-                return;
-            }
-            location.reload();
-        });
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to approve.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[approveLeave]', err);
+                alert('Could not approve leave:\n\n' + err.message);
+            });
     };
     window.rejectLeave = function(id) {
         const remarks = prompt('Reason for rejection:', '');
         if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks }).then(function(res) {
-            if (!res.ok || !res.data.ok) {
-                alert(res.data.error || 'Failed to reject.');
-                return;
-            }
-            location.reload();
-        });
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to reject.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[rejectLeave]', err);
+                alert('Could not reject leave:\n\n' + err.message);
+            });
     };
 
     // ----- policy -----
@@ -314,14 +346,19 @@
             max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
             allow_backdated: document.getElementById('polBack').checked
         };
-        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body).then(function(res) {
-            if (!res.ok || !res.data.ok) {
-                alert(res.data.error || 'Failed to save policy.');
-                return;
-            }
-            closePolicy();
-            location.reload();
-        });
+        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body)
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to save policy.');
+                    return;
+                }
+                closePolicy();
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[savePolicy]', err);
+                alert('Could not save policy:\n\n' + err.message);
+            });
     };
 
     // ----- staff summary -----

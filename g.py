@@ -3,63 +3,61 @@
 axis_patcher.py
 ===============
 
-STAFF_DASHBOARD_QSET_COMBINE_FIX_01
+LEAVE_ADMIN_APPROVE_FIX_01
 
-Fixes the production crash on /portal/staff/dashboard/:
-
-    TypeError: Cannot combine a unique query with a non-unique query.
+Fixes the "Approve / Reject button does nothing" issue on the tenant
+admin panel's Leave Management page
+(`templates/tenant/leave_management.html`).
 
 Root cause
 ----------
-In `axis_saas/views/staff_portal.py` → `staff_dashboard()`:
+The current JS uses this pattern:
 
-    class_teacher_classes = (
-        SchoolClass.objects
-        .filter(class_teacher=staff, is_active=True)
-        .annotate(student_count=Count('students'))
-        .order_by('name', 'section')
-    )
+    function postJson(url, body) {
+        return fetch(url, {...})
+            .then(r => r.json().then(d => ({ ok: r.ok, data: d })));
+    }
 
-    subject_teacher_classes = (
-        SchoolClass.objects
-        .filter(class_subjects__teacher=staff, is_active=True)
-        .distinct()                                 # <-- this marks the query
-        .annotate(student_count=Count('students'))   #     as "unique"
-        .order_by('name', 'section')
-    )
+    window.approveLeave = function(id) {
+        const remarks = prompt('Optional remarks for approval:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) { alert(...); return; }
+                location.reload();
+            });
+        // <- no .catch() !
+    };
 
-    all_classes = class_teacher_classes | subject_teacher_classes   # BOOM
+If the server ever returns anything other than JSON — a 302 redirect
+to the login page, a 500 HTML error page, a 403 CSRF failure page —
+`r.json()` rejects, the whole promise chain rejects, and because there
+is no `.catch()`, nothing happens. The user sees no error, no reload,
+no change: exactly "the button doesn't work."
 
-Django's `QuerySet.__or__` refuses to combine a query that has been
-flagged `unique=True` (via `.distinct()`) with one that has not. The
-`subject_teacher_classes` side goes through the M2M join
-(`class_subjects__teacher`), which produces duplicate rows for classes
-where the staff teaches more than one subject — hence the `.distinct()`.
-The `class_teacher` side is a plain FK filter, so `.distinct()` was
-never added there.
+Also, `fetch()` is not given `credentials: 'same-origin'`. In most
+browsers the default is fine, but making it explicit eliminates a
+whole class of "session cookie not sent" failures.
 
-The fix is to stop using `|`. Build a single queryset with `Q()` instead:
+Fix
+---
+  1. `postJson()` now reads the response as TEXT first, then tries to
+     JSON.parse it. Non-JSON responses produce a descriptive Error that
+     includes the HTTP status and the first 200 characters of the body,
+     so the user can see what actually came back.
 
-    all_classes = (
-        SchoolClass.objects
-        .filter(
-            Q(class_teacher=staff) | Q(class_subjects__teacher=staff),
-            is_active=True,
-        )
-        .distinct()                                  # dedupe M2M rows
-    )
+  2. `postJson()` explicitly sends `credentials: 'same-origin'` and an
+     `X-Requested-With: XMLHttpRequest` header.
 
-This produces identical results in a single SQL query and avoids the
-"unique vs non-unique" combine entirely. The intermediate
-`class_teacher_classes` / `subject_teacher_classes` lists are still
-needed for the template's two separate sections ("Class Teacher:" and
-"Subject Teacher:"), so they are left untouched.
+  3. `approveLeave()`, `rejectLeave()` and `savePolicy()` all get a
+     `.catch()` handler that pops an alert with the underlying error
+     and logs the full error to the browser console.
 
-Files modified:
-    axis_saas/views/staff_portal.py
+  4. Backwards-compatible: the success path (200 + {"ok": true}) is
+     unchanged, so nothing else in the page needs to change.
 
 Idempotent: re-running this patcher after the fix is a no-op (it
-detects the new Q()-based block and skips).
+detects the new postJson body and skips).
 
 Usage:
     python3 axis_patcher.py --dry-run --verbose
@@ -77,63 +75,199 @@ def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
-TARGET_REL_PATH = Path('axis_saas') / 'views' / 'staff_portal.py'
+TARGET_REL_PATH = Path('templates') / 'tenant' / 'leave_management.html'
 
 
-# ---------------------------------------------------------------- old ---
-# Exact snippet as it exists in the buggy file. Kept as a literal so the
-# replacement is unambiguous (no regex, no accidental matches).
-OLD_BLOCK = """        # Combined for total counts
-        all_classes = class_teacher_classes | subject_teacher_classes
-        student_count = Student.objects.filter(school_class__in=all_classes).count()
-        today = timezone.localdate()
-        attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=all_classes).count()
+# ------------------------------------------------------------------
+# OLD — literal snippets taken verbatim from the current template.
+# ------------------------------------------------------------------
+
+OLD_POSTJSON = """    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF
+            },
+            body: JSON.stringify(body || {})
+        }).then(r => r.json().then(d => ({ ok: r.ok, data: d })));
+    }
 """
 
 
-# ---------------------------------------------------------------- new ---
-NEW_BLOCK = """        # Combined for total counts.
-        #
-        # STAFF_DASHBOARD_QSET_COMBINE_FIX_01:
-        #   The previous implementation combined two annotated querysets
-        #   with `|`:
-        #
-        #       all_classes = class_teacher_classes | subject_teacher_classes
-        #
-        #   `subject_teacher_classes` carries `.distinct()` because the
-        #   `class_subjects__teacher` M2M join fans out per subject, so
-        #   it is flagged as a "unique" query. `class_teacher_classes`
-        #   is not. Django's QuerySet.__or__ refuses to merge a unique
-        #   query with a non-unique one and raises:
-        #
-        #       TypeError: Cannot combine a unique query with a
-        #                  non-unique query.
-        #
-        #   We now build a single queryset with Q() and `.distinct()`
-        #   on the merged query. Same result set, one SQL query, no
-        #   combine step. The two intermediate lists (used by the
-        #   template for the "Class Teacher" / "Subject Teacher"
-        #   sections) are untouched above.
-        all_classes = (
-            SchoolClass.objects
-            .filter(
-                Q(class_teacher=staff) | Q(class_subjects__teacher=staff),
-                is_active=True,
-            )
-            .distinct()
-        )
-        student_count = Student.objects.filter(school_class__in=all_classes).count()
-        today = timezone.localdate()
-        attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=all_classes).count()
+OLD_APPROVE = """    window.approveLeave = function(id) {
+        const remarks = prompt('Optional remarks for approval:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks }).then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to approve.');
+                return;
+            }
+            location.reload();
+        });
+    };
 """
 
 
-# Marker string used for idempotency: if the file already contains this
-# comment we assume the fix has already been applied.
-FIX_MARKER = "STAFF_DASHBOARD_QSET_COMBINE_FIX_01"
+OLD_REJECT = """    window.rejectLeave = function(id) {
+        const remarks = prompt('Reason for rejection:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks }).then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to reject.');
+                return;
+            }
+            location.reload();
+        });
+    };
+"""
 
 
-def patch_file(path, dry_run, verbose):
+OLD_SAVEPOLICY = """    window.savePolicy = function() {
+        const body = {
+            max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
+            max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
+            max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
+            allow_backdated: document.getElementById('polBack').checked
+        };
+        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body).then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to save policy.');
+                return;
+            }
+            closePolicy();
+            location.reload();
+        });
+    };
+"""
+
+
+# ------------------------------------------------------------------
+# NEW — robust replacements.
+# ------------------------------------------------------------------
+
+NEW_POSTJSON = """    function postJson(url, body) {
+        // LEAVE_ADMIN_APPROVE_FIX_01: read the response as TEXT first
+        // so that a non-JSON reply (login redirect, HTML error page,
+        // CSRF 403 etc.) surfaces as a clear error message instead of
+        // silently rejecting the promise.
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(body || {}),
+            credentials: 'same-origin'
+        }).then(function(r) {
+            return r.text().then(function(text) {
+                var data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    var snippet = text.substring(0, 200).replace(/\\s+/g, ' ');
+                    throw new Error(
+                        'Server returned non-JSON response (HTTP ' +
+                        r.status + '). ' +
+                        'This usually means you were logged out or the ' +
+                        'server hit an error. First 200 chars: ' + snippet
+                    );
+                }
+                return { ok: r.ok, status: r.status, data: data };
+            });
+        });
+    }
+"""
+
+
+NEW_APPROVE = """    window.approveLeave = function(id) {
+        const remarks = prompt('Optional remarks for approval:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to approve.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[approveLeave]', err);
+                alert('Could not approve leave:\\n\\n' + err.message);
+            });
+    };
+"""
+
+
+NEW_REJECT = """    window.rejectLeave = function(id) {
+        const remarks = prompt('Reason for rejection:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to reject.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[rejectLeave]', err);
+                alert('Could not reject leave:\\n\\n' + err.message);
+            });
+    };
+"""
+
+
+NEW_SAVEPOLICY = """    window.savePolicy = function() {
+        const body = {
+            max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
+            max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
+            max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
+            allow_backdated: document.getElementById('polBack').checked
+        };
+        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body)
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to save policy.');
+                    return;
+                }
+                closePolicy();
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[savePolicy]', err);
+                alert('Could not save policy:\\n\\n' + err.message);
+            });
+    };
+"""
+
+
+# Marker used for idempotency check.
+FIX_MARKER = "LEAVE_ADMIN_APPROVE_FIX_01"
+
+
+# ------------------------------------------------------------------
+# Patch
+# ------------------------------------------------------------------
+
+def _replace_once(content, old, new, label, verbose):
+    """Return (new_content, changed). Skips if `new` already appears."""
+    if old not in content:
+        # If the `new` version is already there, no-op.
+        if new.strip() and new.strip() in content:
+            if verbose:
+                log(f"  SKIP (already updated): {label}")
+            return content, False
+        log(f"  WARN: {label} — old snippet not found; leaving it alone.")
+        return content, False
+    content = content.replace(old, new, 1)
+    if verbose:
+        log(f"  patched: {label}")
+    return content, True
+
+
+def patch_template(path, dry_run, verbose):
     try:
         content = path.read_text(encoding='utf-8')
     except Exception as exc:
@@ -144,35 +278,55 @@ def patch_file(path, dry_run, verbose):
         log(f"SKIP (already fixed): {path}")
         return True
 
-    if OLD_BLOCK not in content:
-        # Be helpful: report whether the old `|` combine is even present
-        if "all_classes = class_teacher_classes | subject_teacher_classes" in content:
-            log(
-                "WARN: found the buggy `|` line but not the exact "
-                "expected block. Manual review required."
-            )
-        else:
-            log(
-                "WARN: expected block not found in "
-                f"{path}. Nothing patched."
-            )
-        return False
+    original = content
+    changed_any = False
 
-    new_content = content.replace(OLD_BLOCK, NEW_BLOCK, 1)
+    log("  applying postJson()")
+    content, c1 = _replace_once(content, OLD_POSTJSON, NEW_POSTJSON, "postJson", verbose)
+    changed_any = changed_any or c1
 
-    if new_content == content:
+    log("  applying approveLeave()")
+    content, c2 = _replace_once(content, OLD_APPROVE, NEW_APPROVE, "approveLeave", verbose)
+    changed_any = changed_any or c2
+
+    log("  applying rejectLeave()")
+    content, c3 = _replace_once(content, OLD_REJECT, NEW_REJECT, "rejectLeave", verbose)
+    changed_any = changed_any or c3
+
+    log("  applying savePolicy()")
+    content, c4 = _replace_once(content, OLD_SAVEPOLICY, NEW_SAVEPOLICY, "savePolicy", verbose)
+    changed_any = changed_any or c4
+
+    if not changed_any:
+        log(f"NO CHANGE: {path} (nothing to patch)")
+        return True
+
+    # Sanity: the marker should now be present (via NEW_POSTJSON comment).
+    if FIX_MARKER not in content:
+        # Embed it as a comment to make future runs idempotent even if
+        # someone edits the code around it. We inject just above the
+        # closing </script> of the block we touched.
+        marker_comment = f"    // {FIX_MARKER}\n"
+        # Put it right before the final `})();` — if we can find it.
+        anchor = "    renderLeaves();\n})();"
+        if anchor in content:
+            content = content.replace(
+                anchor,
+                marker_comment + anchor,
+                1,
+            )
+
+    if content == original:
         log(f"NO CHANGE: {path}")
         return True
 
     if dry_run:
-        log(
-            f"DRY-RUN: would replace "
-            f"{len(OLD_BLOCK)} -> {len(NEW_BLOCK)} bytes in {path}"
-        )
+        log(f"DRY-RUN: would patch {path} "
+            f"({len(original)} -> {len(content)} bytes)")
         return True
 
     try:
-        path.write_text(new_content, encoding='utf-8')
+        path.write_text(content, encoding='utf-8')
     except Exception as exc:
         log(f"ERROR writing {path}: {exc}")
         return False
@@ -181,11 +335,16 @@ def patch_file(path, dry_run, verbose):
     return True
 
 
+# ------------------------------------------------------------------
+# main
+# ------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Fix the 'Cannot combine a unique query with a non-unique "
-            "query' crash in staff_dashboard()."
+            'Make the Approve / Reject buttons on the tenant admin '
+            'Leave Management page actually surface their errors and '
+            'send credentials explicitly.'
         )
     )
     parser.add_argument('--dry-run', action='store_true',
@@ -209,7 +368,7 @@ def main():
     log(f"Target: {target}")
     log(f"Mode:   {'DRY-RUN' if args.dry_run else 'APPLY'}")
 
-    ok = patch_file(target, args.dry_run, args.verbose)
+    ok = patch_template(target, args.dry_run, args.verbose)
     if not ok:
         return 2
 
@@ -217,17 +376,19 @@ def main():
     if args.dry_run:
         log("Re-run without --dry-run to apply.")
     else:
-        log("Commit + push and let Railway redeploy.")
-        log("")
-        log("Heads-up on two unrelated items visible in the deploy log:")
-        log("  1) 'Ignoring invalid WebAuthn RP ID localhost ...' —")
-        log("     Set WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN env vars on")
-        log("     Railway to the production domain (no scheme for RP_ID,")
-        log("     with https:// scheme for ORIGIN).")
-        log("  2) 'Your models in app(s): axis_saas have changes that are")
-        log("     not yet reflected in a migration' — run")
-        log("     `python manage.py makemigrations axis_saas` locally")
-        log("     and commit the generated migration file.")
+        log("Next steps:")
+        log("  1. Hard-refresh the Leave Management page (Ctrl+Shift+R).")
+        log("  2. Click Approve on a pending request.")
+        log("     - If it still fails, the alert will now show the exact")
+        log("       HTTP status and the beginning of the response body")
+        log("       (e.g. 'HTTP 302' for a login redirect, or a Django")
+        log("       500 traceback page).")
+        log("     - Also check the browser console: the full error is")
+        log("       logged under '[approveLeave]' / '[rejectLeave]'.")
+        log("  3. If the alert says 'non-JSON response (HTTP 302)', your")
+        log("     admin session expired — log out and back in.")
+        log("  4. If it says 'HTTP 500', copy the snippet from the alert")
+        log("     and check the Railway deploy logs for the traceback.")
     return 0
 
 
