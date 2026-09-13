@@ -162,17 +162,69 @@ def api_get_teacher_assignments(request, schema_name, class_id):
                 'teacher_name': _pta.teacher.full_name if _pta.teacher else '',
             }
 
+        # ---- INLINE_TIMETABLE_ASSIGN_V1: edit-form data -------------
+        # Everything the client needs to render the "Edit Timetable"
+        # slot-selection form INLINE (no extra round trip).
+        from ..models import (
+            DaySchedule as _TT_DS,
+            ScheduleLabel as _TT_SL,
+            PeriodsTimetable as _TT_PTT,
+        )
+
+        _slots_by_label = {}
+        try:
+            for _lbl in _TT_SL.objects.all().order_by('name'):
+                _scheds = _TT_DS.objects.filter(label=_lbl).order_by('day_of_week', 'order')
+                _slots_by_label[_lbl.name] = [
+                    {
+                        'id': _ds.id,
+                        'day': _ds.day_of_week,
+                        'day_label': _ds.get_day_of_week_display(),
+                        'start': _ds.start_time.strftime('%H:%M'),
+                        'end': _ds.end_time.strftime('%H:%M'),
+                        'periods': _ds.periods,
+                        'duration': _ds.duration,
+                    }
+                    for _ds in _scheds
+                ]
+        except Exception as _exc:
+            logger.warning('INLINE_TIMETABLE_ASSIGN_V1: slots_by_label failed: %s', _exc)
+            _slots_by_label = {}
+
+        _all_timetables = []
+        try:
+            for _t in _TT_PTT.objects.order_by('id'):
+                _all_timetables.append({
+                    'id': _t.id,
+                    'title': _t.title,
+                    # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+                    'label': _t.label.name if _t.label_id else '',
+                    'break_duration': _t.break_duration or 0,
+                    'days': _t.days or [],
+                })
+        except Exception as _exc:
+            logger.warning('INLINE_TIMETABLE_ASSIGN_V1: all_timetables failed: %s', _exc)
+            _all_timetables = []
+
         return JsonResponse({
             'has_timetable': True,
             'class_id': school_class.id,
             'class_display': class_display,
+            'timetable_id': tt.id,
             'timetable_title': tt.title,
-            # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
             'timetable_label': tt.label.name if tt.label_id else '',
             'timetable_days': tt.days or [],
+            'timetable_break_duration': tt.break_duration or 0,
+            # Backwards-compat alias: the existing template reads
+            # `data.break_duration` when deciding whether to render
+            # break columns. Previously this key was missing, so breaks
+            # never showed on this page. Fixed here.
+            'break_duration': tt.break_duration or 0,
             'subjects': subjects,
             'existing': existing,
             'teacher_busy': teacher_busy,
+            'slots_by_label': _slots_by_label,
+            'all_timetables': _all_timetables,
         })
 
 

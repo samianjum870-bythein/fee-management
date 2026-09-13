@@ -150,6 +150,12 @@
     /* TEACHER_TIMETABLE_CONFLICT_V1: red warning when the chosen
        teacher is already booked in another class on the same slot. */
     .assign-grid .teacher-hint.has-conflict { color:#dc2626; font-weight:700; }
+    /* INLINE_TIMETABLE_ASSIGN_V1: red highlight on periods with
+       no teacher assigned in this class. */
+    .assign-grid td.has-empty {
+        background:#fef2f2;
+        box-shadow: inset 0 0 0 2px #fca5a5;
+    }
     .assign-grid td.has-conflict {
         background:#fef2f2;
         box-shadow: inset 0 0 0 2px #fca5a5;
@@ -270,7 +276,8 @@
             </p>
         </div>
 
-        <div class="form-actions">
+        <div class="form-actions" id="assignFormActions">
+            <button type="button" id="editTimetableBtn" class="btn-secondary" style="margin-right:auto;">&#9998; Edit Timetable</button>
             <button type="button" id="cancelAssignBtn" class="btn-secondary">Cancel</button>
             <button type="button" id="saveAssignBtn" class="btn-success" disabled>Save Assignments</button>
         </div>
@@ -456,7 +463,10 @@
                     }
                 });
 
-                html += '<td>' +
+                // INLINE_TIMETABLE_ASSIGN_V1: mark a cell as empty
+                // (red) when no subject-with-teacher is assigned.
+                var _isEmptyCell = !teacherForSel;
+                html += '<td' + (_isEmptyCell ? ' class="has-empty"' : '') + '>' +
                     '<select class="cell-subject" data-day="' + dayNum + '" data-order="' + i + '">' +
                         opts +
                     '</select>' +
@@ -650,6 +660,275 @@
             loadClass(cid);
         });
     });
+
+    // ================================================================
+    // INLINE_TIMETABLE_ASSIGN_V1_DONE
+    // Inline "Edit Timetable" — lets the admin tweak the slots and
+    // break of the class's assigned periods timetable, right here in
+    // the same modal, without leaving the page.
+    // ================================================================
+    var _editTtBtn          = document.getElementById('editTimetableBtn');
+    var _assignFormActions  = document.getElementById('assignFormActions');
+
+    function _editTtKey(day, start, end) {
+        return day + '|' + start + '|' + end;
+    }
+
+    function _renderEditTimetableForm() {
+        if (!CURRENT_CLASS_ID || !CURRENT_DATA || !CURRENT_DATA.has_timetable) {
+            alert('Please select a class that has a periods timetable first.');
+            return;
+        }
+        var data = CURRENT_DATA;
+        var tt = {
+            id:             data.timetable_id,
+            title:          data.timetable_title || '',
+            label:          data.timetable_label || '',
+            break_duration: data.timetable_break_duration || 0,
+            days:           data.timetable_days || []
+        };
+        var slotsByLabel  = data.slots_by_label  || {};
+        var allTimetables = data.all_timetables || [];
+        var allSlots      = slotsByLabel[tt.label] || [];
+
+        // Slots already used by OTHER timetables on the same label
+        // must not appear (server would refuse the save otherwise).
+        var usedByOthers = {};
+        allTimetables.forEach(function (t) {
+            if (t.id === tt.id) return;
+            if (t.label !== tt.label) return;
+            (t.days || []).forEach(function (d) {
+                usedByOthers[_editTtKey(d.day_of_week, d.start, d.end)] = true;
+            });
+        });
+
+        var selfMap = {};
+        (tt.days || []).forEach(function (d) {
+            selfMap[_editTtKey(d.day_of_week, d.start, d.end)] = (d.break_after || null);
+        });
+
+        var visibleSlots = allSlots.filter(function (slot) {
+            var k = _editTtKey(slot.day, slot.start, slot.end);
+            if (selfMap.hasOwnProperty(k)) return true;
+            return !usedByOthers[k];
+        });
+
+        var html = '';
+        html += '<h3 style="margin:0 0 0.5rem; font-size:1.05rem;">Edit Periods Timetable &mdash; ' + esc(tt.title) + '</h3>';
+        html += '<p style="margin:0 0 0.75rem; color:var(--muted); font-size:0.82rem;">Adjust which calendar slots this timetable uses and the break.</p>';
+
+        html += '<div class="form-group"><label for="editTtTitle">Timetable Title *</label>';
+        html += '<input type="text" id="editTtTitle" class="form-control" value="' + esc(tt.title) + '"></div>';
+
+        html += '<div class="form-group"><label>Label</label>';
+        html += '<input type="text" class="form-control" value="' + esc(tt.label) + '" disabled>';
+        html += '<small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.72rem;">Label is locked in edit mode.</small></div>';
+
+        html += '<h4 style="margin:1rem 0 0.4rem; font-size:0.95rem;">Select Slots</h4>';
+        html += '<p style="margin:0 0 0.5rem; color:var(--muted); font-size:0.78rem;">Slots already used by another timetable are hidden.</p>';
+        html += '<div style="max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:0.5rem;">';
+        html += '<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">';
+        html += '<thead><tr>';
+        html += '<th style="border:1px solid var(--border); padding:0.45rem; background:var(--surface-alt); font-weight:600; width:40px;"></th>';
+        html += '<th style="border:1px solid var(--border); padding:0.45rem; background:var(--surface-alt); font-weight:600;">Day</th>';
+        html += '<th style="border:1px solid var(--border); padding:0.45rem; background:var(--surface-alt); font-weight:600;">Start</th>';
+        html += '<th style="border:1px solid var(--border); padding:0.45rem; background:var(--surface-alt); font-weight:600;">End</th>';
+        html += '<th style="border:1px solid var(--border); padding:0.45rem; background:var(--surface-alt); font-weight:600;">Periods</th>';
+        html += '</tr></thead><tbody>';
+
+        if (visibleSlots.length === 0) {
+            html += '<tr><td colspan="5" style="padding:1rem; text-align:center; color:var(--muted);">No available slots.</td></tr>';
+        } else {
+            visibleSlots.forEach(function (slot) {
+                var k = _editTtKey(slot.day, slot.start, slot.end);
+                var checked = selfMap.hasOwnProperty(k);
+                html += '<tr>';
+                html += '<td style="border:1px solid var(--border); padding:0.45rem; text-align:center;">';
+                html += '<input type="checkbox" class="edit-slot-cb"' + (checked ? ' checked' : '');
+                html += ' data-start="' + slot.start + '" data-end="' + slot.end + '"';
+                html += ' data-day="' + slot.day + '" data-periods="' + slot.periods + '"';
+                html += ' data-day-label="' + esc(slot.day_label || '') + '" style="width:18px; height:18px; cursor:pointer;">';
+                html += '</td>';
+                html += '<td style="border:1px solid var(--border); padding:0.45rem; text-align:center;">' + esc(slot.day_label || '') + '</td>';
+                html += '<td style="border:1px solid var(--border); padding:0.45rem; text-align:center;">' + slot.start + '</td>';
+                html += '<td style="border:1px solid var(--border); padding:0.45rem; text-align:center;">' + slot.end + '</td>';
+                html += '<td style="border:1px solid var(--border); padding:0.45rem; text-align:center;">' + slot.periods + '</td>';
+                html += '</tr>';
+            });
+        }
+        html += '</tbody></table></div>';
+
+        html += '<div class="form-group" style="margin-top:1rem;"><label for="editTtBreakDur">Break Duration (minutes)</label>';
+        html += '<input type="number" id="editTtBreakDur" class="form-control" value="' + (tt.break_duration || 0) + '" min="0" step="1" style="max-width:180px;"></div>';
+
+        html += '<div id="editTtBreakAfterWrap" style="display:none;">';
+        html += '<h4 style="margin:1rem 0 0.5rem; font-size:0.95rem;">Break After Which Period?</h4>';
+        html += '<p style="margin:0 0 0.5rem; color:var(--muted); font-size:0.78rem;">Choose the break position for each selected day. Pick <em>No break</em> to skip.</p>';
+        html += '<div id="editTtBreakAfterList"></div></div>';
+
+        html += '<div class="form-actions">';
+        html += '<button type="button" id="editTtCancelBtn" class="btn-secondary">Cancel</button>';
+        html += '<button type="button" id="editTtSaveBtn" class="btn-success">Save Changes</button>';
+        html += '</div>';
+
+        modalBody.innerHTML = html;
+        if (_assignFormActions) _assignFormActions.style.display = 'none';
+
+        document.getElementById('editTtCancelBtn').addEventListener('click', function () {
+            renderGrid(data);
+            if (_assignFormActions) _assignFormActions.style.display = '';
+            saveBtn.disabled = false;
+        });
+
+        document.getElementById('editTtSaveBtn').addEventListener('click', function () {
+            _saveEditTimetableForm(tt);
+        });
+
+        var breakDurEl = document.getElementById('editTtBreakDur');
+        breakDurEl.addEventListener('input', function () {
+            _updateEditBreakAfterSection(tt, selfMap);
+        });
+
+        modalBody.querySelectorAll('.edit-slot-cb').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                _updateEditBreakAfterSection(tt, selfMap);
+            });
+        });
+
+        _updateEditBreakAfterSection(tt, selfMap);
+    }
+
+    function _updateEditBreakAfterSection(tt, selfMap) {
+        var checked = Array.prototype.slice.call(modalBody.querySelectorAll('.edit-slot-cb')).filter(function (cb) { return cb.checked; });
+        var durEl   = document.getElementById('editTtBreakDur');
+        var duration= durEl ? (parseInt(durEl.value, 10) || 0) : 0;
+        var wrap    = document.getElementById('editTtBreakAfterWrap');
+        var list    = document.getElementById('editTtBreakAfterList');
+        if (!wrap || !list) return;
+
+        if (checked.length === 0 || duration <= 0) {
+            wrap.style.display = 'none';
+            list.innerHTML = '';
+            return;
+        }
+
+        var existing = {};
+        list.querySelectorAll('.edit-break-after-sel').forEach(function (sel) {
+            existing[sel.getAttribute('data-day-key')] = sel.value;
+        });
+
+        wrap.style.display = 'block';
+        list.innerHTML = '';
+
+        checked.forEach(function (cb) {
+            var dayLabel = cb.getAttribute('data-day-label') || '';
+            var periods  = parseInt(cb.getAttribute('data-periods'), 10) || 0;
+            var dayKey   = cb.getAttribute('data-day') + '|' + cb.getAttribute('data-start') + '|' + cb.getAttribute('data-end');
+
+            var optionsHtml = '<option value="">No break</option>';
+            for (var i = 1; i < periods; i++) {
+                optionsHtml += '<option value="' + i + '">After P' + i + '</option>';
+            }
+
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex; gap:1rem; align-items:center; margin-bottom:0.5rem; padding:0.5rem; background:var(--surface-alt); border-radius:0.5rem; flex-wrap:wrap;';
+            row.innerHTML =
+                '<strong style="min-width:100px;">' + esc(dayLabel) + '</strong>' +
+                '<span style="font-size:0.85rem; color:var(--muted);">' + periods + ' periods</span>' +
+                '<select class="form-control edit-break-after-sel" data-day-key="' + dayKey + '" style="max-width:200px;">' +
+                    optionsHtml +
+                '</select>';
+            list.appendChild(row);
+
+            var sel = row.querySelector('.edit-break-after-sel');
+            if (existing[dayKey] !== undefined) {
+                sel.value = existing[dayKey];
+            } else if (selfMap[dayKey] !== undefined && selfMap[dayKey] !== null) {
+                sel.value = String(selfMap[dayKey]);
+            } else {
+                var mid = Math.floor(periods / 2);
+                if (mid >= 1 && mid < periods) sel.value = String(mid);
+            }
+        });
+    }
+
+    function _saveEditTimetableForm(tt) {
+        var titleEl = document.getElementById('editTtTitle');
+        var durEl   = document.getElementById('editTtBreakDur');
+        var title   = titleEl ? titleEl.value.trim() : '';
+        var duration= durEl ? (parseInt(durEl.value, 10) || 0) : 0;
+        var checked = Array.prototype.slice.call(modalBody.querySelectorAll('.edit-slot-cb')).filter(function (cb) { return cb.checked; });
+
+        if (!title) { alert('Title is required.'); return; }
+        if (checked.length === 0) { alert('Select at least one slot.'); return; }
+
+        var days = checked.map(function (cb) {
+            var dayKey = cb.getAttribute('data-day') + '|' + cb.getAttribute('data-start') + '|' + cb.getAttribute('data-end');
+            var sel = modalBody.querySelector('.edit-break-after-sel[data-day-key="' + dayKey + '"]');
+            var breakAfterVal = sel ? sel.value : '';
+            return {
+                day:         parseInt(cb.getAttribute('data-day'), 10),
+                start:       cb.getAttribute('data-start'),
+                end:         cb.getAttribute('data-end'),
+                periods:     parseInt(cb.getAttribute('data-periods'), 10),
+                break_after: breakAfterVal ? parseInt(breakAfterVal, 10) : null
+            };
+        });
+
+        var payload = {
+            title:          title,
+            label:          tt.label || '',
+            break_duration: duration,
+            days:           days,
+            edit_id:        tt.id
+        };
+
+        var saveBtnEl = document.getElementById('editTtSaveBtn');
+        if (saveBtnEl) { saveBtnEl.disabled = true; saveBtnEl.textContent = 'Saving...'; }
+
+        function getCookie(name) {
+            var v = null;
+            if (document.cookie) {
+                document.cookie.split(';').forEach(function (c) {
+                    c = c.trim();
+                    if (c.substring(0, name.length + 1) === (name + '=')) {
+                        v = decodeURIComponent(c.substring(name.length + 1));
+                    }
+                });
+            }
+            return v;
+        }
+
+        fetch('/portal/' + SCHEMA + '/api/timetable/periods/bunch/add/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.success) {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                if (saveBtnEl) { saveBtnEl.disabled = false; saveBtnEl.textContent = 'Save Changes'; }
+                return;
+            }
+            window.location.reload();
+        })
+        .catch(function (err) {
+            alert('Network error: ' + err.message);
+            if (saveBtnEl) { saveBtnEl.disabled = false; saveBtnEl.textContent = 'Save Changes'; }
+        });
+    }
+
+    if (_editTtBtn) {
+        _editTtBtn.addEventListener('click', function () {
+            _renderEditTimetableForm();
+        });
+    }
+    // ===== END INLINE_TIMETABLE_ASSIGN_V1 =====
 })();
 </script>
 {% endblock %}
