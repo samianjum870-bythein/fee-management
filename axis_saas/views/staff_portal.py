@@ -216,8 +216,36 @@ def staff_dashboard(request):
         subject_teacher_classes = SchoolClass.objects.filter(
             class_subjects__teacher=staff, is_active=True
         ).distinct().annotate(student_count=Count('students')).order_by('name', 'section')
-        # Combined for total counts
-        all_classes = class_teacher_classes | subject_teacher_classes
+        # Combined for total counts.
+        #
+        # STAFF_DASHBOARD_QSET_COMBINE_FIX_01:
+        #   The previous implementation combined two annotated querysets
+        #   with `|`:
+        #
+        #       all_classes = class_teacher_classes | subject_teacher_classes
+        #
+        #   `subject_teacher_classes` carries `.distinct()` because the
+        #   `class_subjects__teacher` M2M join fans out per subject, so
+        #   it is flagged as a "unique" query. `class_teacher_classes`
+        #   is not. Django's QuerySet.__or__ refuses to merge a unique
+        #   query with a non-unique one and raises:
+        #
+        #       TypeError: Cannot combine a unique query with a
+        #                  non-unique query.
+        #
+        #   We now build a single queryset with Q() and `.distinct()`
+        #   on the merged query. Same result set, one SQL query, no
+        #   combine step. The two intermediate lists (used by the
+        #   template for the "Class Teacher" / "Subject Teacher"
+        #   sections) are untouched above.
+        all_classes = (
+            SchoolClass.objects
+            .filter(
+                Q(class_teacher=staff) | Q(class_subjects__teacher=staff),
+                is_active=True,
+            )
+            .distinct()
+        )
         student_count = Student.objects.filter(school_class__in=all_classes).count()
         today = timezone.localdate()
         attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=all_classes).count()

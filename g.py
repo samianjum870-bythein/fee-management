@@ -3,33 +3,63 @@
 axis_patcher.py
 ===============
 
-LEAVE_MANAGEMENT_V2_TESTFIX_01 patcher.
+STAFF_DASHBOARD_QSET_COMBINE_FIX_01
 
-Fixes 2 failing tests in `axis_saas/tests/test_leave_management.py`:
+Fixes the production crash on /portal/staff/dashboard/:
 
-    FAIL: test_cancelled_leave_does_not_count
-    FAIL: test_rejected_leave_does_not_count
+    TypeError: Cannot combine a unique query with a non-unique query.
 
 Root cause
 ----------
-Both tests used a 3-day request window (start = today+10, end = today+12)
-to assert that a cancelled/rejected leave does NOT count toward the
-weekly cap. But the tenant default policy has `max_leaves_per_week = 1`,
-so a 3-day request is legitimately rejected by the weekly quota rule
-regardless of whether the cancelled/rejected leave is being counted.
+In `axis_saas/views/staff_portal.py` → `staff_dashboard()`:
 
-The tests were asserting the wrong thing: they were meant to confirm the
-cancelled/rejected leave doesn't contribute to `used_week` — not to
-bypass the weekly cap entirely.
+    class_teacher_classes = (
+        SchoolClass.objects
+        .filter(class_teacher=staff, is_active=True)
+        .annotate(student_count=Count('students'))
+        .order_by('name', 'section')
+    )
 
-Fix
----
-Shrink both test cases to a SINGLE-DAY request (start == end == today+10).
-A 1-day request fits under the default weekly cap of 1, so the assertion
-`errors == []` now depends solely on the cancelled/rejected leave being
-ignored.
+    subject_teacher_classes = (
+        SchoolClass.objects
+        .filter(class_subjects__teacher=staff, is_active=True)
+        .distinct()                                 # <-- this marks the query
+        .annotate(student_count=Count('students'))   #     as "unique"
+        .order_by('name', 'section')
+    )
 
-Idempotent: re-running this patcher after the fix is a no-op.
+    all_classes = class_teacher_classes | subject_teacher_classes   # BOOM
+
+Django's `QuerySet.__or__` refuses to combine a query that has been
+flagged `unique=True` (via `.distinct()`) with one that has not. The
+`subject_teacher_classes` side goes through the M2M join
+(`class_subjects__teacher`), which produces duplicate rows for classes
+where the staff teaches more than one subject — hence the `.distinct()`.
+The `class_teacher` side is a plain FK filter, so `.distinct()` was
+never added there.
+
+The fix is to stop using `|`. Build a single queryset with `Q()` instead:
+
+    all_classes = (
+        SchoolClass.objects
+        .filter(
+            Q(class_teacher=staff) | Q(class_subjects__teacher=staff),
+            is_active=True,
+        )
+        .distinct()                                  # dedupe M2M rows
+    )
+
+This produces identical results in a single SQL query and avoids the
+"unique vs non-unique" combine entirely. The intermediate
+`class_teacher_classes` / `subject_teacher_classes` lists are still
+needed for the template's two separate sections ("Class Teacher:" and
+"Subject Teacher:"), so they are left untouched.
+
+Files modified:
+    axis_saas/views/staff_portal.py
+
+Idempotent: re-running this patcher after the fix is a no-op (it
+detects the new Q()-based block and skips).
 
 Usage:
     python3 axis_patcher.py --dry-run --verbose
@@ -38,7 +68,6 @@ Usage:
 """
 
 import argparse
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -48,63 +77,60 @@ def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
-TARGET_REL_PATH = Path('axis_saas') / 'tests' / 'test_leave_management.py'
+TARGET_REL_PATH = Path('axis_saas') / 'views' / 'staff_portal.py'
 
 
-# ------------------------------------------------------------------
-# Old / new bodies for the two affected test methods.
-# We use literal string replacement (not regex) so the pattern is
-# unambiguous and won't accidentally match other tests.
-# ------------------------------------------------------------------
-
-OLD_CANCELLED_BLOCK = """    def test_cancelled_leave_does_not_count(self):
-        self._create_leave(
-            date.today() + timedelta(days=10),
-            date.today() + timedelta(days=12),
-            status='cancelled',
-        )
-        errors = self._validate(10, 12)
-        self.assertEqual(errors, [])
-"""
-
-NEW_CANCELLED_BLOCK = """    def test_cancelled_leave_does_not_count(self):
-        # Single-day request so the default weekly cap (1 day/week)
-        # doesn't fire and mask the real assertion.
-        self._create_leave(
-            date.today() + timedelta(days=10),
-            date.today() + timedelta(days=10),
-            status='cancelled',
-        )
-        errors = self._validate(10, 10)
-        self.assertEqual(errors, [])
-"""
-
-OLD_REJECTED_BLOCK = """    def test_rejected_leave_does_not_count(self):
-        self._create_leave(
-            date.today() + timedelta(days=10),
-            date.today() + timedelta(days=12),
-            status='rejected',
-        )
-        errors = self._validate(10, 12)
-        self.assertEqual(errors, [])
-"""
-
-NEW_REJECTED_BLOCK = """    def test_rejected_leave_does_not_count(self):
-        # Single-day request so the default weekly cap (1 day/week)
-        # doesn't fire and mask the real assertion.
-        self._create_leave(
-            date.today() + timedelta(days=10),
-            date.today() + timedelta(days=10),
-            status='rejected',
-        )
-        errors = self._validate(10, 10)
-        self.assertEqual(errors, [])
+# ---------------------------------------------------------------- old ---
+# Exact snippet as it exists in the buggy file. Kept as a literal so the
+# replacement is unambiguous (no regex, no accidental matches).
+OLD_BLOCK = """        # Combined for total counts
+        all_classes = class_teacher_classes | subject_teacher_classes
+        student_count = Student.objects.filter(school_class__in=all_classes).count()
+        today = timezone.localdate()
+        attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=all_classes).count()
 """
 
 
-# Marker prefix used for idempotency: if the file already contains this
-# exact comment, we assume the fix has been applied.
-FIX_MARKER = "Single-day request so the default weekly cap"
+# ---------------------------------------------------------------- new ---
+NEW_BLOCK = """        # Combined for total counts.
+        #
+        # STAFF_DASHBOARD_QSET_COMBINE_FIX_01:
+        #   The previous implementation combined two annotated querysets
+        #   with `|`:
+        #
+        #       all_classes = class_teacher_classes | subject_teacher_classes
+        #
+        #   `subject_teacher_classes` carries `.distinct()` because the
+        #   `class_subjects__teacher` M2M join fans out per subject, so
+        #   it is flagged as a "unique" query. `class_teacher_classes`
+        #   is not. Django's QuerySet.__or__ refuses to merge a unique
+        #   query with a non-unique one and raises:
+        #
+        #       TypeError: Cannot combine a unique query with a
+        #                  non-unique query.
+        #
+        #   We now build a single queryset with Q() and `.distinct()`
+        #   on the merged query. Same result set, one SQL query, no
+        #   combine step. The two intermediate lists (used by the
+        #   template for the "Class Teacher" / "Subject Teacher"
+        #   sections) are untouched above.
+        all_classes = (
+            SchoolClass.objects
+            .filter(
+                Q(class_teacher=staff) | Q(class_subjects__teacher=staff),
+                is_active=True,
+            )
+            .distinct()
+        )
+        student_count = Student.objects.filter(school_class__in=all_classes).count()
+        today = timezone.localdate()
+        attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=all_classes).count()
+"""
+
+
+# Marker string used for idempotency: if the file already contains this
+# comment we assume the fix has already been applied.
+FIX_MARKER = "STAFF_DASHBOARD_QSET_COMBINE_FIX_01"
 
 
 def patch_file(path, dry_run, verbose):
@@ -118,60 +144,35 @@ def patch_file(path, dry_run, verbose):
         log(f"SKIP (already fixed): {path}")
         return True
 
-    original = content
-
-    # ------- Fix 1: cancelled leave test -------
-    if OLD_CANCELLED_BLOCK in content:
-        content = content.replace(OLD_CANCELLED_BLOCK, NEW_CANCELLED_BLOCK, 1)
-        if verbose:
-            log("Patched test_cancelled_leave_does_not_count")
-    else:
-        # Try a tolerant regex in case whitespace drifted.
-        pattern = re.compile(
-            r"(def test_cancelled_leave_does_not_count\(self\):\n"
-            r"(?:.*\n)*?"
-            r"        errors = self\._validate\(10, 12\)\n"
-            r"        self\.assertEqual\(errors, \[\]\)\n)",
-        )
-        m = pattern.search(content)
-        if not m:
-            log("WARN: could not locate test_cancelled_leave_does_not_count body")
+    if OLD_BLOCK not in content:
+        # Be helpful: report whether the old `|` combine is even present
+        if "all_classes = class_teacher_classes | subject_teacher_classes" in content:
+            log(
+                "WARN: found the buggy `|` line but not the exact "
+                "expected block. Manual review required."
+            )
         else:
-            content = content[:m.start()] + NEW_CANCELLED_BLOCK + content[m.end():]
-            if verbose:
-                log("Patched test_cancelled_leave_does_not_count (regex fallback)")
+            log(
+                "WARN: expected block not found in "
+                f"{path}. Nothing patched."
+            )
+        return False
 
-    # ------- Fix 2: rejected leave test -------
-    if OLD_REJECTED_BLOCK in content:
-        content = content.replace(OLD_REJECTED_BLOCK, NEW_REJECTED_BLOCK, 1)
-        if verbose:
-            log("Patched test_rejected_leave_does_not_count")
-    else:
-        pattern = re.compile(
-            r"(def test_rejected_leave_does_not_count\(self\):\n"
-            r"(?:.*\n)*?"
-            r"        errors = self\._validate\(10, 12\)\n"
-            r"        self\.assertEqual\(errors, \[\]\)\n)",
-        )
-        m = pattern.search(content)
-        if not m:
-            log("WARN: could not locate test_rejected_leave_does_not_count body")
-        else:
-            content = content[:m.start()] + NEW_REJECTED_BLOCK + content[m.end():]
-            if verbose:
-                log("Patched test_rejected_leave_does_not_count (regex fallback)")
+    new_content = content.replace(OLD_BLOCK, NEW_BLOCK, 1)
 
-    if content == original:
+    if new_content == content:
         log(f"NO CHANGE: {path}")
         return True
 
     if dry_run:
-        log(f"DRY-RUN: would patch {path} "
-            f"({len(original)} -> {len(content)} bytes)")
+        log(
+            f"DRY-RUN: would replace "
+            f"{len(OLD_BLOCK)} -> {len(NEW_BLOCK)} bytes in {path}"
+        )
         return True
 
     try:
-        path.write_text(content, encoding='utf-8')
+        path.write_text(new_content, encoding='utf-8')
     except Exception as exc:
         log(f"ERROR writing {path}: {exc}")
         return False
@@ -183,8 +184,8 @@ def patch_file(path, dry_run, verbose):
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            'Fix the two failing leave-management tests that assumed a '
-            '3-day request would pass the default weekly cap of 1 day.'
+            "Fix the 'Cannot combine a unique query with a non-unique "
+            "query' crash in staff_dashboard()."
         )
     )
     parser.add_argument('--dry-run', action='store_true',
@@ -216,7 +217,17 @@ def main():
     if args.dry_run:
         log("Re-run without --dry-run to apply.")
     else:
-        log("Next step: python manage.py test axis_saas.tests.test_leave_management")
+        log("Commit + push and let Railway redeploy.")
+        log("")
+        log("Heads-up on two unrelated items visible in the deploy log:")
+        log("  1) 'Ignoring invalid WebAuthn RP ID localhost ...' —")
+        log("     Set WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN env vars on")
+        log("     Railway to the production domain (no scheme for RP_ID,")
+        log("     with https:// scheme for ORIGIN).")
+        log("  2) 'Your models in app(s): axis_saas have changes that are")
+        log("     not yet reflected in a migration' — run")
+        log("     `python manage.py makemigrations axis_saas` locally")
+        log("     and commit the generated migration file.")
     return 0
 
 
