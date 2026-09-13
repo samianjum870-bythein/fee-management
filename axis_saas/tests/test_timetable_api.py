@@ -107,14 +107,15 @@ class SaveDaySchedulesTests(TimetableAPITestBase):
         """One POST creates Wed, updates Tue, deletes Mon."""
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
+            _senior = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_senior, start_time="08:00", end_time="14:00",
                 periods=8,
             )
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=1, order=1,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_senior, start_time="08:00", end_time="14:00",
                 periods=8,
             )
 

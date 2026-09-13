@@ -34,14 +34,17 @@ class TimetableHardeningTests(TestCase):
 
     # -------- case-insensitive uniqueness ----------------------------
 
-    def test_ci_label_unique_per_day_rejects_case_variant(self):
-        """'Senior' and 'senior' on the same day must collide."""
+    # -------- FK-based uniqueness ------------------------------------
+
+    def test_same_fk_label_twice_on_same_day_rejected(self):
+        """Same ScheduleLabel row twice on the same day must collide."""
         with schema_context(self.tenant.schema_name):
             cal, _ = AcademicCalendar.objects.get_or_create(pk=1)
+            lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal,
                 day_of_week=0,
-                label="Senior",
+                label=lbl,
                 start_time="08:00",
                 end_time="14:00",
                 periods=8,
@@ -50,7 +53,7 @@ class TimetableHardeningTests(TestCase):
                 DaySchedule.objects.create(
                     academic_calendar=cal,
                     day_of_week=0,
-                    label="senior",
+                    label=lbl,
                     start_time="08:00",
                     end_time="14:00",
                     periods=8,
@@ -59,10 +62,11 @@ class TimetableHardeningTests(TestCase):
     def test_same_label_across_days_allowed(self):
         with schema_context(self.tenant.schema_name):
             cal, _ = AcademicCalendar.objects.get_or_create(pk=1)
+            lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal,
                 day_of_week=0,
-                label="Senior",
+                label=lbl,
                 start_time="08:00",
                 end_time="14:00",
                 periods=8,
@@ -70,22 +74,24 @@ class TimetableHardeningTests(TestCase):
             DaySchedule.objects.create(
                 academic_calendar=cal,
                 day_of_week=1,
-                label="Senior",
+                label=lbl,
                 start_time="08:00",
                 end_time="14:00",
                 periods=8,
             )
             self.assertEqual(
-                DaySchedule.objects.filter(label__iexact="senior").count(), 2
+                DaySchedule.objects.filter(label=lbl).count(), 2
             )
 
     def test_different_labels_same_day_allowed(self):
         with schema_context(self.tenant.schema_name):
             cal, _ = AcademicCalendar.objects.get_or_create(pk=1)
+            senior = ScheduleLabel.objects.create(name="Senior")
+            junior = ScheduleLabel.objects.create(name="Junior")
             DaySchedule.objects.create(
                 academic_calendar=cal,
                 day_of_week=0,
-                label="Senior",
+                label=senior,
                 start_time="08:00",
                 end_time="14:00",
                 periods=8,
@@ -93,14 +99,14 @@ class TimetableHardeningTests(TestCase):
             DaySchedule.objects.create(
                 academic_calendar=cal,
                 day_of_week=0,
-                label="Junior",
+                label=junior,
                 start_time="08:00",
                 end_time="14:00",
                 periods=8,
             )
             self.assertEqual(DaySchedule.objects.filter(day_of_week=0).count(), 2)
 
-    # -------- ScheduleLabel name uniqueness ---------------------------
+    # -------- ScheduleLabel name uniqueness (case-insensitive) -------
 
     def test_schedule_label_name_is_unique(self):
         with schema_context(self.tenant.schema_name):
@@ -108,10 +114,35 @@ class TimetableHardeningTests(TestCase):
             with self.assertRaises(IntegrityError):
                 ScheduleLabel.objects.create(name="Senior")
 
+    def test_schedule_label_name_ci_unique(self):
+        """'Senior' and 'senior' must now collide at the DB level."""
+        with schema_context(self.tenant.schema_name):
+            ScheduleLabel.objects.create(name="Senior")
+            with self.assertRaises(IntegrityError):
+                ScheduleLabel.objects.create(name="senior")
+
+    def test_schedule_label_delete_blocked_when_referenced(self):
+        """PROTECT: cannot delete a label that a DaySchedule points at."""
+        from django.db.models.deletion import ProtectedError
+        with schema_context(self.tenant.schema_name):
+            cal, _ = AcademicCalendar.objects.get_or_create(pk=1)
+            lbl = ScheduleLabel.objects.create(name="Senior")
+            DaySchedule.objects.create(
+                academic_calendar=cal,
+                day_of_week=0,
+                label=lbl,
+                start_time="08:00",
+                end_time="14:00",
+                periods=8,
+            )
+            with self.assertRaises(ProtectedError):
+                lbl.delete()
+
     # -------- PeriodsTimetable defaults -------------------------------
 
     def test_periods_timetable_days_default_is_empty_list(self):
         with schema_context(self.tenant.schema_name):
-            tt = PeriodsTimetable.objects.create(title="Empty", label="Senior")
+            lbl = ScheduleLabel.objects.create(name="Senior")
+            tt = PeriodsTimetable.objects.create(title="Empty", label=lbl)
             self.assertEqual(tt.days, [])
             self.assertEqual(tt.break_duration, 0)

@@ -861,7 +861,15 @@ class DaySchedule(models.Model):
     )
     day_of_week = models.IntegerField(choices=DAY_CHOICES)
     order = models.PositiveIntegerField(default=0, help_text="Order of this slot within the day")
-    label = models.CharField(max_length=50, blank=False, default='', help_text="Optional label, e.g., 'Senior', 'Junior'")
+    # TIMETABLE_FK_REFACTOR_V1: label is now a real FK, not a text copy.
+    # Renaming a ScheduleLabel propagates automatically; deleting one is
+    # blocked while any DaySchedule still points at it.
+    label = models.ForeignKey(
+        'ScheduleLabel',
+        on_delete=models.PROTECT,
+        related_name='day_schedules',
+        help_text="The ScheduleLabel this slot belongs to.",
+    )
     start_time = models.TimeField(default='08:00:00')
     end_time = models.TimeField(default='14:00:00')
     periods = models.PositiveIntegerField(default=8, help_text="Number of periods on this day.")
@@ -881,16 +889,14 @@ class DaySchedule(models.Model):
         # A label may only be scheduled ONCE per day (e.g. "Senior" on Tue).
         # Same label on OTHER days is allowed, and different labels may
         # share the same day.
+        # TIMETABLE_FK_REFACTOR_V1: the label is now a FK, so the natural
+        # (label, calendar, day) key is a plain unique constraint. Case
+        # variants of the same string can no longer exist because they
+        # resolve to the same ScheduleLabel row.
         constraints = [
-            # TIMETABLE_SAVE_V2: case-insensitive uniqueness on
-            # (label, academic_calendar, day_of_week) so that the
-            # backend matches the client-side duplicate check that
-            # already treats "Senior" == "senior".
             models.UniqueConstraint(
-                Lower('label'),
-                'academic_calendar',
-                'day_of_week',
-                name='unique_label_per_day_ci',
+                fields=['label', 'academic_calendar', 'day_of_week'],
+                name='unique_label_per_day',
             ),
         ]
 
@@ -973,6 +979,12 @@ class ScheduleLabel(models.Model):
 
     class Meta:
         ordering = ['name']
+        constraints = [
+            # TIMETABLE_FK_REFACTOR_V1: the API already enforced this in
+            # Python. Move the guarantee down to the DB so admin/shell
+            # writes can't sneak a case-variant in.
+            models.UniqueConstraint(Lower('name'), name='unique_schedulelabel_name_ci'),
+        ]
 
     def __str__(self):
         return self.name
@@ -1003,7 +1015,12 @@ class PeriodsTimetable(models.Model):
       ]
     """
     title = models.CharField(max_length=150)
-    label = models.CharField(max_length=50, blank=True, default='')
+    # TIMETABLE_FK_REFACTOR_V1: FK to the canonical label.
+    label = models.ForeignKey(
+        'ScheduleLabel',
+        on_delete=models.PROTECT,
+        related_name='periods_timetables',
+    )
     break_duration = models.PositiveIntegerField(default=0)
     days = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)

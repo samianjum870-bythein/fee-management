@@ -189,7 +189,8 @@ def _build_context(schema_name, tenant, class_id):
         _edit_labels = list(_ScheduleLabel.objects.all().order_by('name'))
         _edit_slots_by_label = {}
         for _lbl in _edit_labels:
-            _scheds = _DaySchedule.objects.filter(label=_lbl.name).order_by('day_of_week', 'order')
+            # TIMETABLE_FK_REFACTOR_V1: filter on the FK object.
+            _scheds = _DaySchedule.objects.filter(label=_lbl).order_by('day_of_week', 'order')
             _edit_slots_by_label[_lbl.name] = [
                 {
                     'id': _ds.id,

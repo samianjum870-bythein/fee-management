@@ -336,7 +336,7 @@
                     {% for slot in slots %}
                     <tr data-day="{{ day }}" data-slot-id="{{ slot.id }}" data-updated-at="{% if slot.updated_at %}{{ slot.updated_at.isoformat }}{% endif %}">
                         <td class="day-label">{{ slot.get_day_of_week_display }}</td>
-                        <td class="slot-label">{{ slot.label }}</td>
+                        <td class="slot-label">{{ slot.label.name }}</td>
                         <td>{{ slot.start_time|time:'H:i' }}</td>
                         <td>{{ slot.end_time|time:'H:i' }}</td>
                         <td>{{ slot.periods }}</td>

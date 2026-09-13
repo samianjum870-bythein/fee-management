@@ -138,17 +138,8 @@ def _tt_lock_on_dayschedule_change(sender, instance, **kwargs):
     _tt_lock_schedule_reconcile(connection.schema_name)
 
 
-# ========== TIMETABLE_HARDENING_V1: label-change reconcile ==========
-# Extends the DaySchedule hook so a ScheduleLabel rename or delete
-# performed outside the API (shell, admin, data migration) also
-# triggers the same debounced reconcile. ScheduleLabel.name is
-# canonical; DaySchedule.label and PeriodsTimetable.label are
-# denormalized copies. Without this signal, renaming the canonical
-# label directly leaves the timetable pages rendering stale names.
-from axis_saas.models import ScheduleLabel as _TT_LOCK_ScheduleLabel
-
-
-@receiver(post_save, sender=_TT_LOCK_ScheduleLabel)
-@receiver(post_delete, sender=_TT_LOCK_ScheduleLabel)
-def _tt_lock_on_schedulelabel_change(sender, instance, **kwargs):
-    _tt_lock_schedule_reconcile(connection.schema_name)
+# ========== TIMETABLE_FK_REFACTOR_V1: label-change signal removed =====
+# The rename no longer needs a cascade: DaySchedule.label and
+# PeriodsTimetable.label are now ForeignKeys, so reads follow
+# ScheduleLabel.name automatically. ScheduleLabel deletion is guarded
+# by on_delete=PROTECT, so no post_delete hook is needed either.

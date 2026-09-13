@@ -90,23 +90,23 @@ def _get_session_key(schema_name):
     return SESSION_KEY_TEMPLATE.format(schema=schema_name)
 
 
-def _timetable_to_dict(tt):
+def _timetable_to_dict(tt, assigned_count=None):
     """Convert a PeriodsTimetable row into the JSON shape the UI expects."""
-    # TIMETABLE_PERIODS_SAVE_V1: expose how many classes are currently
-    # assigned to this timetable so the client's delete-confirm dialog
-    # can warn the admin before silently unassigning them (the delete
-    # cascades to ClassTimetableAssignment via on_delete=CASCADE).
-    try:
-        _assigned = ClassTimetableAssignment.objects.filter(timetable=tt).count()
-    except Exception:
-        _assigned = 0
+    # TIMETABLE_FK_REFACTOR_V1: `label` is now a FK, so serialize the
+    # label NAME for the client. `assigned_count` may be supplied by a
+    # caller that pre-annotated the queryset (see _load_timetables).
+    if assigned_count is None:
+        try:
+            assigned_count = ClassTimetableAssignment.objects.filter(timetable=tt).count()
+        except Exception:
+            assigned_count = 0
     return {
         'id': tt.id,
         'title': tt.title,
-        'label': tt.label or '',
+        'label': tt.label.name if tt.label_id else '',
         'break_duration': tt.break_duration or 0,
         'days': tt.days or [],
-        'assigned_class_count': _assigned,
+        'assigned_class_count': assigned_count,
     }
 
 
@@ -116,10 +116,22 @@ def _load_timetables():
     TIMETABLE_PERIODS_V2: grouped by label, then title, then id so a
     long list of timetables reads naturally instead of in insertion
     order.
+
+    TIMETABLE_FK_REFACTOR_V1: the per-row assigned-class count is now
+    computed with a single aggregate join instead of a COUNT() per
+    timetable. On a tenant with 50 timetables this drops the page from
+    51 queries to 2.
     """
+    from django.db.models import Count
+    qs = (
+        PeriodsTimetable.objects
+        .select_related('label')
+        .annotate(_assigned_count=Count('class_assignments'))
+        .order_by('label__name', 'title', 'id')
+    )
     return [
-        _timetable_to_dict(tt)
-        for tt in PeriodsTimetable.objects.order_by('label', 'title', 'id')
+        _timetable_to_dict(tt, assigned_count=tt._assigned_count)
+        for tt in qs
     ]
 
 
@@ -142,9 +154,19 @@ def _migrate_session_to_db(request, schema_name):
             bd = int(entry.get('break_duration') or 0)
         except (TypeError, ValueError):
             bd = 0
+        # TIMETABLE_FK_REFACTOR_V1: resolve the legacy string label to a
+        # ScheduleLabel row (creating one if needed). Entries without a
+        # resolvable label are skipped — they cannot be assigned to a
+        # class anyway.
+        _lbl_text = ((entry.get('label') or '').strip())[:50]
+        if not _lbl_text:
+            continue
+        _lbl = ScheduleLabel.objects.filter(name__iexact=_lbl_text).first()
+        if _lbl is None:
+            _lbl = ScheduleLabel.objects.create(name=_lbl_text, description='')
         PeriodsTimetable.objects.create(
             title=title[:150],
-            label=((entry.get('label') or '').strip())[:50],
+            label=_lbl,
             break_duration=max(0, bd),
             days=entry.get('days') or [],
         )
@@ -165,9 +187,13 @@ def _reconcile_timetables(schema_name):
     with schema_context(schema_name):
         schedules = list(DaySchedule.objects.all())
 
+    # TIMETABLE_FK_REFACTOR_V1: key on label_id (FK) instead of case-folded
+    # text. Two labels with different casing cannot collide any more.
     schedule_map = {}
     for ds in schedules:
-        key = ((ds.label or '').strip().lower(), ds.day_of_week)
+        if not ds.label_id:
+            continue
+        key = (ds.label_id, ds.day_of_week)
         schedule_map[key] = {
             'start': ds.start_time.strftime('%H:%M'),
             'end': ds.end_time.strftime('%H:%M'),
@@ -178,7 +204,7 @@ def _reconcile_timetables(schema_name):
     delete_ids = []
 
     for tt in PeriodsTimetable.objects.all():
-        label = (tt.label or '').strip()
+        label = tt.label.name if tt.label_id else ''
         try:
             break_duration = int(tt.break_duration or 0)
         except (TypeError, ValueError):
@@ -189,7 +215,7 @@ def _reconcile_timetables(schema_name):
 
         for day in (tt.days or []):
             day_of_week = day.get('day_of_week')
-            key = (label.lower(), day_of_week)
+            key = (tt.label_id, day_of_week)
             sched = schedule_map.get(key)
 
             if not sched:
@@ -325,8 +351,9 @@ def periods_management(request, schema_name):
 
         slots_by_label = {}
         for lbl in labels:
+            # TIMETABLE_FK_REFACTOR_V1: filter on the FK, not a name string.
             schedules = DaySchedule.objects.filter(
-                label=lbl.name,
+                label=lbl,
             ).order_by('day_of_week', 'order')
             slots_by_label[lbl.name] = [
                 {
@@ -385,12 +412,18 @@ def api_add_bunch(request, schema_name):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
     title = (data.get('title') or '').strip()
-    label = (data.get('label') or '').strip()
+    label_text = (data.get('label') or '').strip()
     try:
         break_duration = int(data.get('break_duration') or 0)
     except (TypeError, ValueError):
         break_duration = 0
     days = data.get('days') or []
+
+    # TIMETABLE_FK_REFACTOR_V1: resolve the label text to a ScheduleLabel
+    # once, up front. Reject the whole save if it doesn't exist.
+    _schedule_label = None
+    if label_text:
+        _schedule_label = ScheduleLabel.objects.filter(name__iexact=label_text).first()
 
     edit_id = data.get('edit_id')
     if edit_id is not None:
@@ -401,8 +434,12 @@ def api_add_bunch(request, schema_name):
 
     if not title:
         return JsonResponse({'error': 'Title is required'}, status=400)
-    if not label:
+    if not label_text:
         return JsonResponse({'error': 'Label is required'}, status=400)
+    if _schedule_label is None:
+        return JsonResponse(
+            {'error': f"Label '{label_text}' not found."}, status=400,
+        )
     if not days:
         return JsonResponse({'error': 'Select at least one slot'}, status=400)
 
@@ -487,14 +524,14 @@ def api_add_bunch(request, schema_name):
             _day = _cd['day_of_week']
             _sched = (
                 DaySchedule.objects
-                .filter(label__iexact=label, day_of_week=_day)
+                .filter(label=_schedule_label, day_of_week=_day)
                 .first()
             )
             if _sched is None:
                 return JsonResponse({
                     'error': (
                         f'Slot for day {_day} not found under label '
-                        f'"{label}". Reload the page and try again.'
+                        f'"{label_text}". Reload the page and try again.'
                     )
                 }, status=400)
             if (
@@ -505,7 +542,7 @@ def api_add_bunch(request, schema_name):
                 return JsonResponse({
                     'error': (
                         f'Slot mismatch for day {_day} under label '
-                        f'"{label}". The calendar may have changed. '
+                        f'"{label_text}". The calendar may have changed. '
                         f'Reload the page and try again.'
                     )
                 }, status=400)
@@ -516,14 +553,14 @@ def api_add_bunch(request, schema_name):
             except PeriodsTimetable.DoesNotExist:
                 return JsonResponse({'error': 'Timetable not found'}, status=404)
             tt.title = title[:150]
-            tt.label = label[:50]
+            tt.label = _schedule_label
             tt.break_duration = max(0, break_duration)
             tt.days = computed_days
             tt.save()
         else:
             tt = PeriodsTimetable.objects.create(
                 title=title[:150],
-                label=label[:50],
+                label=_schedule_label,
                 break_duration=max(0, break_duration),
                 days=computed_days,
             )
