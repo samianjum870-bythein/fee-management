@@ -647,6 +647,31 @@ class LeavePolicy(models.Model):
         default=False,
         help_text="Allow staff to apply for leaves starting in the past.",
     )
+    # LEAVE_SUSPENSION_V1 ------------------------------------------------
+    count_approved_only = models.BooleanField(
+        default=True,
+        help_text=(
+            "If True, only APPROVED leaves count towards the monthly/"
+            "weekly quota. If False, PENDING leaves count too. "
+            "Rejected/Cancelled never count."
+        ),
+    )
+    max_rejections_before_suspension = models.PositiveIntegerField(
+        default=3,
+        help_text=(
+            "Number of rejected leave requests (since the last "
+            "suspension) that automatically triggers a new suspension. "
+            "0 disables auto-suspension."
+        ),
+    )
+    suspension_days = models.PositiveIntegerField(
+        default=7,
+        help_text=(
+            "Length (in days) of an auto-triggered suspension. The "
+            "admin can always lift the suspension earlier."
+        ),
+    )
+    # --------------------------------------------------------------------
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -707,6 +732,58 @@ class LeaveRequest(models.Model):
 
     def __str__(self):
         return f"{self.staff.full_name if self.staff else '?'} - {self.start_date} to {self.end_date} ({self.status})"
+
+
+class LeaveSuspension(models.Model):
+    """A temporary or permanent block that prevents a staff member from
+    submitting new leave requests.
+
+    A suspension is active while `is_active=True` AND (today between
+    `start_date` and `end_date`, inclusive). `end_date=None` means the
+    suspension is permanent until the admin explicitly lifts it.
+
+    Suspensions are created either automatically (when a staff member's
+    rejection count crosses the tenant policy threshold) or manually by
+    an admin, regardless of that staff member's current leave status.
+    """
+    staff = models.ForeignKey(
+        'Staff',
+        on_delete=models.CASCADE,
+        related_name='leave_suspensions',
+    )
+    reason = models.TextField(blank=True)
+    start_date = models.DateField(default=date.today)
+    end_date = models.DateField(
+        null=True, blank=True,
+        help_text="NULL = permanent until admin lifts it.",
+    )
+    is_active = models.BooleanField(default=True)
+    auto_triggered = models.BooleanField(default=False)
+    created_by = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    lifted_at = models.DateTimeField(null=True, blank=True)
+    lifted_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['staff', 'is_active']),
+        ]
+
+    def is_currently_active(self, on_date=None):
+        if not self.is_active:
+            return False
+        if on_date is None:
+            on_date = date.today()
+        if on_date < self.start_date:
+            return False
+        if self.end_date is not None and on_date > self.end_date:
+            return False
+        return True
+
+    def __str__(self):
+        span = 'permanent' if self.end_date is None else f'until {self.end_date}'
+        return f"{self.staff.full_name if self.staff else '?'} suspended {span}"
 
 
 class StudentAttendance(models.Model):

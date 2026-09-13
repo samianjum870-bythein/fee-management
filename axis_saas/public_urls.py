@@ -42,6 +42,7 @@ from .views import fee_logs, mobile_fee_logs, global_search_api
 from .views.leave_management import (
     leave_management, leave_detail_api, leave_approve, leave_reject,
     leave_policy_save, leave_staff_summary_api,
+    staff_suspend, staff_unsuspend, staff_suspensions_api,
 )
 
 
@@ -354,4 +355,8 @@ urlpatterns = [
     path('portal/<slug:schema_name>/leave/<int:leave_id>/reject/', portal_wrapper(login_required_for_schema(leave_reject)), name='leave_reject'),
     path('portal/<slug:schema_name>/leave/policy/save/', portal_wrapper(login_required_for_schema(leave_policy_save)), name='leave_policy_save'),
     path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/summary/', portal_wrapper(login_required_for_schema(leave_staff_summary_api)), name='leave_staff_summary_api'),
+    # ===== LEAVE_SUSPENSION_V1 =====
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/suspend/', portal_wrapper(login_required_for_schema(staff_suspend)), name='staff_suspend'),
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/unsuspend/', portal_wrapper(login_required_for_schema(staff_unsuspend)), name='staff_unsuspend'),
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/suspensions/', portal_wrapper(login_required_for_schema(staff_suspensions_api)), name='staff_suspensions_api'),
 ]

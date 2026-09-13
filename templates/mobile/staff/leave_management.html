@@ -74,6 +74,25 @@
     <div class="sub">Apply for leave and review your history</div>
 </div>
 
+{% if active_suspension %}
+<div class="lm-active-banner" style="background:#fee2e2; border-color:#ef4444; border-left-color:#ef4444; color:#7f1d1d;">
+    <div class="icon">&#9940;</div>
+    <div>
+        <div class="title">You are suspended from applying for leave</div>
+        <div class="meta">
+            {% if active_suspension.end_date %}
+            <strong>Until {{ active_suspension.end_date|date:"d M Y" }}</strong>
+            {% else %}
+            <strong>Indefinite</strong> &mdash; contact the admin to lift this restriction.
+            {% endif %}
+        </div>
+        {% if active_suspension.reason %}
+        <div class="meta" style="margin-top:0.35rem;">Reason: {{ active_suspension.reason }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 {% if active_leave %}
 <div class="lm-active-banner">
     <div class="icon">&#9208;</div>
@@ -130,6 +149,16 @@
 <div class="lm-panel active" id="panel-apply">
     <div class="card">
         <div id="applyAlert"></div>
+        {% if active_suspension %}
+        <div class="lm-error">
+            You cannot apply for leave right now. You are suspended
+            {% if active_suspension.end_date %}
+            until <strong>{{ active_suspension.end_date|date:"d M Y" }}</strong>.
+            {% else %}
+            indefinitely. Please contact the admin.
+            {% endif %}
+        </div>
+        {% endif %}
         {% if active_leave %}
         <div class="lm-error">
             You are currently on an approved leave until
@@ -137,15 +166,16 @@
             The apply form is disabled until this leave ends.
         </div>
         {% endif %}
+        {% if active_suspension or active_leave %}disabled-all{% endif %}
         <div class="lm-field">
             <label for="lvTitle">Title / Subject</label>
             <input type="text" id="lvTitle" maxlength="200"
                    placeholder="e.g. Medical appointment"
-                   {% if active_leave %}disabled{% endif %}>
+                   {% if active_suspension or active_leave %}disabled{% endif %}>
         </div>
         <div class="lm-field">
             <label for="lvType">Leave Type</label>
-            <select id="lvType" {% if active_leave %}disabled{% endif %}>
+            <select id="lvType" {% if active_suspension or active_leave %}disabled{% endif %}>
                 {% for value, label in leave_type_choices %}
                     <option value="{{ value }}">{{ label }}</option>
                 {% endfor %}
@@ -154,18 +184,18 @@
         <div class="lm-field">
             <label for="lvReason">Reason</label>
             <textarea id="lvReason" placeholder="Please describe why you need this leave…"
-                      {% if active_leave %}disabled{% endif %}></textarea>
+                      {% if active_suspension or active_leave %}disabled{% endif %}></textarea>
         </div>
         <div class="lm-row2">
             <div class="lm-field">
                 <label for="lvStart">Start Date</label>
                 <input type="date" id="lvStart" min="{{ today }}"
-                       {% if active_leave %}disabled{% endif %}>
+                       {% if active_suspension or active_leave %}disabled{% endif %}>
             </div>
             <div class="lm-field">
                 <label for="lvEnd">End Date</label>
                 <input type="date" id="lvEnd" min="{{ today }}"
-                       {% if active_leave %}disabled{% endif %}>
+                       {% if active_suspension or active_leave %}disabled{% endif %}>
             </div>
         </div>
         <p style="font-size:0.75rem; color:var(--muted); margin-bottom:0.75rem;">
@@ -174,8 +204,14 @@
             Max/week: <strong>{{ policy.max_leaves_per_week }}</strong>
         </p>
         <button class="lm-apply-btn" id="lvSubmit"
-                {% if active_leave %}disabled{% endif %}>
-            {% if active_leave %}Currently on leave — cannot apply{% else %}Submit Application{% endif %}
+                {% if active_suspension or active_leave %}disabled{% endif %}>
+            {% if active_suspension %}
+                Suspended — cannot apply
+            {% elif active_leave %}
+                Currently on leave — cannot apply
+            {% else %}
+                Submit Application
+            {% endif %}
         </button>
     </div>
 </div>
@@ -195,6 +231,7 @@
     const API_CANCEL = '/portal/staff/leave/cancel/';
     const API_POLICY = '/portal/staff/leave/policy/';
     const HAS_ACTIVE_LEAVE = {% if active_leave %}true{% else %}false{% endif %};
+    const HAS_ACTIVE_SUSPENSION = {% if active_suspension %}true{% else %}false{% endif %};
 
     function esc(s) {
         return String(s == null ? '' : s)
@@ -243,6 +280,10 @@
         submitBtn.addEventListener('click', function() {
             const alertBox = document.getElementById('applyAlert');
             alertBox.innerHTML = '';
+            if (HAS_ACTIVE_SUSPENSION) {
+                alertBox.innerHTML = '<div class="lm-error">You are suspended from applying for leave.</div>';
+                return;
+            }
             if (HAS_ACTIVE_LEAVE) {
                 alertBox.innerHTML = '<div class="lm-error">You cannot apply while on an active leave.</div>';
                 return;
@@ -365,10 +406,11 @@
                     qboxes[1].textContent = res.used_week + ' / ' + res.max_leaves_per_week;
                     qboxes[2].textContent = res.remaining_month;
                 }
-                // If the server now reports an active leave that we didn't
-                // render on page load (e.g. an admin approved a pending
-                // request in another tab), reload so the UI matches.
-                if (res.active_leave && !HAS_ACTIVE_LEAVE) {
+                // If the server now reports an active leave or an active
+                // suspension that we didn't render on page load, reload
+                // so the UI matches.
+                if ((res.active_leave && !HAS_ACTIVE_LEAVE) ||
+                    (res.active_suspension && !HAS_ACTIVE_SUSPENSION)) {
                     location.reload();
                 }
             }).catch(function(){});

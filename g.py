@@ -3,61 +3,78 @@
 axis_patcher.py
 ===============
 
-LEAVE_ADMIN_APPROVE_FIX_01
+LEAVE_SUSPENSION_V1 patcher.
 
-Fixes the "Approve / Reject button does nothing" issue on the tenant
-admin panel's Leave Management page
-(`templates/tenant/leave_management.html`).
+Adds a full Leave-Suspension system to the existing Leave Management
+module, plus a robustness upgrade to the admin Approve/Reject buttons,
+plus an admin-selectable policy for how leave quotas are counted.
 
-Root cause
-----------
-The current JS uses this pattern:
+What this patcher implements
+----------------------------
 
-    function postJson(url, body) {
-        return fetch(url, {...})
-            .then(r => r.json().then(d => ({ ok: r.ok, data: d })));
-    }
+1. ADMIN APPROVE / REJECT FIX
+   The admin Leave-Management page already had a postJson() fix in
+   place, but the buttons still sometimes appeared "dead" because the
+   `prompt()` dialog was silently cancelled, or the outer `catch`
+   swallowed a redirect. This patcher:
+     * replaces the inline onclick handlers with addEventListener-
+       bound handlers (works even if `window.approveLeave` is
+       overwritten by another script on the page);
+     * adds an inline "response preview" `<pre>` block in the modal
+       so the admin sees exactly what the server sent when something
+       goes wrong;
+     * forces `credentials: 'same-origin'` and `X-CSRFToken` and
+       logs every step to the browser console under a stable
+       namespace `[LM]`.
 
-    window.approveLeave = function(id) {
-        const remarks = prompt('Optional remarks for approval:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
-            .then(function(res) {
-                if (!res.ok || !res.data.ok) { alert(...); return; }
-                location.reload();
-            });
-        // <- no .catch() !
-    };
+2. SUSPENSIONS
+   New model `LeaveSuspension`:
+     * staff FK, reason, start_date, end_date (nullable = permanent),
+       is_active, auto_triggered, created_by, created_at, lifted_at,
+       lifted_by.
+   New admin policy fields on `LeavePolicy`:
+     * `count_approved_only`       (bool, default True)
+     * `max_rejections_before_suspension`  (int, default 3)
+     * `suspension_days`           (int, default 7)
+   Behaviour:
+     * Staff apply is blocked while an active suspension exists.
+     * Every time the admin REJECTS a leave, we count that staff's
+       rejections *since their last suspension* (or all-time if they
+       have none). If the count reaches
+       `max_rejections_before_suspension`, we auto-create a
+       suspension of `suspension_days` days with
+       `auto_triggered=True`.
+     * The admin can also *manually* suspend ANY staff member via a
+       new API endpoint, regardless of their current leave status.
+     * The admin can lift an active suspension at any time.
 
-If the server ever returns anything other than JSON — a 302 redirect
-to the login page, a 500 HTML error page, a 403 CSRF failure page —
-`r.json()` rejects, the whole promise chain rejects, and because there
-is no `.catch()`, nothing happens. The user sees no error, no reload,
-no change: exactly "the button doesn't work."
+3. ADMIN-SELECTABLE QUOTA MODE
+   The tenant admin chooses whether the monthly/weekly quota is
+   counted from APPROVED leaves only (default), or from every
+   non-rejected/non-cancelled leave (pending + approved). This is
+   driven by `LeavePolicy.count_approved_only` and enforced inside
+   `_month_used_days` / `_week_used_days`.
 
-Also, `fetch()` is not given `credentials: 'same-origin'`. In most
-browsers the default is fine, but making it explicit eliminates a
-whole class of "session cookie not sent" failures.
+4. UI
+   The admin Leave-Management page gains:
+     * a "Suspensions" button in the header;
+     * a "Suspend Staff" tab inside the same modal (search staff,
+       pick a duration or "Permanent", enter a reason);
+     * a policy modal section with the three new fields.
+   The staff Leave-Management page gains:
+     * a red banner when the staff member is suspended;
+     * the Apply form is disabled and a message is shown.
 
-Fix
----
-  1. `postJson()` now reads the response as TEXT first, then tries to
-     JSON.parse it. Non-JSON responses produce a descriptive Error that
-     includes the HTTP status and the first 200 characters of the body,
-     so the user can see what actually came back.
+Files modified:
+    axis_saas/models.py
+    axis_saas/views/leave_management.py
+    axis_saas/views/staff_portal_leave_managemetn.py
+    axis_saas/public_urls.py
+    templates/tenant/leave_management.html
+    templates/mobile/staff/leave_management.html
 
-  2. `postJson()` explicitly sends `credentials: 'same-origin'` and an
-     `X-Requested-With: XMLHttpRequest` header.
-
-  3. `approveLeave()`, `rejectLeave()` and `savePolicy()` all get a
-     `.catch()` handler that pops an alert with the underlying error
-     and logs the full error to the browser console.
-
-  4. Backwards-compatible: the success path (200 + {"ok": true}) is
-     unchanged, so nothing else in the page needs to change.
-
-Idempotent: re-running this patcher after the fix is a no-op (it
-detects the new postJson body and skips).
+Files created:
+    axis_saas/migrations/0026_leave_suspensions.py
 
 Usage:
     python3 axis_patcher.py --dry-run --verbose
@@ -75,191 +92,1491 @@ def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
-TARGET_REL_PATH = Path('templates') / 'tenant' / 'leave_management.html'
+# ==================================================================
+#  NEW FILE CONTENT: migration
+# ==================================================================
+
+MIGRATION_CONTENT = r'''# Generated by axis_patcher — LEAVE_SUSPENSION_V1
+#
+# Adds:
+#   * LeavePolicy.count_approved_only
+#   * LeavePolicy.max_rejections_before_suspension
+#   * LeavePolicy.suspension_days
+#   * LeaveSuspension model (FK -> Staff)
+
+from django.db import migrations, models
+import django.db.models.deletion
+from datetime import date
 
 
-# ------------------------------------------------------------------
-# OLD — literal snippets taken verbatim from the current template.
-# ------------------------------------------------------------------
+class Migration(migrations.Migration):
 
-OLD_POSTJSON = """    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': CSRF
+    dependencies = [
+        ('axis_saas', '0025_rename_axis_saas_l_staff_i_2e5d1b_idx_axis_saas_l_staff_i_b29c3c_idx_and_more'),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name='leavepolicy',
+            name='count_approved_only',
+            field=models.BooleanField(
+                default=True,
+                help_text=(
+                    'If True, only APPROVED leaves count towards the '
+                    'monthly/weekly quota. If False, PENDING leaves '
+                    'count too. Rejected/Cancelled never count.'
+                ),
+            ),
+        ),
+        migrations.AddField(
+            model_name='leavepolicy',
+            name='max_rejections_before_suspension',
+            field=models.PositiveIntegerField(
+                default=3,
+                help_text=(
+                    'Number of rejected leave requests (since the last '
+                    'suspension) that automatically triggers a new '
+                    'suspension. 0 disables auto-suspension.'
+                ),
+            ),
+        ),
+        migrations.AddField(
+            model_name='leavepolicy',
+            name='suspension_days',
+            field=models.PositiveIntegerField(
+                default=7,
+                help_text=(
+                    'Length (in days) of an auto-triggered suspension. '
+                    'The admin can always lift the suspension earlier.'
+                ),
+            ),
+        ),
+        migrations.CreateModel(
+            name='LeaveSuspension',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('reason', models.TextField(blank=True)),
+                ('start_date', models.DateField(default=date.today)),
+                ('end_date', models.DateField(blank=True, null=True, help_text='NULL = permanent until admin lifts it.')),
+                ('is_active', models.BooleanField(default=True)),
+                ('auto_triggered', models.BooleanField(default=False)),
+                ('created_by', models.CharField(blank=True, max_length=150)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('lifted_at', models.DateTimeField(blank=True, null=True)),
+                ('lifted_by', models.CharField(blank=True, max_length=150)),
+                ('staff', models.ForeignKey(
+                    on_delete=django.db.models.deletion.CASCADE,
+                    related_name='leave_suspensions',
+                    to='axis_saas.staff',
+                )),
+            ],
+            options={
+                'ordering': ['-created_at'],
             },
-            body: JSON.stringify(body || {})
-        }).then(r => r.json().then(d => ({ ok: r.ok, data: d })));
+        ),
+        migrations.AddIndex(
+            model_name='leavesuspension',
+            index=models.Index(
+                fields=['staff', 'is_active'],
+                name='axis_saas_l_staff_i_act_idx',
+            ),
+        ),
+    ]
+'''
+
+
+# ==================================================================
+#  PATCH: models.py
+# ==================================================================
+
+MODELS_OLD_LEAVEPOLICY = """class LeavePolicy(models.Model):
+    \"\"\"Tenant-wide leave settings. One row per tenant (pk=1).\"\"\"
+    max_leaves_per_month = models.PositiveIntegerField(
+        default=4,
+        help_text="Maximum leave days a staff member can take in a calendar month.",
+    )
+    max_leaves_per_week = models.PositiveIntegerField(
+        default=1,
+        help_text="Maximum leave days a staff member can take in a single week.",
+    )
+    max_consecutive_days = models.PositiveIntegerField(
+        default=7,
+        help_text="Maximum days a single leave request may span.",
+    )
+    allow_backdated = models.BooleanField(
+        default=False,
+        help_text="Allow staff to apply for leaves starting in the past.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Leave Policy'
+        verbose_name_plural = 'Leave Policies'
+
+    def __str__(self):
+        return "Leave Policy"
+"""
+
+MODELS_NEW_LEAVEPOLICY = """class LeavePolicy(models.Model):
+    \"\"\"Tenant-wide leave settings. One row per tenant (pk=1).\"\"\"
+    max_leaves_per_month = models.PositiveIntegerField(
+        default=4,
+        help_text="Maximum leave days a staff member can take in a calendar month.",
+    )
+    max_leaves_per_week = models.PositiveIntegerField(
+        default=1,
+        help_text="Maximum leave days a staff member can take in a single week.",
+    )
+    max_consecutive_days = models.PositiveIntegerField(
+        default=7,
+        help_text="Maximum days a single leave request may span.",
+    )
+    allow_backdated = models.BooleanField(
+        default=False,
+        help_text="Allow staff to apply for leaves starting in the past.",
+    )
+    # LEAVE_SUSPENSION_V1 ------------------------------------------------
+    count_approved_only = models.BooleanField(
+        default=True,
+        help_text=(
+            "If True, only APPROVED leaves count towards the monthly/"
+            "weekly quota. If False, PENDING leaves count too. "
+            "Rejected/Cancelled never count."
+        ),
+    )
+    max_rejections_before_suspension = models.PositiveIntegerField(
+        default=3,
+        help_text=(
+            "Number of rejected leave requests (since the last "
+            "suspension) that automatically triggers a new suspension. "
+            "0 disables auto-suspension."
+        ),
+    )
+    suspension_days = models.PositiveIntegerField(
+        default=7,
+        help_text=(
+            "Length (in days) of an auto-triggered suspension. The "
+            "admin can always lift the suspension earlier."
+        ),
+    )
+    # --------------------------------------------------------------------
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Leave Policy'
+        verbose_name_plural = 'Leave Policies'
+
+    def __str__(self):
+        return "Leave Policy"
+"""
+
+
+MODELS_OLD_STUDENTATTENDANCE_ANCHOR = """class StudentAttendance(models.Model):"""
+
+MODELS_NEW_SUSPENSION_BLOCK = '''class LeaveSuspension(models.Model):
+    """A temporary or permanent block that prevents a staff member from
+    submitting new leave requests.
+
+    A suspension is active while `is_active=True` AND (today between
+    `start_date` and `end_date`, inclusive). `end_date=None` means the
+    suspension is permanent until the admin explicitly lifts it.
+
+    Suspensions are created either automatically (when a staff member's
+    rejection count crosses the tenant policy threshold) or manually by
+    an admin, regardless of that staff member's current leave status.
+    """
+    staff = models.ForeignKey(
+        'Staff',
+        on_delete=models.CASCADE,
+        related_name='leave_suspensions',
+    )
+    reason = models.TextField(blank=True)
+    start_date = models.DateField(default=date.today)
+    end_date = models.DateField(
+        null=True, blank=True,
+        help_text="NULL = permanent until admin lifts it.",
+    )
+    is_active = models.BooleanField(default=True)
+    auto_triggered = models.BooleanField(default=False)
+    created_by = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    lifted_at = models.DateTimeField(null=True, blank=True)
+    lifted_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['staff', 'is_active']),
+        ]
+
+    def is_currently_active(self, on_date=None):
+        if not self.is_active:
+            return False
+        if on_date is None:
+            on_date = date.today()
+        if on_date < self.start_date:
+            return False
+        if self.end_date is not None and on_date > self.end_date:
+            return False
+        return True
+
+    def __str__(self):
+        span = 'permanent' if self.end_date is None else f'until {self.end_date}'
+        return f"{self.staff.full_name if self.staff else '?'} suspended {span}"
+
+
+'''
+
+MODELS_OLD_LEAVEREQUEST_END = """    def __str__(self):
+        return f"{self.staff.full_name if self.staff else '?'} - {self.start_date} to {self.end_date} ({self.status})"
+
+
+class StudentAttendance(models.Model):"""
+
+MODELS_NEW_LEAVEREQUEST_END = """    def __str__(self):
+        return f"{self.staff.full_name if self.staff else '?'} - {self.start_date} to {self.end_date} ({self.status})"
+
+
+""" + MODELS_NEW_SUSPENSION_BLOCK + """class StudentAttendance(models.Model):"""
+
+
+# ==================================================================
+#  PATCH: views/leave_management.py
+# ==================================================================
+
+LEAVE_ADMIN_OLD_IMPORTS = """from ..models import Staff, LeaveRequest, LeavePolicy, ClassSubject
+from .helpers import (
+    get_tenant, is_mobile_user_agent, require_school_feature, require_tenant_type,
+)
+"""
+
+LEAVE_ADMIN_NEW_IMPORTS = """from ..models import (
+    Staff, LeaveRequest, LeavePolicy, ClassSubject, LeaveSuspension,
+)
+from .helpers import (
+    get_tenant, is_mobile_user_agent, require_school_feature, require_tenant_type,
+)
+"""
+
+
+LEAVE_ADMIN_OLD_SERIALIZE_ANCHOR = """def _validate_leave_dates(start_date, end_date, policy, staff, exclude_id=None):"""
+
+LEAVE_ADMIN_NEW_HELPERS = '''def _serialize_suspension(susp):
+    staff = susp.staff
+    return {
+        'id': susp.id,
+        'staff_id': staff.id if staff else None,
+        'staff_name': staff.full_name if staff else 'Unknown',
+        'staff_job_title': staff.job_title if staff else '',
+        'reason': susp.reason or '',
+        'start_date': susp.start_date.isoformat() if susp.start_date else '',
+        'end_date': susp.end_date.isoformat() if susp.end_date else '',
+        'is_active': susp.is_active,
+        'currently_active': susp.is_currently_active(),
+        'auto_triggered': bool(susp.auto_triggered),
+        'created_by': susp.created_by or '',
+        'created_at': susp.created_at.isoformat() if susp.created_at else '',
+        'lifted_at': susp.lifted_at.isoformat() if susp.lifted_at else '',
+        'lifted_by': susp.lifted_by or '',
+    }
+
+
+def _active_suspension_for(staff, on_date=None):
+    """Return the first active LeaveSuspension for `staff` (or None)."""
+    if staff is None:
+        return None
+    if on_date is None:
+        on_date = date.today()
+    qs = (
+        LeaveSuspension.objects
+        .filter(
+            staff=staff,
+            is_active=True,
+            start_date__lte=on_date,
+        )
+        .order_by('-created_at')
+    )
+    for susp in qs:
+        if susp.end_date is None or susp.end_date >= on_date:
+            return susp
+    return None
+
+
+def _rejections_since_last_suspension(staff):
+    """Count rejected leaves for `staff` since their latest suspension.
+
+    If no suspension exists yet, count all-time rejected leaves.
+    """
+    latest = (
+        LeaveSuspension.objects
+        .filter(staff=staff)
+        .order_by('-created_at')
+        .first()
+    )
+    qs = LeaveRequest.objects.filter(staff=staff, status='rejected')
+    if latest is not None:
+        qs = qs.filter(reviewed_at__gt=latest.created_at)
+    return qs.count()
+
+
+''' + LEAVE_ADMIN_OLD_SERIALIZE_ANCHOR
+
+
+LEAVE_ADMIN_OLD_REJECT_BODY = """        leave.status = 'rejected'
+        leave.reviewed_by = request.session.get('school_admin_username', 'admin')
+        leave.reviewed_at = timezone.now()
+        leave.admin_remarks = remarks
+        leave.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'admin_remarks'])
+        return JsonResponse({'ok': True, 'leave': _serialize_leave(leave)})
+"""
+
+LEAVE_ADMIN_NEW_REJECT_BODY = """        leave.status = 'rejected'
+        leave.reviewed_by = request.session.get('school_admin_username', 'admin')
+        leave.reviewed_at = timezone.now()
+        leave.admin_remarks = remarks
+        leave.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'admin_remarks'])
+
+        # LEAVE_SUSPENSION_V1: after saving the rejection, check whether
+        # this staff member has crossed the tenant's rejection threshold
+        # since their last suspension. If so, auto-create a suspension.
+        auto_suspension = None
+        try:
+            policy = _get_or_create_policy()
+            threshold = int(policy.max_rejections_before_suspension or 0)
+            if threshold > 0:
+                count = _rejections_since_last_suspension(leave.staff)
+                if count >= threshold:
+                    days = max(1, int(policy.suspension_days or 7))
+                    auto_suspension = LeaveSuspension.objects.create(
+                        staff=leave.staff,
+                        reason=(
+                            f"Auto-suspended: {count} rejected leave "
+                            f"request(s) since last suspension "
+                            f"(threshold {threshold})."
+                        ),
+                        start_date=date.today(),
+                        end_date=date.today() + timedelta(days=days),
+                        is_active=True,
+                        auto_triggered=True,
+                        created_by='system',
+                    )
+                    logger.info(
+                        'LEAVE_SUSPENSION_V1: auto-suspended staff=%s '
+                        'for %s days (rejections=%s)',
+                        leave.staff_id, days, count,
+                    )
+        except Exception as exc:
+            logger.warning('LEAVE_SUSPENSION_V1: auto-suspend failed: %s', exc)
+
+        payload = {'ok': True, 'leave': _serialize_leave(leave)}
+        if auto_suspension is not None:
+            payload['auto_suspension'] = _serialize_suspension(auto_suspension)
+        return JsonResponse(payload)
+"""
+
+
+LEAVE_ADMIN_OLD_POLICY_SAVE_BODY = """    with schema_context(schema_name):
+        policy = _get_or_create_policy()
+        policy.max_leaves_per_month = _to_int('max_leaves_per_month', policy.max_leaves_per_month, 1)
+        policy.max_leaves_per_week = _to_int('max_leaves_per_week', policy.max_leaves_per_week, 1)
+        policy.max_consecutive_days = _to_int('max_consecutive_days', policy.max_consecutive_days, 1)
+        policy.allow_backdated = bool(body.get('allow_backdated', policy.allow_backdated))
+        policy.save()
+        return JsonResponse({
+            'ok': True,
+            'policy': {
+                'max_leaves_per_month': policy.max_leaves_per_month,
+                'max_leaves_per_week': policy.max_leaves_per_week,
+                'max_consecutive_days': policy.max_consecutive_days,
+                'allow_backdated': policy.allow_backdated,
+            },
+        })
+"""
+
+LEAVE_ADMIN_NEW_POLICY_SAVE_BODY = """    with schema_context(schema_name):
+        policy = _get_or_create_policy()
+        policy.max_leaves_per_month = _to_int('max_leaves_per_month', policy.max_leaves_per_month, 1)
+        policy.max_leaves_per_week = _to_int('max_leaves_per_week', policy.max_leaves_per_week, 1)
+        policy.max_consecutive_days = _to_int('max_consecutive_days', policy.max_consecutive_days, 1)
+        policy.allow_backdated = bool(body.get('allow_backdated', policy.allow_backdated))
+        policy.count_approved_only = bool(
+            body.get('count_approved_only', policy.count_approved_only)
+        )
+        policy.max_rejections_before_suspension = _to_int(
+            'max_rejections_before_suspension',
+            policy.max_rejections_before_suspension,
+            0,
+        )
+        policy.suspension_days = _to_int(
+            'suspension_days',
+            policy.suspension_days,
+            1,
+        )
+        policy.save()
+        return JsonResponse({
+            'ok': True,
+            'policy': {
+                'max_leaves_per_month': policy.max_leaves_per_month,
+                'max_leaves_per_week': policy.max_leaves_per_week,
+                'max_consecutive_days': policy.max_consecutive_days,
+                'allow_backdated': policy.allow_backdated,
+                'count_approved_only': policy.count_approved_only,
+                'max_rejections_before_suspension': policy.max_rejections_before_suspension,
+                'suspension_days': policy.suspension_days,
+            },
+        })
+"""
+
+
+# --- leave_management() view: extend context with suspensions + extra policy ---
+
+LEAVE_ADMIN_OLD_VIEW_CONTEXT = """        policy_data = {
+            'max_leaves_per_month': policy.max_leaves_per_month,
+            'max_leaves_per_week': policy.max_leaves_per_week,
+            'max_consecutive_days': policy.max_consecutive_days,
+            'allow_backdated': policy.allow_backdated,
+        }
+
+    context = {
+        'tenant': tenant,
+        'leaves_json': json.dumps(leaves),
+        'staff_summary_json': json.dumps(staff_summary),
+        'policy_json': json.dumps(policy_data),
+        'stats': stats,
+        'status_filter': status_filter,
+        'leave_type_filter': leave_type_filter,
+        'search_query': search,
+        'status_choices': LeaveRequest.STATUS_CHOICES,
+        'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
+    }
+"""
+
+LEAVE_ADMIN_NEW_VIEW_CONTEXT = """        policy_data = {
+            'max_leaves_per_month': policy.max_leaves_per_month,
+            'max_leaves_per_week': policy.max_leaves_per_week,
+            'max_consecutive_days': policy.max_consecutive_days,
+            'allow_backdated': policy.allow_backdated,
+            'count_approved_only': policy.count_approved_only,
+            'max_rejections_before_suspension': policy.max_rejections_before_suspension,
+            'suspension_days': policy.suspension_days,
+        }
+
+        # LEAVE_SUSPENSION_V1: active + recent suspensions for the admin UI.
+        suspensions_qs = (
+            LeaveSuspension.objects
+            .select_related('staff')
+            .order_by('-created_at')[:200]
+        )
+        suspensions = []
+        active_count = 0
+        for s in suspensions_qs:
+            item = _serialize_suspension(s)
+            if item['currently_active']:
+                active_count += 1
+            suspensions.append(item)
+
+        # Staff picker list for the "Suspend Staff" modal.
+        staff_picker = [
+            {
+                'id': s.id,
+                'name': s.full_name,
+                'job_title': s.job_title or '',
+            }
+            for s in Staff.objects.filter(status='active').order_by('full_name')
+        ]
+
+    context = {
+        'tenant': tenant,
+        'leaves_json': json.dumps(leaves),
+        'staff_summary_json': json.dumps(staff_summary),
+        'policy_json': json.dumps(policy_data),
+        'suspensions_json': json.dumps(suspensions),
+        'staff_picker_json': json.dumps(staff_picker),
+        'stats': stats,
+        'active_suspension_count': active_count,
+        'status_filter': status_filter,
+        'leave_type_filter': leave_type_filter,
+        'search_query': search,
+        'status_choices': LeaveRequest.STATUS_CHOICES,
+        'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
+        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
     }
 """
 
 
-OLD_APPROVE = """    window.approveLeave = function(id) {
-        const remarks = prompt('Optional remarks for approval:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks }).then(function(res) {
+# --- Append new suspension views at the end of leave_management.py ---
+
+LEAVE_ADMIN_APPEND_VIEWS = '''
+
+# ============================================================
+#  LEAVE_SUSPENSION_V1 views
+# ============================================================
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('leave_management')
+def staff_suspend(request, schema_name, staff_id):
+    """Manually suspend a staff member from applying for leave.
+
+    Body (JSON, all optional):
+        reason        : str
+        duration_days : int   -> end_date = today + N days
+                        if None / 0 -> permanent (end_date = NULL)
+    """
+    try:
+        body = json.loads(request.body or '{}')
+    except Exception:
+        body = {}
+    reason = (body.get('reason') or '').strip()
+    raw_days = body.get('duration_days')
+    try:
+        days = int(raw_days) if raw_days not in (None, '', '0', 0) else 0
+    except (TypeError, ValueError):
+        days = 0
+
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+
+        # Lift any existing active suspensions for the same staff, so we
+        # don't stack them. Admin can then re-suspend with the new params.
+        LeaveSuspension.objects.filter(staff=staff, is_active=True).update(
+            is_active=False,
+            lifted_at=timezone.now(),
+            lifted_by=request.session.get('school_admin_username', 'admin'),
+        )
+
+        end_date = None
+        if days > 0:
+            end_date = date.today() + timedelta(days=days)
+
+        susp = LeaveSuspension.objects.create(
+            staff=staff,
+            reason=reason or 'Suspended by admin.',
+            start_date=date.today(),
+            end_date=end_date,
+            is_active=True,
+            auto_triggered=False,
+            created_by=request.session.get('school_admin_username', 'admin'),
+        )
+        return JsonResponse({'ok': True, 'suspension': _serialize_suspension(susp)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('leave_management')
+def staff_unsuspend(request, schema_name, staff_id):
+    """Lift every active suspension for a staff member."""
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+        qs = LeaveSuspension.objects.filter(staff=staff, is_active=True)
+        count = qs.count()
+        qs.update(
+            is_active=False,
+            lifted_at=timezone.now(),
+            lifted_by=request.session.get('school_admin_username', 'admin'),
+        )
+        return JsonResponse({'ok': True, 'lifted': count})
+
+
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('leave_management')
+def staff_suspensions_api(request, schema_name, staff_id):
+    """Return active + past suspensions for a single staff member."""
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+        qs = LeaveSuspension.objects.filter(staff=staff).order_by('-created_at')
+        data = [_serialize_suspension(s) for s in qs]
+        return JsonResponse({
+            'ok': True,
+            'staff_id': staff.id,
+            'staff_name': staff.full_name,
+            'suspensions': data,
+        })
+'''
+
+
+# ==================================================================
+#  PATCH: views/staff_portal_leave_managemetn.py
+# ==================================================================
+
+SP_OLD_IMPORTS = """from ..models import Staff, LeaveRequest, LeavePolicy, ClassSubject
+from .staff_portal import require_staff_login, require_staff_feature
+"""
+
+SP_NEW_IMPORTS = """from ..models import (
+    Staff, LeaveRequest, LeavePolicy, ClassSubject, LeaveSuspension,
+)
+from .staff_portal import require_staff_login, require_staff_feature
+"""
+
+
+SP_OLD_MONTH_USED = '''def _month_used_days(staff, ref_date, exclude_id=None):
+    first_day = ref_date.replace(day=1)
+    last_day = ref_date.replace(day=monthrange(ref_date.year, ref_date.month)[1])
+    qs = LeaveRequest.objects.filter(
+        staff=staff,
+        start_date__lte=last_day,
+        end_date__gte=first_day,
+    ).exclude(status__in=['rejected', 'cancelled'])
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+    used = set()
+    for lv in qs:
+        lo = max(lv.start_date, first_day)
+        hi = min(lv.end_date, last_day)
+        for n in range(lo.toordinal(), hi.toordinal() + 1):
+            used.add(n)
+    return len(used)
+
+
+def _week_used_days(staff, ref_date, exclude_id=None):
+    week_start = ref_date - timedelta(days=ref_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    qs = LeaveRequest.objects.filter(
+        staff=staff,
+        start_date__lte=week_end,
+        end_date__gte=week_start,
+    ).exclude(status__in=['rejected', 'cancelled'])
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+    used = set()
+    for lv in qs:
+        lo = max(lv.start_date, week_start)
+        hi = min(lv.end_date, week_end)
+        for n in range(lo.toordinal(), hi.toordinal() + 1):
+            used.add(n)
+    return len(used)
+'''
+
+SP_NEW_MONTH_USED = '''def _leave_quota_queryset(staff, policy=None):
+    """Return the queryset of leaves that count towards quota, filtered
+    according to `policy.count_approved_only` (LEAVE_SUSPENSION_V1).
+
+    Rules:
+      * Rejected / Cancelled leaves NEVER count.
+      * If `count_approved_only=True` (default) only APPROVED leaves count.
+      * If `count_approved_only=False` PENDING + APPROVED leaves count.
+    """
+    qs = LeaveRequest.objects.filter(staff=staff)
+    if policy is None or getattr(policy, 'count_approved_only', True):
+        qs = qs.filter(status='approved')
+    else:
+        qs = qs.exclude(status__in=['rejected', 'cancelled'])
+    return qs
+
+
+def _month_used_days(staff, ref_date, exclude_id=None, policy=None):
+    first_day = ref_date.replace(day=1)
+    last_day = ref_date.replace(day=monthrange(ref_date.year, ref_date.month)[1])
+    qs = _leave_quota_queryset(staff, policy).filter(
+        start_date__lte=last_day,
+        end_date__gte=first_day,
+    )
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+    used = set()
+    for lv in qs:
+        lo = max(lv.start_date, first_day)
+        hi = min(lv.end_date, last_day)
+        for n in range(lo.toordinal(), hi.toordinal() + 1):
+            used.add(n)
+    return len(used)
+
+
+def _week_used_days(staff, ref_date, exclude_id=None, policy=None):
+    week_start = ref_date - timedelta(days=ref_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    qs = _leave_quota_queryset(staff, policy).filter(
+        start_date__lte=week_end,
+        end_date__gte=week_start,
+    )
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+    used = set()
+    for lv in qs:
+        lo = max(lv.start_date, week_start)
+        hi = min(lv.end_date, week_end)
+        for n in range(lo.toordinal(), hi.toordinal() + 1):
+            used.add(n)
+    return len(used)
+
+
+def _active_suspension(staff, on_date=None):
+    """Return the currently active LeaveSuspension for `staff` (or None)."""
+    if staff is None:
+        return None
+    if on_date is None:
+        on_date = date.today()
+    qs = (
+        LeaveSuspension.objects
+        .filter(staff=staff, is_active=True, start_date__lte=on_date)
+        .order_by('-created_at')
+    )
+    for susp in qs:
+        if susp.end_date is None or susp.end_date >= on_date:
+            return susp
+    return None
+'''
+
+SP_OLD_VALIDATE_HEAD = '''def _validate_request(staff, start_date, end_date, policy):
+    """Return list of validation error strings (empty if valid).
+
+    Order matters: the "currently on leave" rule is checked first so
+    the user sees the most relevant message instead of a generic
+    overlap error.
+    """
+    errors = []
+
+    # 0) Staff is currently inside an approved leave window.
+    active = _get_active_leave(staff)
+    if active is not None:
+        errors.append(
+            f"You are currently on an approved leave from "
+            f"{active.start_date.strftime('%d %b %Y')} to "
+            f"{active.end_date.strftime('%d %b %Y')} "
+            f"({active.total_days} day"
+            f"{'s' if active.total_days > 1 else ''}). "
+            f"You cannot apply for a new leave until this one ends."
+        )
+        return errors
+'''
+
+SP_NEW_VALIDATE_HEAD = '''def _validate_request(staff, start_date, end_date, policy):
+    """Return list of validation error strings (empty if valid).
+
+    Order matters: suspensions and the "currently on leave" rule are
+    checked first so the user sees the most relevant message instead
+    of a generic overlap error.
+    """
+    errors = []
+
+    # 0) Staff is suspended from applying (LEAVE_SUSPENSION_V1).
+    suspension = _active_suspension(staff)
+    if suspension is not None:
+        if suspension.end_date:
+            span = f"until {suspension.end_date.strftime('%d %b %Y')}"
+        else:
+            span = "with no end date (contact the admin to lift it)"
+        reason = f" Reason: {suspension.reason}" if suspension.reason else ''
+        errors.append(
+            f"You are suspended from applying for leave {span}.{reason}"
+        )
+        return errors
+
+    # 0.5) Staff is currently inside an approved leave window.
+    active = _get_active_leave(staff)
+    if active is not None:
+        errors.append(
+            f"You are currently on an approved leave from "
+            f"{active.start_date.strftime('%d %b %Y')} to "
+            f"{active.end_date.strftime('%d %b %Y')} "
+            f"({active.total_days} day"
+            f"{'s' if active.total_days > 1 else ''}). "
+            f"You cannot apply for a new leave until this one ends."
+        )
+        return errors
+'''
+
+
+SP_OLD_MONTH_CALL = """    # 5) Monthly quota.
+    used_month = _month_used_days(staff, start_date)"""
+SP_NEW_MONTH_CALL = """    # 5) Monthly quota.
+    used_month = _month_used_days(staff, start_date, policy=policy)"""
+
+SP_OLD_WEEK_CALL = """    # 6) Weekly quota.
+    used_week = _week_used_days(staff, start_date)"""
+SP_NEW_WEEK_CALL = """    # 6) Weekly quota.
+    used_week = _week_used_days(staff, start_date, policy=policy)"""
+
+
+# --- staff_leave_management view: add suspension info + policy fields ---
+
+SP_OLD_LEAVE_MGMT_VIEW = '''@require_staff_login
+@require_staff_feature('staff_leave_management')
+def staff_leave_management(request):
+    schema_name = request.session['staff_schema_name']
+    staff_id = request.session['staff_id']
+    with schema_context(schema_name):
+        staff = Staff.objects.filter(pk=staff_id).first()
+        if not staff:
+            return redirect('staff_login')
+        policy = _get_or_create_policy()
+        today = date.today()
+        used_month = _month_used_days(staff, today)
+        used_week = _week_used_days(staff, today)
+        remaining_month = max(0, policy.max_leaves_per_month - used_month)
+        remaining_week = max(0, policy.max_leaves_per_week - used_week)
+        active_leave = _get_active_leave(staff, today)
+
+        context = {
+            'staff': staff,
+            'policy': {
+                'max_leaves_per_month': policy.max_leaves_per_month,
+                'max_leaves_per_week': policy.max_leaves_per_week,
+                'max_consecutive_days': policy.max_consecutive_days,
+                'allow_backdated': policy.allow_backdated,
+            },
+            'used_month': used_month,
+            'used_week': used_week,
+            'remaining_month': remaining_month,
+            'remaining_week': remaining_week,
+            'active_leave': active_leave,
+            'today': today.isoformat(),
+            'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
+        }
+    response = render(request, 'mobile/staff/leave_management.html', context)
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+'''
+
+SP_NEW_LEAVE_MGMT_VIEW = '''@require_staff_login
+@require_staff_feature('staff_leave_management')
+def staff_leave_management(request):
+    schema_name = request.session['staff_schema_name']
+    staff_id = request.session['staff_id']
+    with schema_context(schema_name):
+        staff = Staff.objects.filter(pk=staff_id).first()
+        if not staff:
+            return redirect('staff_login')
+        policy = _get_or_create_policy()
+        today = date.today()
+        used_month = _month_used_days(staff, today, policy=policy)
+        used_week = _week_used_days(staff, today, policy=policy)
+        remaining_month = max(0, policy.max_leaves_per_month - used_month)
+        remaining_week = max(0, policy.max_leaves_per_week - used_week)
+        active_leave = _get_active_leave(staff, today)
+        suspension = _active_suspension(staff, today)
+
+        context = {
+            'staff': staff,
+            'policy': {
+                'max_leaves_per_month': policy.max_leaves_per_month,
+                'max_leaves_per_week': policy.max_leaves_per_week,
+                'max_consecutive_days': policy.max_consecutive_days,
+                'allow_backdated': policy.allow_backdated,
+                'count_approved_only': policy.count_approved_only,
+            },
+            'used_month': used_month,
+            'used_week': used_week,
+            'remaining_month': remaining_month,
+            'remaining_week': remaining_week,
+            'active_leave': active_leave,
+            'active_suspension': suspension,
+            'today': today.isoformat(),
+            'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
+        }
+    response = render(request, 'mobile/staff/leave_management.html', context)
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+'''
+
+
+SP_OLD_POLICY_API = '''@require_staff_login
+@require_staff_feature('staff_leave_management')
+def staff_leave_policy_api(request):
+    schema_name = request.session['staff_schema_name']
+    staff_id = request.session['staff_id']
+    with schema_context(schema_name):
+        staff = Staff.objects.filter(pk=staff_id).first()
+        if not staff:
+            return JsonResponse({'ok': False, 'error': 'Staff not found'}, status=404)
+        policy = _get_or_create_policy()
+        today = date.today()
+        used_month = _month_used_days(staff, today)
+        used_week = _week_used_days(staff, today)
+        active_leave = _get_active_leave(staff, today)
+        return JsonResponse({
+            'ok': True,
+            'max_leaves_per_month': policy.max_leaves_per_month,
+            'max_leaves_per_week': policy.max_leaves_per_week,
+            'max_consecutive_days': policy.max_consecutive_days,
+            'allow_backdated': policy.allow_backdated,
+            'used_month': used_month,
+            'used_week': used_week,
+            'remaining_month': max(0, policy.max_leaves_per_month - used_month),
+            'remaining_week': max(0, policy.max_leaves_per_week - used_week),
+            'active_leave': _serialize_staff_leave(active_leave),
+        })
+'''
+
+SP_NEW_POLICY_API = '''@require_staff_login
+@require_staff_feature('staff_leave_management')
+def staff_leave_policy_api(request):
+    schema_name = request.session['staff_schema_name']
+    staff_id = request.session['staff_id']
+    with schema_context(schema_name):
+        staff = Staff.objects.filter(pk=staff_id).first()
+        if not staff:
+            return JsonResponse({'ok': False, 'error': 'Staff not found'}, status=404)
+        policy = _get_or_create_policy()
+        today = date.today()
+        used_month = _month_used_days(staff, today, policy=policy)
+        used_week = _week_used_days(staff, today, policy=policy)
+        active_leave = _get_active_leave(staff, today)
+        suspension = _active_suspension(staff, today)
+        suspension_payload = None
+        if suspension is not None:
+            suspension_payload = {
+                'id': suspension.id,
+                'reason': suspension.reason or '',
+                'start_date': suspension.start_date.isoformat() if suspension.start_date else '',
+                'end_date': suspension.end_date.isoformat() if suspension.end_date else '',
+                'permanent': suspension.end_date is None,
+            }
+        return JsonResponse({
+            'ok': True,
+            'max_leaves_per_month': policy.max_leaves_per_month,
+            'max_leaves_per_week': policy.max_leaves_per_week,
+            'max_consecutive_days': policy.max_consecutive_days,
+            'allow_backdated': policy.allow_backdated,
+            'count_approved_only': policy.count_approved_only,
+            'used_month': used_month,
+            'used_week': used_week,
+            'remaining_month': max(0, policy.max_leaves_per_month - used_month),
+            'remaining_week': max(0, policy.max_leaves_per_week - used_week),
+            'active_leave': _serialize_staff_leave(active_leave),
+            'active_suspension': suspension_payload,
+        })
+'''
+
+
+# ==================================================================
+#  PATCH: public_urls.py  (append suspension URLs)
+# ==================================================================
+
+PUBLIC_URLS_OLD_IMPORT = """from .views.leave_management import (
+    leave_management, leave_detail_api, leave_approve, leave_reject,
+    leave_policy_save, leave_staff_summary_api,
+)
+"""
+
+PUBLIC_URLS_NEW_IMPORT = """from .views.leave_management import (
+    leave_management, leave_detail_api, leave_approve, leave_reject,
+    leave_policy_save, leave_staff_summary_api,
+    staff_suspend, staff_unsuspend, staff_suspensions_api,
+)
+"""
+
+
+PUBLIC_URLS_OLD_TAIL = """    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/summary/', portal_wrapper(login_required_for_schema(leave_staff_summary_api)), name='leave_staff_summary_api'),
+]
+"""
+
+PUBLIC_URLS_NEW_TAIL = """    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/summary/', portal_wrapper(login_required_for_schema(leave_staff_summary_api)), name='leave_staff_summary_api'),
+    # ===== LEAVE_SUSPENSION_V1 =====
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/suspend/', portal_wrapper(login_required_for_schema(staff_suspend)), name='staff_suspend'),
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/unsuspend/', portal_wrapper(login_required_for_schema(staff_unsuspend)), name='staff_unsuspend'),
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/suspensions/', portal_wrapper(login_required_for_schema(staff_suspensions_api)), name='staff_suspensions_api'),
+]
+"""
+
+
+# ==================================================================
+#  PATCH: templates/tenant/leave_management.html
+# ==================================================================
+
+TEMPLATE_ADMIN_MARKER = "LEAVE_SUSPENSION_V1_ADMIN"
+
+TEMPLATE_ADMIN_OLD_HEADER_BUTTONS = """            <button class="btn-secondary" onclick="openStaffSummary()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                Staff Usage
+            </button>
+        </div>
+    </div>"""
+
+TEMPLATE_ADMIN_NEW_HEADER_BUTTONS = """            <button class="btn-secondary" onclick="openStaffSummary()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                Staff Usage
+            </button>
+            <button class="btn-secondary" onclick="openSuspensionsModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M9 15l6-6"/></svg>
+                Suspensions
+                {% if active_suspension_count %}<span style="background:var(--danger); color:white; border-radius:1rem; padding:0 0.4rem; font-size:0.7rem; margin-left:0.25rem;">{{ active_suspension_count }}</span>{% endif %}
+            </button>
+        </div>
+    </div>"""
+
+
+TEMPLATE_ADMIN_OLD_POLICY_MODAL = """        <div class="row">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="polBack"> Allow backdated leaves
+            </label>
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+            <button class="btn-secondary" onclick="closePolicy()">Cancel</button>
+            <button class="btn-primary" onclick="savePolicy()">Save Policy</button>
+        </div>
+    </div>
+</div>"""
+
+TEMPLATE_ADMIN_NEW_POLICY_MODAL = """        <div class="row">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="polBack"> Allow backdated leaves
+            </label>
+        </div>
+        <div class="row" style="border-top:1px solid var(--border); padding-top:0.75rem; margin-top:0.75rem;">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="polApprovedOnly"> Count only APPROVED leaves towards monthly / weekly quota
+            </label>
+            <p class="page-desc" style="font-size:0.75rem; margin-top:0.35rem;">
+                Rejected and cancelled leaves are never counted, no matter what.
+            </p>
+        </div>
+        <div class="row">
+            <label for="polMaxRejections">Auto-suspend after N rejected leaves (0 = disabled)</label>
+            <input type="number" id="polMaxRejections" min="0" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
+        <div class="row">
+            <label for="polSuspensionDays">Auto-suspension length (days)</label>
+            <input type="number" id="polSuspensionDays" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+            <button class="btn-secondary" onclick="closePolicy()">Cancel</button>
+            <button class="btn-primary" onclick="savePolicy()">Save Policy</button>
+        </div>
+    </div>
+</div>
+
+<!-- Suspensions modal (LEAVE_SUSPENSION_V1_ADMIN) -->
+<div class="lm-modal-backdrop" id="lmSuspensionsBackdrop">
+    <div class="lm-modal" style="max-width:720px;">
+        <button class="close" onclick="closeSuspensionsModal()">×</button>
+        <h3>Leave Suspensions</h3>
+        <p class="page-desc" style="margin-top:0.25rem;">Active and past suspensions. You can lift any active one, or suspend a staff member manually.</p>
+
+        <div style="display:flex; gap:0.5rem; margin-top:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+            <button class="btn-primary" onclick="showSuspendForm()">+ Suspend staff manually</button>
+        </div>
+
+        <div id="lmSuspendForm" style="display:none; border:1px solid var(--border); border-radius:0.75rem; padding:0.85rem; margin-bottom:1rem;">
+            <div class="row">
+                <label for="suspStaff">Staff</label>
+                <select id="suspStaff" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);"></select>
+            </div>
+            <div class="row" style="margin-top:0.5rem;">
+                <label for="suspReason">Reason (optional)</label>
+                <textarea id="suspReason" rows="2" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); font-family:inherit;"></textarea>
+            </div>
+            <div class="row" style="margin-top:0.5rem;">
+                <label for="suspDays">Duration (days, 0 = permanent until lifted)</label>
+                <input type="number" id="suspDays" min="0" value="7" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem;">
+                <button class="btn-secondary" onclick="hideSuspendForm()">Cancel</button>
+                <button class="btn-primary" onclick="submitSuspend()">Confirm suspension</button>
+            </div>
+        </div>
+
+        <div id="lmSuspensionsList" style="margin-top:0.5rem;"></div>
+    </div>
+</div>"""
+
+
+TEMPLATE_ADMIN_OLD_JS_ANCHOR = """    // ----- filters -----
+    window.applyFilters = function() {"""
+
+TEMPLATE_ADMIN_NEW_JS_BLOCK = """    // ----- suspensations (LEAVE_SUSPENSION_V1_ADMIN) -----
+    function _findStaffNameById(id) {
+        const hit = (STAFF_PICKER || []).find(s => s.id === id);
+        return hit ? hit.name : ('#' + id);
+    }
+
+    window.openSuspensionsModal = function() {
+        renderSuspensionsList();
+        // Populate staff dropdown
+        const sel = document.getElementById('suspStaff');
+        if (sel && sel.options.length === 0) {
+            (STAFF_PICKER || []).forEach(function(s) {
+                const opt = document.createElement('option');
+                opt.value = String(s.id);
+                opt.textContent = s.name + (s.job_title ? ' — ' + s.job_title : '');
+                sel.appendChild(opt);
+            });
+        }
+        document.getElementById('lmSuspensionsBackdrop').classList.add('show');
+    };
+    window.closeSuspensionsModal = function() {
+        document.getElementById('lmSuspensionsBackdrop').classList.remove('show');
+        hideSuspendForm();
+    };
+    window.showSuspendForm = function() {
+        document.getElementById('lmSuspendForm').style.display = 'block';
+    };
+    window.hideSuspendForm = function() {
+        document.getElementById('lmSuspendForm').style.display = 'none';
+    };
+
+    function renderSuspensionsList() {
+        const box = document.getElementById('lmSuspensionsList');
+        const list = SUSPENSIONS || [];
+        if (!list.length) {
+            box.innerHTML = '<div class="lm-empty" style="padding:1rem;">No suspensions recorded.</div>';
+            return;
+        }
+        box.innerHTML = list.map(function(s) {
+            const active = s.currently_active;
+            const badge = active
+                ? '<span class="lm-badge rejected">Active</span>'
+                : '<span class="lm-badge cancelled">Lifted / Expired</span>';
+            const range = s.end_date
+                ? (fmtDate(s.start_date) + ' → ' + fmtDate(s.end_date))
+                : (fmtDate(s.start_date) + ' → permanent');
+            const auto = s.auto_triggered ? ' <em style="color:var(--muted);">(auto)</em>' : '';
+            const liftBtn = active
+                ? '<button class="lm-btn-approve" onclick="liftSuspension(' + s.staff_id + ')">Lift</button>'
+                : '';
+            const reason = s.reason
+                ? '<div class="lm-dates" style="white-space:pre-wrap;">' + esc(s.reason) + '</div>'
+                : '';
+            const meta = '<div class="lm-dates">' + esc(s.created_by || '') + (s.created_at ? ' • ' + esc(new Date(s.created_at).toLocaleString()) : '') + '</div>';
+            return '<div class="lm-card" style="margin-bottom:0.6rem;">'
+                + '<div class="lm-card-head">'
+                +   '<div><strong>' + esc(s.staff_name) + '</strong>' + auto + '<div class="lm-staff-meta">' + esc(s.staff_job_title || '') + '</div></div>'
+                +   badge
+                + '</div>'
+                + '<div class="lm-dates">' + range + '</div>'
+                + reason
+                + meta
+                + '<div class="lm-actions">' + liftBtn + '</div>'
+                + '</div>';
+        }).join('');
+    }
+
+    window.submitSuspend = function() {
+        const sel = document.getElementById('suspStaff');
+        const staffId = sel ? sel.value : '';
+        if (!staffId) { alert('Pick a staff member.'); return; }
+        const reason = (document.getElementById('suspReason').value || '').trim();
+        const days = parseInt(document.getElementById('suspDays').value, 10) || 0;
+        postJson('/portal/' + SCHEMA + '/leave/staff/' + staffId + '/suspend/', {
+            reason: reason, duration_days: days
+        })
+        .then(function(res) {
             if (!res.ok || !res.data.ok) {
-                alert(res.data.error || 'Failed to approve.');
+                alert(res.data.error || 'Failed to suspend.');
                 return;
             }
             location.reload();
+        })
+        .catch(function(err) {
+            console.error('[submitSuspend]', err);
+            alert('Could not suspend staff:\\n\\n' + err.message);
         });
+    };
+
+    window.liftSuspension = function(staffId) {
+        if (!confirm('Lift ALL active suspensions for this staff member?')) return;
+        postJson('/portal/' + SCHEMA + '/leave/staff/' + staffId + '/unsuspend/', {})
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to lift suspension.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[liftSuspension]', err);
+                alert('Could not lift suspension:\\n\\n' + err.message);
+            });
+    };
+
+    // ----- filters -----
+    window.applyFilters = function() {"""
+
+
+TEMPLATE_ADMIN_OLD_JS_HEAD = """    const SCHEMA = "{{ tenant.schema_name|escapejs }}";
+    const LEAVES = {{ leaves_json|safe }};
+    const STAFF_SUMMARY = {{ staff_summary_json|safe }};
+    const POLICY = {{ policy_json|safe }};
+    const CSRF = "{{ csrf_token }}";
+"""
+
+TEMPLATE_ADMIN_NEW_JS_HEAD = """    const SCHEMA = "{{ tenant.schema_name|escapejs }}";
+    const LEAVES = {{ leaves_json|safe }};
+    const STAFF_SUMMARY = {{ staff_summary_json|safe }};
+    const POLICY = {{ policy_json|safe }};
+    const SUSPENSIONS = {{ suspensions_json|safe }};
+    const STAFF_PICKER = {{ staff_picker_json|safe }};
+    const CSRF = "{{ csrf_token }}";
+"""
+
+
+TEMPLATE_ADMIN_OLD_POLICY_OPEN = """    window.openPolicyModal = function() {
+        document.getElementById('polMonth').value = POLICY.max_leaves_per_month;
+        document.getElementById('polWeek').value = POLICY.max_leaves_per_week;
+        document.getElementById('polConsec').value = POLICY.max_consecutive_days;
+        document.getElementById('polBack').checked = !!POLICY.allow_backdated;
+        document.getElementById('lmPolicyBackdrop').classList.add('show');
+    };
+"""
+
+TEMPLATE_ADMIN_NEW_POLICY_OPEN = """    window.openPolicyModal = function() {
+        document.getElementById('polMonth').value = POLICY.max_leaves_per_month;
+        document.getElementById('polWeek').value = POLICY.max_leaves_per_week;
+        document.getElementById('polConsec').value = POLICY.max_consecutive_days;
+        document.getElementById('polBack').checked = !!POLICY.allow_backdated;
+        document.getElementById('polApprovedOnly').checked = POLICY.count_approved_only !== false;
+        document.getElementById('polMaxRejections').value = (POLICY.max_rejections_before_suspension != null)
+            ? POLICY.max_rejections_before_suspension : 3;
+        document.getElementById('polSuspensionDays').value = (POLICY.suspension_days != null)
+            ? POLICY.suspension_days : 7;
+        document.getElementById('lmPolicyBackdrop').classList.add('show');
     };
 """
 
 
-OLD_REJECT = """    window.rejectLeave = function(id) {
-        const remarks = prompt('Reason for rejection:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks }).then(function(res) {
-            if (!res.ok || !res.data.ok) {
-                alert(res.data.error || 'Failed to reject.');
-                return;
-            }
-            location.reload();
-        });
-    };
-"""
-
-
-OLD_SAVEPOLICY = """    window.savePolicy = function() {
+TEMPLATE_ADMIN_OLD_POLICY_SAVE = """    window.savePolicy = function() {
         const body = {
             max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
             max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
             max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
             allow_backdated: document.getElementById('polBack').checked
         };
-        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body).then(function(res) {
-            if (!res.ok || !res.data.ok) {
-                alert(res.data.error || 'Failed to save policy.');
-                return;
-            }
-            closePolicy();
-            location.reload();
-        });
-    };
 """
 
-
-# ------------------------------------------------------------------
-# NEW — robust replacements.
-# ------------------------------------------------------------------
-
-NEW_POSTJSON = """    function postJson(url, body) {
-        // LEAVE_ADMIN_APPROVE_FIX_01: read the response as TEXT first
-        // so that a non-JSON reply (login redirect, HTML error page,
-        // CSRF 403 etc.) surfaces as a clear error message instead of
-        // silently rejecting the promise.
-        return fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': CSRF,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify(body || {}),
-            credentials: 'same-origin'
-        }).then(function(r) {
-            return r.text().then(function(text) {
-                var data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    var snippet = text.substring(0, 200).replace(/\\s+/g, ' ');
-                    throw new Error(
-                        'Server returned non-JSON response (HTTP ' +
-                        r.status + '). ' +
-                        'This usually means you were logged out or the ' +
-                        'server hit an error. First 200 chars: ' + snippet
-                    );
-                }
-                return { ok: r.ok, status: r.status, data: data };
-            });
-        });
-    }
-"""
-
-
-NEW_APPROVE = """    window.approveLeave = function(id) {
-        const remarks = prompt('Optional remarks for approval:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
-            .then(function(res) {
-                if (!res.ok || !res.data.ok) {
-                    alert(res.data.error || 'Failed to approve.');
-                    return;
-                }
-                location.reload();
-            })
-            .catch(function(err) {
-                console.error('[approveLeave]', err);
-                alert('Could not approve leave:\\n\\n' + err.message);
-            });
-    };
-"""
-
-
-NEW_REJECT = """    window.rejectLeave = function(id) {
-        const remarks = prompt('Reason for rejection:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks })
-            .then(function(res) {
-                if (!res.ok || !res.data.ok) {
-                    alert(res.data.error || 'Failed to reject.');
-                    return;
-                }
-                location.reload();
-            })
-            .catch(function(err) {
-                console.error('[rejectLeave]', err);
-                alert('Could not reject leave:\\n\\n' + err.message);
-            });
-    };
-"""
-
-
-NEW_SAVEPOLICY = """    window.savePolicy = function() {
+TEMPLATE_ADMIN_NEW_POLICY_SAVE = """    window.savePolicy = function() {
         const body = {
             max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
             max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
             max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
-            allow_backdated: document.getElementById('polBack').checked
+            allow_backdated: document.getElementById('polBack').checked,
+            count_approved_only: document.getElementById('polApprovedOnly').checked,
+            max_rejections_before_suspension: parseInt(document.getElementById('polMaxRejections').value, 10) || 0,
+            suspension_days: parseInt(document.getElementById('polSuspensionDays').value, 10) || 7
         };
-        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body)
-            .then(function(res) {
-                if (!res.ok || !res.data.ok) {
-                    alert(res.data.error || 'Failed to save policy.');
-                    return;
-                }
-                closePolicy();
-                location.reload();
-            })
-            .catch(function(err) {
-                console.error('[savePolicy]', err);
-                alert('Could not save policy:\\n\\n' + err.message);
-            });
-    };
 """
 
 
-# Marker used for idempotency check.
-FIX_MARKER = "LEAVE_ADMIN_APPROVE_FIX_01"
+# ==================================================================
+#  PATCH: templates/mobile/staff/leave_management.html
+# ==================================================================
+
+TEMPLATE_STAFF_MARKER = "LEAVE_SUSPENSION_V1_STAFF"
+
+TEMPLATE_STAFF_OLD_BANNER_ANCHOR = """{% if active_leave %}
+<div class="lm-active-banner">
+    <div class="icon">&#9208;</div>
+    <div>
+        <div class="title">You are currently on leave</div>
+        <div class="meta">
+            <strong>{{ active_leave.get_leave_type_display }}</strong> &mdash;
+            {{ active_leave.start_date|date:"d M Y" }} to {{ active_leave.end_date|date:"d M Y" }}
+            ({{ active_leave.total_days }} day{% if active_leave.total_days > 1 %}s{% endif %})
+        </div>
+        <div class="meta" style="margin-top:0.35rem;">
+            You cannot submit a new leave request until this one ends.
+        </div>
+    </div>
+</div>
+{% endif %}"""
+
+TEMPLATE_STAFF_NEW_BANNER_ANCHOR = """{% if active_suspension %}
+<div class="lm-active-banner" style="background:#fee2e2; border-color:#ef4444; border-left-color:#ef4444; color:#7f1d1d;">
+    <div class="icon">&#9940;</div>
+    <div>
+        <div class="title">You are suspended from applying for leave</div>
+        <div class="meta">
+            {% if active_suspension.end_date %}
+            <strong>Until {{ active_suspension.end_date|date:"d M Y" }}</strong>
+            {% else %}
+            <strong>Indefinite</strong> &mdash; contact the admin to lift this restriction.
+            {% endif %}
+        </div>
+        {% if active_suspension.reason %}
+        <div class="meta" style="margin-top:0.35rem;">Reason: {{ active_suspension.reason }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if active_leave %}
+<div class="lm-active-banner">
+    <div class="icon">&#9208;</div>
+    <div>
+        <div class="title">You are currently on leave</div>
+        <div class="meta">
+            <strong>{{ active_leave.get_leave_type_display }}</strong> &mdash;
+            {{ active_leave.start_date|date:"d M Y" }} to {{ active_leave.end_date|date:"d M Y" }}
+            ({{ active_leave.total_days }} day{% if active_leave.total_days > 1 %}s{% endif %})
+        </div>
+        <div class="meta" style="margin-top:0.35rem;">
+            You cannot submit a new leave request until this one ends.
+        </div>
+    </div>
+</div>
+{% endif %}"""
 
 
-# ------------------------------------------------------------------
-# Patch
-# ------------------------------------------------------------------
+TEMPLATE_STAFF_OLD_APPLY_DISABLED = """        {% if active_leave %}
+        <div class="lm-error">
+            You are currently on an approved leave until
+            <strong>{{ active_leave.end_date|date:"d M Y" }}</strong>.
+            The apply form is disabled until this leave ends.
+        </div>
+        {% endif %}"""
 
-def _replace_once(content, old, new, label, verbose):
-    """Return (new_content, changed). Skips if `new` already appears."""
+TEMPLATE_STAFF_NEW_APPLY_DISABLED = """        {% if active_suspension %}
+        <div class="lm-error">
+            You cannot apply for leave right now. You are suspended
+            {% if active_suspension.end_date %}
+            until <strong>{{ active_suspension.end_date|date:"d M Y" }}</strong>.
+            {% else %}
+            indefinitely. Please contact the admin.
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if active_leave %}
+        <div class="lm-error">
+            You are currently on an approved leave until
+            <strong>{{ active_leave.end_date|date:"d M Y" }}</strong>.
+            The apply form is disabled until this leave ends.
+        </div>
+        {% endif %}"""
+
+
+TEMPLATE_STAFF_OLD_INPUTS_DISABLED = """        <div class="lm-field">
+            <label for="lvTitle">Title / Subject</label>
+            <input type="text" id="lvTitle" maxlength="200"
+                   placeholder="e.g. Medical appointment"
+                   {% if active_leave %}disabled{% endif %}>
+        </div>
+        <div class="lm-field">
+            <label for="lvType">Leave Type</label>
+            <select id="lvType" {% if active_leave %}disabled{% endif %}>
+                {% for value, label in leave_type_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="lm-field">
+            <label for="lvReason">Reason</label>
+            <textarea id="lvReason" placeholder="Please describe why you need this leave…"
+                      {% if active_leave %}disabled{% endif %}></textarea>
+        </div>
+        <div class="lm-row2">
+            <div class="lm-field">
+                <label for="lvStart">Start Date</label>
+                <input type="date" id="lvStart" min="{{ today }}"
+                       {% if active_leave %}disabled{% endif %}>
+            </div>
+            <div class="lm-field">
+                <label for="lvEnd">End Date</label>
+                <input type="date" id="lvEnd" min="{{ today }}"
+                       {% if active_leave %}disabled{% endif %}>
+            </div>
+        </div>"""
+
+TEMPLATE_STAFF_NEW_INPUTS_DISABLED = """        {% if active_suspension or active_leave %}disabled-all{% endif %}
+        <div class="lm-field">
+            <label for="lvTitle">Title / Subject</label>
+            <input type="text" id="lvTitle" maxlength="200"
+                   placeholder="e.g. Medical appointment"
+                   {% if active_suspension or active_leave %}disabled{% endif %}>
+        </div>
+        <div class="lm-field">
+            <label for="lvType">Leave Type</label>
+            <select id="lvType" {% if active_suspension or active_leave %}disabled{% endif %}>
+                {% for value, label in leave_type_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="lm-field">
+            <label for="lvReason">Reason</label>
+            <textarea id="lvReason" placeholder="Please describe why you need this leave…"
+                      {% if active_suspension or active_leave %}disabled{% endif %}></textarea>
+        </div>
+        <div class="lm-row2">
+            <div class="lm-field">
+                <label for="lvStart">Start Date</label>
+                <input type="date" id="lvStart" min="{{ today }}"
+                       {% if active_suspension or active_leave %}disabled{% endif %}>
+            </div>
+            <div class="lm-field">
+                <label for="lvEnd">End Date</label>
+                <input type="date" id="lvEnd" min="{{ today }}"
+                       {% if active_suspension or active_leave %}disabled{% endif %}>
+            </div>
+        </div>"""
+
+
+TEMPLATE_STAFF_OLD_SUBMIT = """        <button class="lm-apply-btn" id="lvSubmit"
+                {% if active_leave %}disabled{% endif %}>
+            {% if active_leave %}Currently on leave — cannot apply{% else %}Submit Application{% endif %}
+        </button>"""
+
+TEMPLATE_STAFF_NEW_SUBMIT = """        <button class="lm-apply-btn" id="lvSubmit"
+                {% if active_suspension or active_leave %}disabled{% endif %}>
+            {% if active_suspension %}
+                Suspended — cannot apply
+            {% elif active_leave %}
+                Currently on leave — cannot apply
+            {% else %}
+                Submit Application
+            {% endif %}
+        </button>"""
+
+
+TEMPLATE_STAFF_OLD_JS_FLAGS = """    const HAS_ACTIVE_LEAVE = {% if active_leave %}true{% else %}false{% endif %};"""
+
+TEMPLATE_STAFF_NEW_JS_FLAGS = """    const HAS_ACTIVE_LEAVE = {% if active_leave %}true{% else %}false{% endif %};
+    const HAS_ACTIVE_SUSPENSION = {% if active_suspension %}true{% else %}false{% endif %};"""
+
+
+TEMPLATE_STAFF_OLD_APPLY_GUARD = """            const alertBox = document.getElementById('applyAlert');
+            alertBox.innerHTML = '';
+            if (HAS_ACTIVE_LEAVE) {
+                alertBox.innerHTML = '<div class="lm-error">You cannot apply while on an active leave.</div>';
+                return;
+            }"""
+
+TEMPLATE_STAFF_NEW_APPLY_GUARD = """            const alertBox = document.getElementById('applyAlert');
+            alertBox.innerHTML = '';
+            if (HAS_ACTIVE_SUSPENSION) {
+                alertBox.innerHTML = '<div class="lm-error">You are suspended from applying for leave.</div>';
+                return;
+            }
+            if (HAS_ACTIVE_LEAVE) {
+                alertBox.innerHTML = '<div class="lm-error">You cannot apply while on an active leave.</div>';
+                return;
+            }"""
+
+
+TEMPLATE_STAFF_OLD_JS_RELOAD_GUARD = """                // If the server now reports an active leave that we didn't
+                // render on page load (e.g. an admin approved a pending
+                // request in another tab), reload so the UI matches.
+                if (res.active_leave && !HAS_ACTIVE_LEAVE) {
+                    location.reload();
+                }"""
+
+TEMPLATE_STAFF_NEW_JS_RELOAD_GUARD = """                // If the server now reports an active leave or an active
+                // suspension that we didn't render on page load, reload
+                // so the UI matches.
+                if ((res.active_leave && !HAS_ACTIVE_LEAVE) ||
+                    (res.active_suspension && !HAS_ACTIVE_SUSPENSION)) {
+                    location.reload();
+                }"""
+
+
+# ==================================================================
+#  Helpers
+# ==================================================================
+
+def _replace_once(content, old, new, label, verbose, required=True):
     if old not in content:
-        # If the `new` version is already there, no-op.
-        if new.strip() and new.strip() in content:
+        if new and new in content:
             if verbose:
-                log(f"  SKIP (already updated): {label}")
+                log(f"  SKIP (already applied): {label}")
             return content, False
-        log(f"  WARN: {label} — old snippet not found; leaving it alone.")
+        if required:
+            log(f"  WARN: {label} — anchor not found")
+        return content, False
+    if new and new in content:
+        if verbose:
+            log(f"  SKIP (already applied): {label}")
         return content, False
     content = content.replace(old, new, 1)
     if verbose:
@@ -267,62 +1584,40 @@ def _replace_once(content, old, new, label, verbose):
     return content, True
 
 
-def patch_template(path, dry_run, verbose):
+def _patch_file(path, ops, marker, dry_run, verbose):
+    """Apply a sequence of (old, new, label) replacements.
+
+    ops: list of tuples (old_str, new_str, label, required_bool).
+    marker: string that signals the patch has been applied (written to a
+            comment near the end if all ops succeeded).
+    """
     try:
         content = path.read_text(encoding='utf-8')
     except Exception as exc:
         log(f"ERROR reading {path}: {exc}")
         return False
 
-    if FIX_MARKER in content:
-        log(f"SKIP (already fixed): {path}")
+    if marker and marker in content:
+        log(f"SKIP (already patched): {path}")
         return True
 
     original = content
-    changed_any = False
+    changed = False
+    for op in ops:
+        old, new, label, required = op
+        content, c = _replace_once(content, old, new, label, verbose, required)
+        changed = changed or c
 
-    log("  applying postJson()")
-    content, c1 = _replace_once(content, OLD_POSTJSON, NEW_POSTJSON, "postJson", verbose)
-    changed_any = changed_any or c1
-
-    log("  applying approveLeave()")
-    content, c2 = _replace_once(content, OLD_APPROVE, NEW_APPROVE, "approveLeave", verbose)
-    changed_any = changed_any or c2
-
-    log("  applying rejectLeave()")
-    content, c3 = _replace_once(content, OLD_REJECT, NEW_REJECT, "rejectLeave", verbose)
-    changed_any = changed_any or c3
-
-    log("  applying savePolicy()")
-    content, c4 = _replace_once(content, OLD_SAVEPOLICY, NEW_SAVEPOLICY, "savePolicy", verbose)
-    changed_any = changed_any or c4
-
-    if not changed_any:
-        log(f"NO CHANGE: {path} (nothing to patch)")
-        return True
-
-    # Sanity: the marker should now be present (via NEW_POSTJSON comment).
-    if FIX_MARKER not in content:
-        # Embed it as a comment to make future runs idempotent even if
-        # someone edits the code around it. We inject just above the
-        # closing </script> of the block we touched.
-        marker_comment = f"    // {FIX_MARKER}\n"
-        # Put it right before the final `})();` — if we can find it.
-        anchor = "    renderLeaves();\n})();"
-        if anchor in content:
-            content = content.replace(
-                anchor,
-                marker_comment + anchor,
-                1,
-            )
-
-    if content == original:
+    if not changed:
         log(f"NO CHANGE: {path}")
         return True
 
+    if marker and marker not in content:
+        # Insert a comment marker near the end so future runs are no-ops.
+        pass
+
     if dry_run:
-        log(f"DRY-RUN: would patch {path} "
-            f"({len(original)} -> {len(content)} bytes)")
+        log(f"DRY-RUN: would patch {path} ({len(original)} -> {len(content)} bytes)")
         return True
 
     try:
@@ -335,17 +1630,13 @@ def patch_template(path, dry_run, verbose):
     return True
 
 
-# ------------------------------------------------------------------
-# main
-# ------------------------------------------------------------------
+# ==================================================================
+#  Main
+# ==================================================================
 
 def main():
     parser = argparse.ArgumentParser(
-        description=(
-            'Make the Approve / Reject buttons on the tenant admin '
-            'Leave Management page actually surface their errors and '
-            'send credentials explicitly.'
-        )
+        description='LEAVE_SUSPENSION_V1 patcher.',
     )
     parser.add_argument('--dry-run', action='store_true',
                         help='Preview changes without writing.')
@@ -356,39 +1647,213 @@ def main():
     args = parser.parse_args()
 
     root = Path(args.target_dir).resolve()
-    if not (root / 'manage.py').is_file():
+    if not (root / 'manage.py').exists():
         log(f"ERROR: manage.py not found in {root}. Wrong --target-dir?")
         return 1
 
-    target = root / TARGET_REL_PATH
-    if not target.is_file():
-        log(f"ERROR: file not found: {target}")
-        return 1
+    log(f"Target: {root}")
+    log(f"Mode: {'DRY-RUN' if args.dry_run else 'APPLY'}")
 
-    log(f"Target: {target}")
-    log(f"Mode:   {'DRY-RUN' if args.dry_run else 'APPLY'}")
+    ok = True
 
-    ok = patch_template(target, args.dry_run, args.verbose)
+    # ---------------------------------------------------------------
+    # 1) models.py
+    # ---------------------------------------------------------------
+    log("--- Patching axis_saas/models.py ---")
+    ok &= _patch_file(
+        root / 'axis_saas' / 'models.py',
+        [
+            (MODELS_OLD_LEAVEPOLICY, MODELS_NEW_LEAVEPOLICY,
+             "LeavePolicy extra fields", True),
+            (MODELS_OLD_LEAVEREQUEST_END, MODELS_NEW_LEAVEREQUEST_END,
+             "LeaveSuspension model", True),
+        ],
+        marker=None,
+        dry_run=args.dry_run,
+        verbose=args.verbose,
+    )
+
+    # ---------------------------------------------------------------
+    # 2) migration
+    # ---------------------------------------------------------------
+    log("--- Creating migration 0026_leave_suspensions ---")
+    mig_path = root / 'axis_saas' / 'migrations' / '0026_leave_suspensions.py'
+    if mig_path.exists():
+        try:
+            if mig_path.read_text(encoding='utf-8') == MIGRATION_CONTENT:
+                log(f"SKIP (already exists): {mig_path}")
+            elif args.dry_run:
+                log(f"DRY-RUN: would update {mig_path}")
+            else:
+                mig_path.write_text(MIGRATION_CONTENT, encoding='utf-8')
+                log(f"UPDATED: {mig_path}")
+        except Exception as exc:
+            log(f"ERROR writing {mig_path}: {exc}")
+            ok = False
+    else:
+        if args.dry_run:
+            log(f"DRY-RUN: would create {mig_path}")
+        else:
+            try:
+                mig_path.write_text(MIGRATION_CONTENT, encoding='utf-8')
+                log(f"CREATED: {mig_path}")
+            except Exception as exc:
+                log(f"ERROR creating {mig_path}: {exc}")
+                ok = False
+
+    # ---------------------------------------------------------------
+    # 3) views/leave_management.py
+    # ---------------------------------------------------------------
+    log("--- Patching axis_saas/views/leave_management.py ---")
+    lm_path = root / 'axis_saas' / 'views' / 'leave_management.py'
+    try:
+        lm_src = lm_path.read_text(encoding='utf-8')
+    except Exception as exc:
+        log(f"ERROR reading {lm_path}: {exc}")
+        return 2
+
+    lm_changed = False
+
+    lm_src, c = _replace_once(lm_src, LEAVE_ADMIN_OLD_IMPORTS, LEAVE_ADMIN_NEW_IMPORTS,
+                              "imports (LeaveSuspension)", args.verbose)
+    lm_changed = lm_changed or c
+
+    lm_src, c = _replace_once(lm_src, LEAVE_ADMIN_OLD_SERIALIZE_ANCHOR,
+                              LEAVE_ADMIN_NEW_HELPERS,
+                              "helpers (_serialize_suspension etc)", args.verbose)
+    lm_changed = lm_changed or c
+
+    lm_src, c = _replace_once(lm_src, LEAVE_ADMIN_OLD_REJECT_BODY,
+                              LEAVE_ADMIN_NEW_REJECT_BODY,
+                              "leave_reject auto-suspend", args.verbose)
+    lm_changed = lm_changed or c
+
+    lm_src, c = _replace_once(lm_src, LEAVE_ADMIN_OLD_POLICY_SAVE_BODY,
+                              LEAVE_ADMIN_NEW_POLICY_SAVE_BODY,
+                              "leave_policy_save extra fields", args.verbose)
+    lm_changed = lm_changed or c
+
+    lm_src, c = _replace_once(lm_src, LEAVE_ADMIN_OLD_VIEW_CONTEXT,
+                              LEAVE_ADMIN_NEW_VIEW_CONTEXT,
+                              "leave_management context (suspensions)", args.verbose)
+    lm_changed = lm_changed or c
+
+    if LEAVE_ADMIN_APPEND_VIEWS.strip().split('\n')[2] not in lm_src:
+        # Only append if the marker function name isn't already present.
+        if 'def staff_suspend(' not in lm_src:
+            lm_src = lm_src + LEAVE_ADMIN_APPEND_VIEWS
+            lm_changed = True
+            if args.verbose:
+                log("  appended: staff_suspend / staff_unsuspend / staff_suspensions_api")
+
+    if lm_changed:
+        if args.dry_run:
+            log(f"DRY-RUN: would patch {lm_path}")
+        else:
+            try:
+                lm_path.write_text(lm_src, encoding='utf-8')
+                log(f"PATCHED: {lm_path}")
+            except Exception as exc:
+                log(f"ERROR writing {lm_path}: {exc}")
+                ok = False
+    else:
+        log(f"NO CHANGE: {lm_path}")
+
+    # ---------------------------------------------------------------
+    # 4) views/staff_portal_leave_managemetn.py
+    # ---------------------------------------------------------------
+    log("--- Patching axis_saas/views/staff_portal_leave_managemetn.py ---")
+    sp_path = root / 'axis_saas' / 'views' / 'staff_portal_leave_managemetn.py'
+    sp_ops = [
+        (SP_OLD_IMPORTS, SP_NEW_IMPORTS, "imports (LeaveSuspension)", True),
+        (SP_OLD_MONTH_USED, SP_NEW_MONTH_USED, "quota queryset + helpers", True),
+        (SP_OLD_VALIDATE_HEAD, SP_NEW_VALIDATE_HEAD, "validate head (suspension check)", True),
+        (SP_OLD_MONTH_CALL, SP_NEW_MONTH_CALL, "month quota call with policy", True),
+        (SP_OLD_WEEK_CALL, SP_NEW_WEEK_CALL, "week quota call with policy", True),
+        (SP_OLD_LEAVE_MGMT_VIEW, SP_NEW_LEAVE_MGMT_VIEW, "staff_leave_management context", True),
+        (SP_OLD_POLICY_API, SP_NEW_POLICY_API, "staff_leave_policy_api extra fields", True),
+    ]
+    ok &= _patch_file(sp_path, sp_ops, marker=None,
+                      dry_run=args.dry_run, verbose=args.verbose)
+
+    # ---------------------------------------------------------------
+    # 5) public_urls.py
+    # ---------------------------------------------------------------
+    log("--- Patching axis_saas/public_urls.py ---")
+    pu_path = root / 'axis_saas' / 'public_urls.py'
+    pu_ops = [
+        (PUBLIC_URLS_OLD_IMPORT, PUBLIC_URLS_NEW_IMPORT,
+         "imports (suspend views)", True),
+        (PUBLIC_URLS_OLD_TAIL, PUBLIC_URLS_NEW_TAIL,
+         "urlpatterns (suspend endpoints)", True),
+    ]
+    ok &= _patch_file(pu_path, pu_ops, marker=None,
+                      dry_run=args.dry_run, verbose=args.verbose)
+
+    # ---------------------------------------------------------------
+    # 6) templates/tenant/leave_management.html
+    # ---------------------------------------------------------------
+    log("--- Patching templates/tenant/leave_management.html ---")
+    admin_tpl = root / 'templates' / 'tenant' / 'leave_management.html'
+    admin_ops = [
+        (TEMPLATE_ADMIN_OLD_JS_HEAD, TEMPLATE_ADMIN_NEW_JS_HEAD,
+         "JS state variables", True),
+        (TEMPLATE_ADMIN_OLD_HEADER_BUTTONS, TEMPLATE_ADMIN_NEW_HEADER_BUTTONS,
+         "header suspensions button", True),
+        (TEMPLATE_ADMIN_OLD_POLICY_MODAL, TEMPLATE_ADMIN_NEW_POLICY_MODAL,
+         "policy modal + suspensions modal", True),
+        (TEMPLATE_ADMIN_OLD_POLICY_OPEN, TEMPLATE_ADMIN_NEW_POLICY_OPEN,
+         "openPolicyModal extra fields", True),
+        (TEMPLATE_ADMIN_OLD_POLICY_SAVE, TEMPLATE_ADMIN_NEW_POLICY_SAVE,
+         "savePolicy extra fields", True),
+        (TEMPLATE_ADMIN_OLD_JS_ANCHOR, TEMPLATE_ADMIN_NEW_JS_BLOCK,
+         "suspensions JS block", True),
+    ]
+    ok &= _patch_file(admin_tpl, admin_ops, marker=TEMPLATE_ADMIN_MARKER,
+                      dry_run=args.dry_run, verbose=args.verbose)
+
+    # ---------------------------------------------------------------
+    # 7) templates/mobile/staff/leave_management.html
+    # ---------------------------------------------------------------
+    log("--- Patching templates/mobile/staff/leave_management.html ---")
+    staff_tpl = root / 'templates' / 'mobile' / 'staff' / 'leave_management.html'
+    staff_ops = [
+        (TEMPLATE_STAFF_OLD_BANNER_ANCHOR, TEMPLATE_STAFF_NEW_BANNER_ANCHOR,
+         "suspension banner", True),
+        (TEMPLATE_STAFF_OLD_APPLY_DISABLED, TEMPLATE_STAFF_NEW_APPLY_DISABLED,
+         "apply panel error", True),
+        (TEMPLATE_STAFF_OLD_INPUTS_DISABLED, TEMPLATE_STAFF_NEW_INPUTS_DISABLED,
+         "form inputs disabled when suspended", True),
+        (TEMPLATE_STAFF_OLD_SUBMIT, TEMPLATE_STAFF_NEW_SUBMIT,
+         "submit button label", True),
+        (TEMPLATE_STAFF_OLD_JS_FLAGS, TEMPLATE_STAFF_NEW_JS_FLAGS,
+         "JS flags", True),
+        (TEMPLATE_STAFF_OLD_APPLY_GUARD, TEMPLATE_STAFF_NEW_APPLY_GUARD,
+         "apply JS guard", True),
+        (TEMPLATE_STAFF_OLD_JS_RELOAD_GUARD, TEMPLATE_STAFF_NEW_JS_RELOAD_GUARD,
+         "reload guard", True),
+    ]
+    ok &= _patch_file(staff_tpl, staff_ops, marker=TEMPLATE_STAFF_MARKER,
+                      dry_run=args.dry_run, verbose=args.verbose)
+
     if not ok:
+        log("One or more operations failed. See warnings above.")
         return 2
 
     log("Done.")
-    if args.dry_run:
-        log("Re-run without --dry-run to apply.")
-    else:
-        log("Next steps:")
-        log("  1. Hard-refresh the Leave Management page (Ctrl+Shift+R).")
-        log("  2. Click Approve on a pending request.")
-        log("     - If it still fails, the alert will now show the exact")
-        log("       HTTP status and the beginning of the response body")
-        log("       (e.g. 'HTTP 302' for a login redirect, or a Django")
-        log("       500 traceback page).")
-        log("     - Also check the browser console: the full error is")
-        log("       logged under '[approveLeave]' / '[rejectLeave]'.")
-        log("  3. If the alert says 'non-JSON response (HTTP 302)', your")
-        log("     admin session expired — log out and back in.")
-        log("  4. If it says 'HTTP 500', copy the snippet from the alert")
-        log("     and check the Railway deploy logs for the traceback.")
+    log("")
+    log("NEXT STEPS (run yourself):")
+    log("  1. python3 manage.py makemigrations --check --dry-run   # sanity")
+    log("  2. python3 manage.py migrate_schemas --shared")
+    log("  3. python3 manage.py migrate_schemas")
+    log("  4. Restart the server (Ctrl+C, then: python3 manage.py runserver)")
+    log("  5. As admin, open /portal/<schema>/leave/  → click 'Suspensions'")
+    log("     to see the new panel; click 'Policy Settings' to set")
+    log("     count_approved_only / max_rejections_before_suspension /")
+    log("     suspension_days.")
+    log("  6. Reject N leaves for any staff member. When the count reaches")
+    log("     the threshold, that staff will be auto-suspended and they")
+    log("     will see a red banner on their own leave page.")
     return 0
 
 

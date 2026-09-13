@@ -13,7 +13,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
-from ..models import Staff, LeaveRequest, LeavePolicy, ClassSubject
+from ..models import (
+    Staff, LeaveRequest, LeavePolicy, ClassSubject, LeaveSuspension,
+)
 from .helpers import (
     get_tenant, is_mobile_user_agent, require_school_feature, require_tenant_type,
 )
@@ -64,6 +66,64 @@ def _serialize_leave(leave):
         'admin_remarks': leave.admin_remarks,
         'created_at': leave.created_at.isoformat(),
     }
+
+
+def _serialize_suspension(susp):
+    staff = susp.staff
+    return {
+        'id': susp.id,
+        'staff_id': staff.id if staff else None,
+        'staff_name': staff.full_name if staff else 'Unknown',
+        'staff_job_title': staff.job_title if staff else '',
+        'reason': susp.reason or '',
+        'start_date': susp.start_date.isoformat() if susp.start_date else '',
+        'end_date': susp.end_date.isoformat() if susp.end_date else '',
+        'is_active': susp.is_active,
+        'currently_active': susp.is_currently_active(),
+        'auto_triggered': bool(susp.auto_triggered),
+        'created_by': susp.created_by or '',
+        'created_at': susp.created_at.isoformat() if susp.created_at else '',
+        'lifted_at': susp.lifted_at.isoformat() if susp.lifted_at else '',
+        'lifted_by': susp.lifted_by or '',
+    }
+
+
+def _active_suspension_for(staff, on_date=None):
+    """Return the first active LeaveSuspension for `staff` (or None)."""
+    if staff is None:
+        return None
+    if on_date is None:
+        on_date = date.today()
+    qs = (
+        LeaveSuspension.objects
+        .filter(
+            staff=staff,
+            is_active=True,
+            start_date__lte=on_date,
+        )
+        .order_by('-created_at')
+    )
+    for susp in qs:
+        if susp.end_date is None or susp.end_date >= on_date:
+            return susp
+    return None
+
+
+def _rejections_since_last_suspension(staff):
+    """Count rejected leaves for `staff` since their latest suspension.
+
+    If no suspension exists yet, count all-time rejected leaves.
+    """
+    latest = (
+        LeaveSuspension.objects
+        .filter(staff=staff)
+        .order_by('-created_at')
+        .first()
+    )
+    qs = LeaveRequest.objects.filter(staff=staff, status='rejected')
+    if latest is not None:
+        qs = qs.filter(reviewed_at__gt=latest.created_at)
+    return qs.count()
 
 
 def _validate_leave_dates(start_date, end_date, policy, staff, exclude_id=None):
@@ -216,14 +276,44 @@ def leave_management(request, schema_name):
             'max_leaves_per_week': policy.max_leaves_per_week,
             'max_consecutive_days': policy.max_consecutive_days,
             'allow_backdated': policy.allow_backdated,
+            'count_approved_only': policy.count_approved_only,
+            'max_rejections_before_suspension': policy.max_rejections_before_suspension,
+            'suspension_days': policy.suspension_days,
         }
+
+        # LEAVE_SUSPENSION_V1: active + recent suspensions for the admin UI.
+        suspensions_qs = (
+            LeaveSuspension.objects
+            .select_related('staff')
+            .order_by('-created_at')[:200]
+        )
+        suspensions = []
+        active_count = 0
+        for s in suspensions_qs:
+            item = _serialize_suspension(s)
+            if item['currently_active']:
+                active_count += 1
+            suspensions.append(item)
+
+        # Staff picker list for the "Suspend Staff" modal.
+        staff_picker = [
+            {
+                'id': s.id,
+                'name': s.full_name,
+                'job_title': s.job_title or '',
+            }
+            for s in Staff.objects.filter(status='active').order_by('full_name')
+        ]
 
     context = {
         'tenant': tenant,
         'leaves_json': json.dumps(leaves),
         'staff_summary_json': json.dumps(staff_summary),
         'policy_json': json.dumps(policy_data),
+        'suspensions_json': json.dumps(suspensions),
+        'staff_picker_json': json.dumps(staff_picker),
         'stats': stats,
+        'active_suspension_count': active_count,
         'status_filter': status_filter,
         'leave_type_filter': leave_type_filter,
         'search_query': search,
@@ -291,7 +381,43 @@ def leave_reject(request, schema_name, leave_id):
         leave.reviewed_at = timezone.now()
         leave.admin_remarks = remarks
         leave.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'admin_remarks'])
-        return JsonResponse({'ok': True, 'leave': _serialize_leave(leave)})
+
+        # LEAVE_SUSPENSION_V1: after saving the rejection, check whether
+        # this staff member has crossed the tenant's rejection threshold
+        # since their last suspension. If so, auto-create a suspension.
+        auto_suspension = None
+        try:
+            policy = _get_or_create_policy()
+            threshold = int(policy.max_rejections_before_suspension or 0)
+            if threshold > 0:
+                count = _rejections_since_last_suspension(leave.staff)
+                if count >= threshold:
+                    days = max(1, int(policy.suspension_days or 7))
+                    auto_suspension = LeaveSuspension.objects.create(
+                        staff=leave.staff,
+                        reason=(
+                            f"Auto-suspended: {count} rejected leave "
+                            f"request(s) since last suspension "
+                            f"(threshold {threshold})."
+                        ),
+                        start_date=date.today(),
+                        end_date=date.today() + timedelta(days=days),
+                        is_active=True,
+                        auto_triggered=True,
+                        created_by='system',
+                    )
+                    logger.info(
+                        'LEAVE_SUSPENSION_V1: auto-suspended staff=%s '
+                        'for %s days (rejections=%s)',
+                        leave.staff_id, days, count,
+                    )
+        except Exception as exc:
+            logger.warning('LEAVE_SUSPENSION_V1: auto-suspend failed: %s', exc)
+
+        payload = {'ok': True, 'leave': _serialize_leave(leave)}
+        if auto_suspension is not None:
+            payload['auto_suspension'] = _serialize_suspension(auto_suspension)
+        return JsonResponse(payload)
 
 
 @csrf_exempt
@@ -317,6 +443,19 @@ def leave_policy_save(request, schema_name):
         policy.max_leaves_per_week = _to_int('max_leaves_per_week', policy.max_leaves_per_week, 1)
         policy.max_consecutive_days = _to_int('max_consecutive_days', policy.max_consecutive_days, 1)
         policy.allow_backdated = bool(body.get('allow_backdated', policy.allow_backdated))
+        policy.count_approved_only = bool(
+            body.get('count_approved_only', policy.count_approved_only)
+        )
+        policy.max_rejections_before_suspension = _to_int(
+            'max_rejections_before_suspension',
+            policy.max_rejections_before_suspension,
+            0,
+        )
+        policy.suspension_days = _to_int(
+            'suspension_days',
+            policy.suspension_days,
+            1,
+        )
         policy.save()
         return JsonResponse({
             'ok': True,
@@ -325,6 +464,9 @@ def leave_policy_save(request, schema_name):
                 'max_leaves_per_week': policy.max_leaves_per_week,
                 'max_consecutive_days': policy.max_consecutive_days,
                 'allow_backdated': policy.allow_backdated,
+                'count_approved_only': policy.count_approved_only,
+                'max_rejections_before_suspension': policy.max_rejections_before_suspension,
+                'suspension_days': policy.suspension_days,
             },
         })
 
@@ -358,4 +500,92 @@ def leave_staff_summary_api(request, schema_name, staff_id):
             'month_remaining': max(0, policy.max_leaves_per_month - len(used)),
             'week_limit': policy.max_leaves_per_week,
             'max_consecutive_days': policy.max_consecutive_days,
+        })
+
+
+# ============================================================
+#  LEAVE_SUSPENSION_V1 views
+# ============================================================
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('leave_management')
+def staff_suspend(request, schema_name, staff_id):
+    """Manually suspend a staff member from applying for leave.
+
+    Body (JSON, all optional):
+        reason        : str
+        duration_days : int   -> end_date = today + N days
+                        if None / 0 -> permanent (end_date = NULL)
+    """
+    try:
+        body = json.loads(request.body or '{}')
+    except Exception:
+        body = {}
+    reason = (body.get('reason') or '').strip()
+    raw_days = body.get('duration_days')
+    try:
+        days = int(raw_days) if raw_days not in (None, '', '0', 0) else 0
+    except (TypeError, ValueError):
+        days = 0
+
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+
+        # Lift any existing active suspensions for the same staff, so we
+        # don't stack them. Admin can then re-suspend with the new params.
+        LeaveSuspension.objects.filter(staff=staff, is_active=True).update(
+            is_active=False,
+            lifted_at=timezone.now(),
+            lifted_by=request.session.get('school_admin_username', 'admin'),
+        )
+
+        end_date = None
+        if days > 0:
+            end_date = date.today() + timedelta(days=days)
+
+        susp = LeaveSuspension.objects.create(
+            staff=staff,
+            reason=reason or 'Suspended by admin.',
+            start_date=date.today(),
+            end_date=end_date,
+            is_active=True,
+            auto_triggered=False,
+            created_by=request.session.get('school_admin_username', 'admin'),
+        )
+        return JsonResponse({'ok': True, 'suspension': _serialize_suspension(susp)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('leave_management')
+def staff_unsuspend(request, schema_name, staff_id):
+    """Lift every active suspension for a staff member."""
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+        qs = LeaveSuspension.objects.filter(staff=staff, is_active=True)
+        count = qs.count()
+        qs.update(
+            is_active=False,
+            lifted_at=timezone.now(),
+            lifted_by=request.session.get('school_admin_username', 'admin'),
+        )
+        return JsonResponse({'ok': True, 'lifted': count})
+
+
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('leave_management')
+def staff_suspensions_api(request, schema_name, staff_id):
+    """Return active + past suspensions for a single staff member."""
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+        qs = LeaveSuspension.objects.filter(staff=staff).order_by('-created_at')
+        data = [_serialize_suspension(s) for s in qs]
+        return JsonResponse({
+            'ok': True,
+            'staff_id': staff.id,
+            'staff_name': staff.full_name,
+            'suspensions': data,
         })

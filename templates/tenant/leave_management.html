@@ -69,6 +69,11 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                 Staff Usage
             </button>
+            <button class="btn-secondary" onclick="openSuspensionsModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M9 15l6-6"/></svg>
+                Suspensions
+                {% if active_suspension_count %}<span style="background:var(--danger); color:white; border-radius:1rem; padding:0 0.4rem; font-size:0.7rem; margin-left:0.25rem;">{{ active_suspension_count }}</span>{% endif %}
+            </button>
         </div>
     </div>
 
@@ -144,10 +149,60 @@
                 <input type="checkbox" id="polBack"> Allow backdated leaves
             </label>
         </div>
+        <div class="row" style="border-top:1px solid var(--border); padding-top:0.75rem; margin-top:0.75rem;">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="polApprovedOnly"> Count only APPROVED leaves towards monthly / weekly quota
+            </label>
+            <p class="page-desc" style="font-size:0.75rem; margin-top:0.35rem;">
+                Rejected and cancelled leaves are never counted, no matter what.
+            </p>
+        </div>
+        <div class="row">
+            <label for="polMaxRejections">Auto-suspend after N rejected leaves (0 = disabled)</label>
+            <input type="number" id="polMaxRejections" min="0" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
+        <div class="row">
+            <label for="polSuspensionDays">Auto-suspension length (days)</label>
+            <input type="number" id="polSuspensionDays" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
         <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
             <button class="btn-secondary" onclick="closePolicy()">Cancel</button>
             <button class="btn-primary" onclick="savePolicy()">Save Policy</button>
         </div>
+    </div>
+</div>
+
+<!-- Suspensions modal (LEAVE_SUSPENSION_V1_ADMIN) -->
+<div class="lm-modal-backdrop" id="lmSuspensionsBackdrop">
+    <div class="lm-modal" style="max-width:720px;">
+        <button class="close" onclick="closeSuspensionsModal()">×</button>
+        <h3>Leave Suspensions</h3>
+        <p class="page-desc" style="margin-top:0.25rem;">Active and past suspensions. You can lift any active one, or suspend a staff member manually.</p>
+
+        <div style="display:flex; gap:0.5rem; margin-top:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+            <button class="btn-primary" onclick="showSuspendForm()">+ Suspend staff manually</button>
+        </div>
+
+        <div id="lmSuspendForm" style="display:none; border:1px solid var(--border); border-radius:0.75rem; padding:0.85rem; margin-bottom:1rem;">
+            <div class="row">
+                <label for="suspStaff">Staff</label>
+                <select id="suspStaff" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);"></select>
+            </div>
+            <div class="row" style="margin-top:0.5rem;">
+                <label for="suspReason">Reason (optional)</label>
+                <textarea id="suspReason" rows="2" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); font-family:inherit;"></textarea>
+            </div>
+            <div class="row" style="margin-top:0.5rem;">
+                <label for="suspDays">Duration (days, 0 = permanent until lifted)</label>
+                <input type="number" id="suspDays" min="0" value="7" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem;">
+                <button class="btn-secondary" onclick="hideSuspendForm()">Cancel</button>
+                <button class="btn-primary" onclick="submitSuspend()">Confirm suspension</button>
+            </div>
+        </div>
+
+        <div id="lmSuspensionsList" style="margin-top:0.5rem;"></div>
     </div>
 </div>
 
@@ -166,6 +221,8 @@
     const LEAVES = {{ leaves_json|safe }};
     const STAFF_SUMMARY = {{ staff_summary_json|safe }};
     const POLICY = {{ policy_json|safe }};
+    const SUSPENSIONS = {{ suspensions_json|safe }};
+    const STAFF_PICKER = {{ staff_picker_json|safe }};
     const CSRF = "{{ csrf_token }}";
 
     function esc(s) {
@@ -334,6 +391,11 @@
         document.getElementById('polWeek').value = POLICY.max_leaves_per_week;
         document.getElementById('polConsec').value = POLICY.max_consecutive_days;
         document.getElementById('polBack').checked = !!POLICY.allow_backdated;
+        document.getElementById('polApprovedOnly').checked = POLICY.count_approved_only !== false;
+        document.getElementById('polMaxRejections').value = (POLICY.max_rejections_before_suspension != null)
+            ? POLICY.max_rejections_before_suspension : 3;
+        document.getElementById('polSuspensionDays').value = (POLICY.suspension_days != null)
+            ? POLICY.suspension_days : 7;
         document.getElementById('lmPolicyBackdrop').classList.add('show');
     };
     window.closePolicy = function() {
@@ -344,7 +406,10 @@
             max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
             max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
             max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
-            allow_backdated: document.getElementById('polBack').checked
+            allow_backdated: document.getElementById('polBack').checked,
+            count_approved_only: document.getElementById('polApprovedOnly').checked,
+            max_rejections_before_suspension: parseInt(document.getElementById('polMaxRejections').value, 10) || 0,
+            suspension_days: parseInt(document.getElementById('polSuspensionDays').value, 10) || 7
         };
         postJson('/portal/' + SCHEMA + '/leave/policy/save/', body)
             .then(function(res) {
@@ -386,6 +451,111 @@
     };
     window.closeStaffSummary = function() {
         document.getElementById('lmStaffBackdrop').classList.remove('show');
+    };
+
+    // ----- suspensations (LEAVE_SUSPENSION_V1_ADMIN) -----
+    function _findStaffNameById(id) {
+        const hit = (STAFF_PICKER || []).find(s => s.id === id);
+        return hit ? hit.name : ('#' + id);
+    }
+
+    window.openSuspensionsModal = function() {
+        renderSuspensionsList();
+        // Populate staff dropdown
+        const sel = document.getElementById('suspStaff');
+        if (sel && sel.options.length === 0) {
+            (STAFF_PICKER || []).forEach(function(s) {
+                const opt = document.createElement('option');
+                opt.value = String(s.id);
+                opt.textContent = s.name + (s.job_title ? ' — ' + s.job_title : '');
+                sel.appendChild(opt);
+            });
+        }
+        document.getElementById('lmSuspensionsBackdrop').classList.add('show');
+    };
+    window.closeSuspensionsModal = function() {
+        document.getElementById('lmSuspensionsBackdrop').classList.remove('show');
+        hideSuspendForm();
+    };
+    window.showSuspendForm = function() {
+        document.getElementById('lmSuspendForm').style.display = 'block';
+    };
+    window.hideSuspendForm = function() {
+        document.getElementById('lmSuspendForm').style.display = 'none';
+    };
+
+    function renderSuspensionsList() {
+        const box = document.getElementById('lmSuspensionsList');
+        const list = SUSPENSIONS || [];
+        if (!list.length) {
+            box.innerHTML = '<div class="lm-empty" style="padding:1rem;">No suspensions recorded.</div>';
+            return;
+        }
+        box.innerHTML = list.map(function(s) {
+            const active = s.currently_active;
+            const badge = active
+                ? '<span class="lm-badge rejected">Active</span>'
+                : '<span class="lm-badge cancelled">Lifted / Expired</span>';
+            const range = s.end_date
+                ? (fmtDate(s.start_date) + ' → ' + fmtDate(s.end_date))
+                : (fmtDate(s.start_date) + ' → permanent');
+            const auto = s.auto_triggered ? ' <em style="color:var(--muted);">(auto)</em>' : '';
+            const liftBtn = active
+                ? '<button class="lm-btn-approve" onclick="liftSuspension(' + s.staff_id + ')">Lift</button>'
+                : '';
+            const reason = s.reason
+                ? '<div class="lm-dates" style="white-space:pre-wrap;">' + esc(s.reason) + '</div>'
+                : '';
+            const meta = '<div class="lm-dates">' + esc(s.created_by || '') + (s.created_at ? ' • ' + esc(new Date(s.created_at).toLocaleString()) : '') + '</div>';
+            return '<div class="lm-card" style="margin-bottom:0.6rem;">'
+                + '<div class="lm-card-head">'
+                +   '<div><strong>' + esc(s.staff_name) + '</strong>' + auto + '<div class="lm-staff-meta">' + esc(s.staff_job_title || '') + '</div></div>'
+                +   badge
+                + '</div>'
+                + '<div class="lm-dates">' + range + '</div>'
+                + reason
+                + meta
+                + '<div class="lm-actions">' + liftBtn + '</div>'
+                + '</div>';
+        }).join('');
+    }
+
+    window.submitSuspend = function() {
+        const sel = document.getElementById('suspStaff');
+        const staffId = sel ? sel.value : '';
+        if (!staffId) { alert('Pick a staff member.'); return; }
+        const reason = (document.getElementById('suspReason').value || '').trim();
+        const days = parseInt(document.getElementById('suspDays').value, 10) || 0;
+        postJson('/portal/' + SCHEMA + '/leave/staff/' + staffId + '/suspend/', {
+            reason: reason, duration_days: days
+        })
+        .then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to suspend.');
+                return;
+            }
+            location.reload();
+        })
+        .catch(function(err) {
+            console.error('[submitSuspend]', err);
+            alert('Could not suspend staff:\n\n' + err.message);
+        });
+    };
+
+    window.liftSuspension = function(staffId) {
+        if (!confirm('Lift ALL active suspensions for this staff member?')) return;
+        postJson('/portal/' + SCHEMA + '/leave/staff/' + staffId + '/unsuspend/', {})
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to lift suspension.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[liftSuspension]', err);
+                alert('Could not lift suspension:\n\n' + err.message);
+            });
     };
 
     // ----- filters -----

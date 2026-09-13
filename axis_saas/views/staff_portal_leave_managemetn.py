@@ -24,7 +24,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
-from ..models import Staff, LeaveRequest, LeavePolicy, ClassSubject
+from ..models import (
+    Staff, LeaveRequest, LeavePolicy, ClassSubject, LeaveSuspension,
+)
 from .staff_portal import require_staff_login, require_staff_feature
 
 logger = logging.getLogger(__name__)
@@ -83,14 +85,30 @@ def _get_active_leave(staff, ref_date=None):
     )
 
 
-def _month_used_days(staff, ref_date, exclude_id=None):
+def _leave_quota_queryset(staff, policy=None):
+    """Return the queryset of leaves that count towards quota, filtered
+    according to `policy.count_approved_only` (LEAVE_SUSPENSION_V1).
+
+    Rules:
+      * Rejected / Cancelled leaves NEVER count.
+      * If `count_approved_only=True` (default) only APPROVED leaves count.
+      * If `count_approved_only=False` PENDING + APPROVED leaves count.
+    """
+    qs = LeaveRequest.objects.filter(staff=staff)
+    if policy is None or getattr(policy, 'count_approved_only', True):
+        qs = qs.filter(status='approved')
+    else:
+        qs = qs.exclude(status__in=['rejected', 'cancelled'])
+    return qs
+
+
+def _month_used_days(staff, ref_date, exclude_id=None, policy=None):
     first_day = ref_date.replace(day=1)
     last_day = ref_date.replace(day=monthrange(ref_date.year, ref_date.month)[1])
-    qs = LeaveRequest.objects.filter(
-        staff=staff,
+    qs = _leave_quota_queryset(staff, policy).filter(
         start_date__lte=last_day,
         end_date__gte=first_day,
-    ).exclude(status__in=['rejected', 'cancelled'])
+    )
     if exclude_id:
         qs = qs.exclude(id=exclude_id)
     used = set()
@@ -102,14 +120,13 @@ def _month_used_days(staff, ref_date, exclude_id=None):
     return len(used)
 
 
-def _week_used_days(staff, ref_date, exclude_id=None):
+def _week_used_days(staff, ref_date, exclude_id=None, policy=None):
     week_start = ref_date - timedelta(days=ref_date.weekday())
     week_end = week_start + timedelta(days=6)
-    qs = LeaveRequest.objects.filter(
-        staff=staff,
+    qs = _leave_quota_queryset(staff, policy).filter(
         start_date__lte=week_end,
         end_date__gte=week_start,
-    ).exclude(status__in=['rejected', 'cancelled'])
+    )
     if exclude_id:
         qs = qs.exclude(id=exclude_id)
     used = set()
@@ -121,16 +138,46 @@ def _week_used_days(staff, ref_date, exclude_id=None):
     return len(used)
 
 
+def _active_suspension(staff, on_date=None):
+    """Return the currently active LeaveSuspension for `staff` (or None)."""
+    if staff is None:
+        return None
+    if on_date is None:
+        on_date = date.today()
+    qs = (
+        LeaveSuspension.objects
+        .filter(staff=staff, is_active=True, start_date__lte=on_date)
+        .order_by('-created_at')
+    )
+    for susp in qs:
+        if susp.end_date is None or susp.end_date >= on_date:
+            return susp
+    return None
+
+
 def _validate_request(staff, start_date, end_date, policy):
     """Return list of validation error strings (empty if valid).
 
-    Order matters: the "currently on leave" rule is checked first so
-    the user sees the most relevant message instead of a generic
-    overlap error.
+    Order matters: suspensions and the "currently on leave" rule are
+    checked first so the user sees the most relevant message instead
+    of a generic overlap error.
     """
     errors = []
 
-    # 0) Staff is currently inside an approved leave window.
+    # 0) Staff is suspended from applying (LEAVE_SUSPENSION_V1).
+    suspension = _active_suspension(staff)
+    if suspension is not None:
+        if suspension.end_date:
+            span = f"until {suspension.end_date.strftime('%d %b %Y')}"
+        else:
+            span = "with no end date (contact the admin to lift it)"
+        reason = f" Reason: {suspension.reason}" if suspension.reason else ''
+        errors.append(
+            f"You are suspended from applying for leave {span}.{reason}"
+        )
+        return errors
+
+    # 0.5) Staff is currently inside an approved leave window.
     active = _get_active_leave(staff)
     if active is not None:
         errors.append(
@@ -170,7 +217,7 @@ def _validate_request(staff, start_date, end_date, policy):
         errors.append('This leave overlaps with an existing leave request.')
 
     # 5) Monthly quota.
-    used_month = _month_used_days(staff, start_date)
+    used_month = _month_used_days(staff, start_date, policy=policy)
     first_day = start_date.replace(day=1)
     last_day = start_date.replace(day=monthrange(start_date.year, start_date.month)[1])
     new_month_days = set()
@@ -185,7 +232,7 @@ def _validate_request(staff, start_date, end_date, policy):
         )
 
     # 6) Weekly quota.
-    used_week = _week_used_days(staff, start_date)
+    used_week = _week_used_days(staff, start_date, policy=policy)
     week_start = start_date - timedelta(days=start_date.weekday())
     week_end = week_start + timedelta(days=6)
     new_week_days = set()
@@ -214,11 +261,12 @@ def staff_leave_management(request):
             return redirect('staff_login')
         policy = _get_or_create_policy()
         today = date.today()
-        used_month = _month_used_days(staff, today)
-        used_week = _week_used_days(staff, today)
+        used_month = _month_used_days(staff, today, policy=policy)
+        used_week = _week_used_days(staff, today, policy=policy)
         remaining_month = max(0, policy.max_leaves_per_month - used_month)
         remaining_week = max(0, policy.max_leaves_per_week - used_week)
         active_leave = _get_active_leave(staff, today)
+        suspension = _active_suspension(staff, today)
 
         context = {
             'staff': staff,
@@ -227,12 +275,14 @@ def staff_leave_management(request):
                 'max_leaves_per_week': policy.max_leaves_per_week,
                 'max_consecutive_days': policy.max_consecutive_days,
                 'allow_backdated': policy.allow_backdated,
+                'count_approved_only': policy.count_approved_only,
             },
             'used_month': used_month,
             'used_week': used_week,
             'remaining_month': remaining_month,
             'remaining_week': remaining_week,
             'active_leave': active_leave,
+            'active_suspension': suspension,
             'today': today.isoformat(),
             'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
         }
@@ -263,20 +313,32 @@ def staff_leave_policy_api(request):
             return JsonResponse({'ok': False, 'error': 'Staff not found'}, status=404)
         policy = _get_or_create_policy()
         today = date.today()
-        used_month = _month_used_days(staff, today)
-        used_week = _week_used_days(staff, today)
+        used_month = _month_used_days(staff, today, policy=policy)
+        used_week = _week_used_days(staff, today, policy=policy)
         active_leave = _get_active_leave(staff, today)
+        suspension = _active_suspension(staff, today)
+        suspension_payload = None
+        if suspension is not None:
+            suspension_payload = {
+                'id': suspension.id,
+                'reason': suspension.reason or '',
+                'start_date': suspension.start_date.isoformat() if suspension.start_date else '',
+                'end_date': suspension.end_date.isoformat() if suspension.end_date else '',
+                'permanent': suspension.end_date is None,
+            }
         return JsonResponse({
             'ok': True,
             'max_leaves_per_month': policy.max_leaves_per_month,
             'max_leaves_per_week': policy.max_leaves_per_week,
             'max_consecutive_days': policy.max_consecutive_days,
             'allow_backdated': policy.allow_backdated,
+            'count_approved_only': policy.count_approved_only,
             'used_month': used_month,
             'used_week': used_week,
             'remaining_month': max(0, policy.max_leaves_per_month - used_month),
             'remaining_week': max(0, policy.max_leaves_per_week - used_week),
             'active_leave': _serialize_staff_leave(active_leave),
+            'active_suspension': suspension_payload,
         })
 
 
