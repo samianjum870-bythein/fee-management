@@ -228,6 +228,19 @@ def _reconcile_timetables(schema_name):
                     start_t, end_t, sched['periods'],
                     break_after, break_duration,
                 )
+                # TIMETABLE_HARDENING_V1: if the stored break_after /
+                # break_duration swallowed the entire class window,
+                # _compute_periods returns [] and the client would
+                # render an empty timetable. Reset the break and
+                # recompute — this matches the guard in api_add_bunch
+                # and closes the same hole for legacy / out-of-band
+                # DaySchedule edits.
+                if not periods_data and break_after is not None:
+                    break_after = None
+                    periods_data = _compute_periods(
+                        start_t, end_t, sched['periods'],
+                        None, 0,
+                    )
                 day['periods_count'] = sched['periods']
                 day['start'] = sched['start']
                 day['end'] = sched['end']

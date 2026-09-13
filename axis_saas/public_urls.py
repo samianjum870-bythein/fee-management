@@ -51,30 +51,17 @@ def saas_homepage(request):
     ''')
 
 def ensure_schoolclient(schema_name):
-    """Fetch tenant from public schema; raise 404 if not found."""
+    """Fetch tenant from public schema; raise 404 if not found.
+
+    TIMETABLE_HARDENING_V1: removed an unreachable block that referenced
+    an undefined name (schema_exists). The try/except above always exits
+    (return or raise), so the trailing if/else never executed.
+    """
     with schema_context('public'):
         try:
             return SchoolClient.objects.get(schema_name=schema_name)
         except SchoolClient.DoesNotExist:
             raise Http404(f"Tenant '{schema_name}' does not exist.")
-
-        if schema_exists:
-            # Create the missing SchoolClient row
-            tenant, created = SchoolClient.objects.get_or_create(
-                schema_name=schema_name,
-                defaults={
-                    'name': f"{schema_name.title()} School",
-                    'admin_username': 's',
-                    'admin_password': 'admin123',
-                    'is_active': True
-                }
-            )
-            if created:
-                logger = logging.getLogger(__name__)
-                logger.info("Auto-created SchoolClient for '%s'", schema_name)
-            return tenant
-        else:
-            return None
 
 def portal_wrapper(view_func):
     """Wrapper that ensures SchoolClient exists before calling the view."""
@@ -341,15 +328,9 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/add/', portal_wrapper(login_required_for_schema(api_add_bunch)), name='api_timetable_periods_bunch_add'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/delete/', portal_wrapper(login_required_for_schema(api_delete_bunch)), name='api_timetable_periods_bunch_delete'),
     # API endpoints
-    path('portal/<slug:schema_name>/api/timetable/calendar/', portal_wrapper(login_required_for_schema(api_update_calendar)), name='api_timetable_calendar'),
     path('portal/<slug:schema_name>/api/timetable/holiday/add/', portal_wrapper(login_required_for_schema(api_add_holiday)), name='api_timetable_holiday_add'),
     path('portal/<slug:schema_name>/api/timetable/holiday/delete/', portal_wrapper(login_required_for_schema(api_delete_holiday)), name='api_timetable_holiday_delete'),
     path('portal/<slug:schema_name>/api/timetable/holiday/update/', portal_wrapper(login_required_for_schema(api_update_holiday)), name='api_timetable_holiday_update'),
-    path('portal/<slug:schema_name>/api/timetable/period/add/', portal_wrapper(login_required_for_schema(api_add_period)), name='api_timetable_period_add'),
-    path('portal/<slug:schema_name>/api/timetable/period/delete/', portal_wrapper(login_required_for_schema(api_delete_period)), name='api_timetable_period_delete'),
-    path('portal/<slug:schema_name>/api/timetable/period/update/', portal_wrapper(login_required_for_schema(api_update_period)), name='api_timetable_period_update'),
-    path('portal/<slug:schema_name>/api/timetable/get/', portal_wrapper(login_required_for_schema(api_get_timetable)), name='api_timetable_get'),
-    path('portal/<slug:schema_name>/api/timetable/save/', portal_wrapper(login_required_for_schema(api_save_timetable)), name='api_timetable_save'),
 
 
     path('portal/<slug:schema_name>/api/timetable/day-schedules/', portal_wrapper(login_required_for_schema(api_save_day_schedules)), name='api_timetable_day_schedules'),

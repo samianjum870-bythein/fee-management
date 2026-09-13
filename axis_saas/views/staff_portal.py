@@ -2,7 +2,7 @@ import json
 import logging
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta  # TIMETABLE_HARDENING_V1_PHASE3
 
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
@@ -43,7 +43,10 @@ def staff_login(request):
 
         attempts = cache.get(ip_key, 0)
         if attempts >= 10:
-            cache.set(f'{ip_key}_blocked_until', timezone.now() + timezone.timedelta(minutes=15), 900)
+            # TIMETABLE_HARDENING_V1_PHASE3: django.utils.timezone does
+            # not re-export timedelta. Use the stdlib import added at
+            # the top of this module instead.
+            cache.set(f'{ip_key}_blocked_until', timezone.now() + timedelta(minutes=15), 900)
             return render(request, 'mobile/staff/login.html', {'error': 'Too many failed login attempts. Please try again in 15 minutes.'})
 
         credential = StaffCredential.objects.filter(username=username).first()
@@ -233,30 +236,12 @@ def staff_dashboard(request):
             'schema_name': schema_name,
         },
     )
-@require_staff_feature('staff_dashboard')
-def staff_dashboard(request):
-    schema_name = request.session['staff_schema_name']
-    from django_tenants.utils import schema_context
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-        classes = SchoolClass.objects.filter(Q(class_teacher=staff) | Q(class_subjects__teacher=staff)).distinct().order_by('name', 'section')
-        today = timezone.localdate()
-        student_count = Student.objects.filter(school_class__in=classes).count()
-        attendance_today = StudentAttendance.objects.filter(date=today, school_class__in=classes).count()
-        notifications = Notification.objects.filter(is_read=False).order_by('-created_at')[:5]
-
-    return render(
-        request,
-        'mobile/staff/dashboard.html',
-        {
-            'staff': staff,
-            'classes': classes,
-            'student_count': student_count,
-            'attendance_today': attendance_today,
-            'notifications': notifications,
-            'schema_name': schema_name,
-        },
-    )
+    # TIMETABLE_HARDENING_V1_PHASE3: a second staff_dashboard() lived
+    # here. Python keeps the last definition, so that one silently
+    # overrode this one. It had no @require_staff_login decorator
+    # (reachable without auth) and returned 'classes' in the context
+    # instead of the 'class_teacher_classes' / 'subject_teacher_classes'
+    # the template expects. Deleted.
 
 
 @require_staff_login

@@ -356,8 +356,14 @@ def get_student_list_context(request, schema_name):
         if class_id:
             try:
                 students = students.filter(school_class_id=class_id)
-            except:
-                pass
+            except Exception as _tt_exc:
+                # TIMETABLE_HARDENING_V1_PHASE3: bare except swallowed
+                # KeyboardInterrupt and SystemExit, making the class_id
+                # filter path impossible to debug. Narrowed and logged.
+                logger.warning(
+                    'get_student_list_context: class_id filter failed: %s',
+                    _tt_exc,
+                )
         if category_id and tenant.tenant_type == 'wing_school':
             students = students.filter(wing_category_id=category_id)
         if query:
