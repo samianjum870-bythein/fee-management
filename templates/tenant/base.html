@@ -87,6 +87,19 @@
             padding: 0.625rem;
         }
 
+        /* ---- Sub-items (nested nav links) ---- */
+        .nav-item.nav-subitem {
+            padding-left: 2.5rem;
+            font-size: 0.9rem;
+        }
+
+        /* When collapsed, sub-items must look identical to normal items */
+        .sidebar.collapsed .nav-item.nav-subitem {
+            justify-content: center;
+            padding: 0.625rem;
+            font-size: inherit;
+        }
+
         .sidebar.collapsed .sidebar-header {
             justify-content: center;
             padding: 1.5rem 0.5rem;
@@ -174,6 +187,7 @@
             width: 20px;
             height: 20px;
             stroke-width: 1.8;
+            flex-shrink: 0;
         }
 
         .sidebar-footer {
@@ -725,49 +739,49 @@
             
             <nav class="sidebar-nav">
                 {% if tenant|has_feature:'dashboard' %}
-                <a href="{% url 'dashboard' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                <a href="{% url 'dashboard' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" title="Dashboard">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                     <span>Dashboard</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'fee_collection' %}
-                <a href="{% url 'fee_collection' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'fee_collection' schema_name=tenant.schema_name %}" class="nav-item" title="Fee Collection">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
                     <span>Fee Collection</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'students' %}
-                <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="nav-item {% if 'student' in request.resolver_match.url_name %}active{% endif %}">
+                <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="nav-item {% if 'student' in request.resolver_match.url_name %}active{% endif %}" title="Students">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                     <span>Students</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'staff_management' %}
-                <a href="{% url 'staff_list' schema_name=tenant.schema_name %}" class="nav-item {% if 'staff' in request.resolver_match.url_name %}active{% endif %}">
+                <a href="{% url 'staff_list' schema_name=tenant.schema_name %}" class="nav-item {% if 'staff' in request.resolver_match.url_name %}active{% endif %}" title="Staff Management">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                     <span>Staff Management</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'defaulters' %}
-                <a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="nav-item" title="Defaulters">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span>Defaulters</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'class_management' %}
-                <a href="{% url 'class_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'class' in request.resolver_match.url_name %}active{% endif %}">
+                <a href="{% url 'class_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'class' in request.resolver_match.url_name %}active{% endif %}" title="Classes & Subjects">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
                     <span>Classes & Subjects</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'classes_management' %}
-                <a href="{% url 'classes_management' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'classes_management' %}active{% endif %}">
+                <a href="{% url 'classes_management' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'classes_management' %}active{% endif %}" title="Classes Management">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
                     </svg>
@@ -776,66 +790,64 @@
                 {% endif %}
 
                 {% if tenant|has_feature:'reports' %}
-                <a href="{% url 'reports' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'reports' schema_name=tenant.schema_name %}" class="nav-item" title="Reports">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                     <span>Reports</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'stock_management' %}
-                <a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="nav-item" title="Stock Management">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg>
                     <span>Stock Management</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'fee_structure' %}
-                <a href="{% url 'fee_structure' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'fee_structure' schema_name=tenant.schema_name %}" class="nav-item" title="Fee Structure">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
                     <span>Fee Structure</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'fee_collection' %}
-                <a href="{% url 'vouchers_list' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'vouchers_list' schema_name=tenant.schema_name %}" class="nav-item" title="Vouchers">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
                     <span>Vouchers</span>
                 </a>
 
-                <a href="{% url 'fee_logs' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'fee_logs' schema_name=tenant.schema_name %}" class="nav-item" title="Fee Logs">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     <span>Fee Logs</span>
                 </a>
                 {% endif %}
 
                 {% if tenant|has_feature:'fee_settings' %}
-                <a href="{% url 'fee_settings' schema_name=tenant.schema_name %}" class="nav-item">
+                <a href="{% url 'fee_settings' schema_name=tenant.schema_name %}" class="nav-item" title="Settings">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     <span>Settings</span>
                 </a>
                 {% endif %}
             
                 {% if tenant|has_feature:'timetable_management' %}
-                <a href="{% url 'timetable_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'timetable' in request.resolver_match.url_name %}active{% endif %}">
+                <a href="{% url 'timetable_management' schema_name=tenant.schema_name %}" class="nav-item {% if 'timetable' in request.resolver_match.url_name %}active{% endif %}" title="Time-Table">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <span>Time‑Table</span>
                 </a>
-                <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}" class="nav-item" style="padding-left: 2.5rem; font-size: 0.9rem;">
+                <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}" class="nav-item nav-subitem" title="Periods">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
                     <span>Periods</span>
                 </a>
-                <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'timetable_assignments' %}active{% endif %}" style="padding-left: 2.5rem; font-size: 0.9rem;">
+                <a href="{% url 'timetable_assignments' schema_name=tenant.schema_name %}" class="nav-item nav-subitem {% if request.resolver_match.url_name == 'timetable_assignments' %}active{% endif %}" title="Assign to Classes">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span>Assign to Classes</span>
                 </a>
-                <a href="{% url 'timetable_assign_teachers' schema_name=tenant.schema_name %}" class="nav-item {% if request.resolver_match.url_name == 'timetable_assign_teachers' %}active{% endif %}" style="padding-left: 2.5rem; font-size: 0.9rem;">
+                <a href="{% url 'timetable_assign_teachers' schema_name=tenant.schema_name %}" class="nav-item nav-subitem {% if request.resolver_match.url_name == 'timetable_assign_teachers' %}active{% endif %}" title="Assign to Teachers">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                     <span>Assign to Teachers</span>
                 </a>
-
                 {% endif %}
-</nav>
-
+            </nav>
 
             <div class="sidebar-footer">
                 <div class="profile-dropdown" id="profileDropdownContainer">
@@ -1146,15 +1158,6 @@
     }
 </script>
 
-
-
-
-
-
-
-
-
-
 <script>
 // Periodic refresh for student profiles (every 30 min)
 (function() {
@@ -1245,7 +1248,6 @@
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     #initialCacheOverlay { display: flex; } /* hidden by default, shown via JS */
 </style>
-
 
 <script>
 (function() {
