@@ -147,6 +147,13 @@
         min-height:0.85rem; line-height:1.1;
     }
     .assign-grid .teacher-hint.has-teacher { color:var(--primary); font-weight:600; }
+    /* TEACHER_TIMETABLE_CONFLICT_V1: red warning when the chosen
+       teacher is already booked in another class on the same slot. */
+    .assign-grid .teacher-hint.has-conflict { color:#dc2626; font-weight:700; }
+    .assign-grid td.has-conflict {
+        background:#fef2f2;
+        box-shadow: inset 0 0 0 2px #fca5a5;
+    }
     .assign-grid .break-col {
         background:#fef3c7;
         color:#92400e; font-weight:600;
@@ -283,9 +290,32 @@
     var classSel = document.getElementById('classSelector');
     var modalBody = document.getElementById('modalBody');
 
+    // TEACHER_TIMETABLE_CONFLICT_V2_DONE
+    // TEACHER_TIMETABLE_CONFLICT_V2_FULLNAME_DONE
     var CURRENT_CLASS_ID = null;
     var CURRENT_DATA = null;
     var CURRENT_SELECTS = [];
+    // Per-class maps rebuilt by renderGrid() on every load.
+    //   CURRENT_TEACHER_MAP      : subject_id (string) -> teacher_id (int)
+    //   CURRENT_SUBJECT_NAME_MAP : subject_id (string) -> teacher_name (string)
+    //   CURRENT_BUSY_MAP         : "teacher_id|day|period" ->
+    //                              {"class": <other class>,
+    //                               "teacher_name": <full name>}
+    var CURRENT_TEACHER_MAP = {};
+    var CURRENT_SUBJECT_NAME_MAP = {};
+    var CURRENT_BUSY_MAP = {};
+
+    // Full teacher names are used verbatim in conflict messages
+    // (see TEACHER_TIMETABLE_CONFLICT_V2_FULLNAME) so no name
+    // truncation helper is needed.
+
+    var DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    function dayName(n) {
+        if (typeof n !== 'number' || isNaN(n) || n < 0 || n > 6) {
+            return 'Day ' + n;
+        }
+        return DAY_NAMES[n];
+    }
 
     function esc(s) {
         if (s === null || s === undefined) return '';
@@ -450,22 +480,88 @@
         modalBody.innerHTML = html;
 
         // Wire up selects to show teacher hint immediately
+        // TEACHER_TIMETABLE_CONFLICT_V1: also detect if the chosen
+        // subject's teacher is already booked in another class on the
+        // SAME (day, period) and show a red warning on the cell.
         var selectMap = {};
-        subjects.forEach(function (s) { selectMap[String(s.subject_id)] = s.teacher_name || ''; });
+        var teacherIdMap = {};
+        subjects.forEach(function (s) {
+            selectMap[String(s.subject_id)] = s.teacher_name || '';
+            teacherIdMap[String(s.subject_id)] = s.teacher_id || null;
+        });
+        CURRENT_TEACHER_MAP = teacherIdMap;
+        CURRENT_SUBJECT_NAME_MAP = selectMap;
 
-        modalBody.querySelectorAll('.cell-subject').forEach(function (sel) {
-            CURRENT_SELECTS.push(sel);
-            sel.addEventListener('change', function () {
-                var hint = sel.parentNode.querySelector('.teacher-hint');
+        var busyMap = (data && data.teacher_busy) || {};
+        CURRENT_BUSY_MAP = busyMap;
+
+        function refreshConflictForSelect(sel) {
+            var hint = sel.parentNode.querySelector('.teacher-hint');
+            var cell = sel.parentNode;
+            var tid = teacherIdMap[sel.value];
+            var day = parseInt(sel.getAttribute('data-day'), 10);
+            var order = parseInt(sel.getAttribute('data-order'), 10);
+            var conflict = '';
+            if (tid && !isNaN(day) && !isNaN(order)) {
+                conflict = busyMap[tid + '|' + day + '|' + order] || '';
+            }
+            if (conflict) {
+                var _tFull = conflict.teacher_name || 'Teacher';
+                var _otherCls = conflict.class || 'another class';
+                hint.textContent = '\u26a0 ' + _tFull + ' busy in ' + _otherCls;
+                hint.className = 'teacher-hint has-conflict';
+                cell.classList.add('has-conflict');
+            } else {
+                cell.classList.remove('has-conflict');
                 var t = selectMap[sel.value] || '';
                 hint.textContent = t ? '(' + t + ')' : '';
                 hint.className = 'teacher-hint' + (t ? ' has-teacher' : '');
+            }
+        }
+
+        modalBody.querySelectorAll('.cell-subject').forEach(function (sel) {
+            CURRENT_SELECTS.push(sel);
+            refreshConflictForSelect(sel);
+            sel.addEventListener('change', function () {
+                refreshConflictForSelect(sel);
             });
         });
     }
 
     function saveAssignments() {
         if (!CURRENT_CLASS_ID || !CURRENT_DATA || !CURRENT_DATA.has_timetable) return;
+
+        // TEACHER_TIMETABLE_CONFLICT_V2: refuse to POST when a chosen
+        // subject's teacher is already booked elsewhere on the same slot.
+        // Message format: "<FirstName> is already teaching <Class> on
+        // <Day> P<n>." The server still re-validates.
+        var _busyMap = CURRENT_BUSY_MAP ||
+                       (CURRENT_DATA && CURRENT_DATA.teacher_busy) || {};
+        var _conflicts = [];
+        CURRENT_SELECTS.forEach(function (sel) {
+            var tid = CURRENT_TEACHER_MAP[sel.value];
+            if (!tid) return;
+            var day = parseInt(sel.getAttribute('data-day'), 10);
+            var order = parseInt(sel.getAttribute('data-order'), 10);
+            var other = _busyMap[tid + '|' + day + '|' + order];
+            if (other) {
+                var _tFull = other.teacher_name ||
+                             CURRENT_SUBJECT_NAME_MAP[sel.value] ||
+                             ('Teacher #' + tid);
+                var _otherCls = other.class || 'another class';
+                _conflicts.push(
+                    _tFull + ' is already teaching ' + _otherCls +
+                    ' on ' + dayName(day) + ' P' + order + '.'
+                );
+            }
+        });
+        if (_conflicts.length) {
+            alert(
+                'Teacher conflict detected \u2014 a teacher can only be in ' +
+                'one class at a time:\n\n' + _conflicts.join('\n')
+            );
+            return;
+        }
 
         var payload = { assignments: [] };
         CURRENT_SELECTS.forEach(function (sel) {

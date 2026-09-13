@@ -10,6 +10,7 @@ import logging
 
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
+from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
@@ -87,7 +88,16 @@ def timetable_assign_teachers(request, schema_name):
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
 def api_get_teacher_assignments(request, schema_name, class_id):
-    """Return data needed to render the grid for a given class."""
+    """Return data needed to render the grid for a given class.
+
+    TEACHER_TIMETABLE_CONFLICT_V2
+    -----------------------------
+    Also returns a `teacher_busy` map of
+        "teacher_id|day|period" -> {"class": <other class display>,
+                                    "teacher_name": <teacher full name>}
+    so the UI can display "⚠ <FirstName> busy in <Class>" BEFORE the
+    admin presses Save. The server is still the source of truth.
+    """
     tenant = get_tenant(request, schema_name)
 
     with schema_context(schema_name):
@@ -133,6 +143,25 @@ def api_get_teacher_assignments(request, schema_name, class_id):
                 'subject_id': pta.subject_id,
             }
 
+        # ---- TEACHER_TIMETABLE_CONFLICT_V2: build busy map --------------
+        # Every (teacher, day, period) already occupied in SOME OTHER class.
+        # Value carries both the other class display AND the teacher name
+        # so the client can render "⚠ Ayesha busy in 10-A".
+        teacher_busy = {}
+        _other_rows = (
+            PeriodTeacherAssignment.objects
+            .filter(teacher__isnull=False)
+            .exclude(school_class=school_class)
+            .select_related('school_class', 'school_class__wing_category', 'teacher')
+        )
+        for _pta in _other_rows:
+            _cls_display = get_class_display_name(_pta.school_class, tenant.tenant_type)
+            _key = f"{_pta.teacher_id}|{_pta.day_of_week}|{_pta.period_order}"
+            teacher_busy[_key] = {
+                'class': _cls_display,
+                'teacher_name': _pta.teacher.full_name if _pta.teacher else '',
+            }
+
         return JsonResponse({
             'has_timetable': True,
             'class_id': school_class.id,
@@ -143,6 +172,7 @@ def api_get_teacher_assignments(request, schema_name, class_id):
             'timetable_days': tt.days or [],
             'subjects': subjects,
             'existing': existing,
+            'teacher_busy': teacher_busy,
         })
 
 
