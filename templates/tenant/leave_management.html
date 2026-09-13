@@ -1,0 +1,380 @@
+{% extends 'tenant/base.html' %}
+{% load static %}
+{% load fee_extras %}
+{% block title %}Leave Management{% endblock %}
+{% block body %}
+<style>
+    .lm-wrap { padding: 0; }
+    .lm-head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; }
+    .lm-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1rem; margin-bottom:1.5rem; }
+    .lm-stat { background:var(--surface); border:1px solid var(--border); border-radius:1rem; padding:1rem 1.25rem; box-shadow:var(--shadow); }
+    .lm-stat .label { font-size:0.75rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; }
+    .lm-stat .val { font-size:1.6rem; font-weight:800; margin-top:0.25rem; }
+    .lm-stat.pending .val { color:#f59e0b; }
+    .lm-stat.approved .val { color:#10b981; }
+    .lm-stat.rejected .val { color:#ef4444; }
+    .lm-toolbar { display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+    .lm-toolbar input, .lm-toolbar select { padding:0.5rem 0.85rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:0.85rem; }
+    .lm-toolbar input:focus, .lm-toolbar select:focus { outline:none; border-color:var(--primary); }
+    .lm-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:1rem; }
+    .lm-card { background:var(--surface); border:1px solid var(--border); border-radius:1rem; padding:1rem 1.1rem; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:0.65rem; transition:var(--transition); }
+    .lm-card:hover { transform:translateY(-2px); box-shadow:0 12px 40px rgba(0,0,0,0.12); }
+    .lm-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; }
+    .lm-staff { display:flex; gap:0.75rem; align-items:center; }
+    .lm-avatar { width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.95rem; flex-shrink:0; overflow:hidden; }
+    .lm-avatar img { width:100%; height:100%; object-fit:cover; }
+    .lm-staff-name { font-weight:700; font-size:0.95rem; }
+    .lm-staff-meta { font-size:0.75rem; color:var(--muted); }
+    .lm-badge { display:inline-block; padding:0.2rem 0.6rem; border-radius:1rem; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; }
+    .lm-badge.pending { background:rgba(245,158,11,0.15); color:#b45309; }
+    .lm-badge.approved { background:rgba(16,185,129,0.15); color:#065f46; }
+    .lm-badge.rejected { background:rgba(239,68,68,0.15); color:#991b1b; }
+    .lm-badge.cancelled { background:rgba(107,114,128,0.15); color:#374151; }
+    .lm-title { font-weight:600; font-size:0.95rem; }
+    .lm-dates { font-size:0.8rem; color:var(--muted); }
+    .lm-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:auto; }
+    .lm-actions button, .lm-actions a { padding:0.45rem 0.85rem; border-radius:0.65rem; font-size:0.78rem; font-weight:600; cursor:pointer; border:none; display:inline-flex; align-items:center; gap:0.35rem; transition:var(--transition); text-decoration:none; }
+    .lm-btn-view { background:var(--surface-alt); color:var(--text); border:1px solid var(--border); }
+    .lm-btn-view:hover { background:var(--surface); }
+    .lm-btn-approve { background:#10b981; color:#fff; }
+    .lm-btn-approve:hover { background:#059669; }
+    .lm-btn-reject { background:#ef4444; color:#fff; }
+    .lm-btn-reject:hover { background:#dc2626; }
+    .lm-empty { text-align:center; color:var(--muted); padding:3rem 1rem; }
+
+    /* modal */
+    .lm-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.5); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:9999; padding:1rem; }
+    .lm-modal-backdrop.show { display:flex; }
+    .lm-modal { background:var(--surface); border-radius:1rem; border:1px solid var(--border); box-shadow:0 20px 60px rgba(0,0,0,0.3); width:100%; max-width:560px; max-height:90vh; overflow-y:auto; padding:1.5rem; }
+    .lm-modal h3 { margin:0 0 0.25rem 0; }
+    .lm-modal .close { float:right; background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--muted); }
+    .lm-modal .row { margin-bottom:0.75rem; }
+    .lm-modal .row .k { font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); font-weight:600; }
+    .lm-modal .row .v { font-weight:500; margin-top:0.15rem; }
+    .lm-modal textarea { width:100%; padding:0.6rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); font-family:inherit; font-size:0.85rem; resize:vertical; }
+</style>
+
+<div class="lm-wrap">
+    <div class="lm-head">
+        <div>
+            <h1 class="page-title">Leave Management</h1>
+            <p class="page-desc">Review and manage staff leave requests</p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button class="btn-secondary" onclick="openPolicyModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                Policy Settings
+            </button>
+            <button class="btn-secondary" onclick="openStaffSummary()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                Staff Usage
+            </button>
+        </div>
+    </div>
+
+    <div class="lm-stats">
+        <div class="lm-stat">
+            <div class="label">Total Requests</div>
+            <div class="val">{{ stats.total }}</div>
+        </div>
+        <div class="lm-stat pending">
+            <div class="label">Pending</div>
+            <div class="val">{{ stats.pending }}</div>
+        </div>
+        <div class="lm-stat approved">
+            <div class="label">Approved</div>
+            <div class="val">{{ stats.approved }}</div>
+        </div>
+        <div class="lm-stat rejected">
+            <div class="label">Rejected</div>
+            <div class="val">{{ stats.rejected }}</div>
+        </div>
+    </div>
+
+    <div class="lm-toolbar">
+        <input type="text" id="lmSearch" placeholder="Search staff, title, reason…" value="{{ search_query }}" style="flex:1; min-width:200px;">
+        <select id="lmStatus">
+            <option value="">All statuses</option>
+            {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <select id="lmType">
+            <option value="">All types</option>
+            {% for value, label in leave_type_choices %}
+                <option value="{{ value }}" {% if leave_type_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn-primary" onclick="applyFilters()">Filter</button>
+    </div>
+
+    <div id="lmList" class="lm-grid"></div>
+    <div id="lmEmpty" class="lm-empty" style="display:none;">No leave requests match your filters.</div>
+</div>
+
+<!-- Detail modal -->
+<div class="lm-modal-backdrop" id="lmDetailBackdrop">
+    <div class="lm-modal">
+        <button class="close" onclick="closeDetail()">×</button>
+        <h3 id="lmDetailTitle">Leave Request</h3>
+        <div id="lmDetailBody"></div>
+    </div>
+</div>
+
+<!-- Policy modal -->
+<div class="lm-modal-backdrop" id="lmPolicyBackdrop">
+    <div class="lm-modal">
+        <button class="close" onclick="closePolicy()">×</button>
+        <h3>Leave Policy</h3>
+        <p class="page-desc" style="margin-top:0.25rem;">Set tenant-wide limits that apply to every staff member.</p>
+        <div class="row" style="margin-top:1rem;">
+            <label for="polMonth">Max leave days per month</label>
+            <input type="number" id="polMonth" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
+        <div class="row">
+            <label for="polWeek">Max leave days per week</label>
+            <input type="number" id="polWeek" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
+        <div class="row">
+            <label for="polConsec">Max consecutive days</label>
+            <input type="number" id="polConsec" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+        </div>
+        <div class="row">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="polBack"> Allow backdated leaves
+            </label>
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+            <button class="btn-secondary" onclick="closePolicy()">Cancel</button>
+            <button class="btn-primary" onclick="savePolicy()">Save Policy</button>
+        </div>
+    </div>
+</div>
+
+<!-- Staff usage modal -->
+<div class="lm-modal-backdrop" id="lmStaffBackdrop">
+    <div class="lm-modal">
+        <button class="close" onclick="closeStaffSummary()">×</button>
+        <h3>Staff Leave Usage (This Month)</h3>
+        <div id="lmStaffBody" style="margin-top:1rem;"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const SCHEMA = "{{ tenant.schema_name|escapejs }}";
+    const LEAVES = {{ leaves_json|safe }};
+    const STAFF_SUMMARY = {{ staff_summary_json|safe }};
+    const POLICY = {{ policy_json|safe }};
+    const CSRF = "{{ csrf_token }}";
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    function initials(name) {
+        const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
+        return parts.map(p => p[0] ? p[0].toUpperCase() : '').join('') || '?';
+    }
+    function fmtDate(s) {
+        if (!s) return '';
+        const d = new Date(s + 'T00:00:00');
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    function statusClass(s) {
+        return 'lm-badge ' + (s || 'pending');
+    }
+
+    function renderLeaves() {
+        const list = document.getElementById('lmList');
+        const empty = document.getElementById('lmEmpty');
+        if (!LEAVES || !LEAVES.length) {
+            list.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+        list.innerHTML = LEAVES.map(function(lv) {
+            const initial = initials(lv.staff_name);
+            const avatar = lv.staff_photo_url
+                ? '<img src="' + esc(lv.staff_photo_url) + '" alt="">'
+                : esc(initial);
+            const approveBtn = lv.status === 'pending'
+                ? '<button class="lm-btn-approve" onclick="approveLeave(' + lv.id + ')">Approve</button>'
+                : '';
+            const rejectBtn = lv.status === 'pending'
+                ? '<button class="lm-btn-reject" onclick="rejectLeave(' + lv.id + ')">Reject</button>'
+                : '';
+            const profileUrl = '/portal/' + SCHEMA + '/staff/' + lv.staff_id + '/';
+            return ''
+                + '<div class="lm-card">'
+                +   '<div class="lm-card-head">'
+                +     '<div class="lm-staff">'
+                +       '<div class="lm-avatar">' + avatar + '</div>'
+                +       '<div>'
+                +         '<div class="lm-staff-name">' + esc(lv.staff_name) + '</div>'
+                +         '<div class="lm-staff-meta">' + esc(lv.staff_job_title || '') + (lv.subjects ? ' • ' + esc(lv.subjects) : '') + '</div>'
+                +       '</div>'
+                +     '</div>'
+                +     '<span class="' + statusClass(lv.status) + '">' + esc(lv.status_display) + '</span>'
+                +   '</div>'
+                +   '<div class="lm-title">' + esc(lv.title) + '</div>'
+                +   '<div class="lm-dates">'
+                +     fmtDate(lv.start_date) + ' → ' + fmtDate(lv.end_date)
+                +     ' • ' + lv.total_days + ' day' + (lv.total_days > 1 ? 's' : '')
+                +     ' • ' + esc(lv.leave_type_display)
+                +   '</div>'
+                +   '<div class="lm-actions">'
+                +     '<button class="lm-btn-view" onclick="viewLeave(' + lv.id + ')">View</button>'
+                +     '<a class="lm-btn-view" href="' + profileUrl + '" target="_blank">Profile</a>'
+                +     approveBtn
+                +     rejectBtn
+                +   '</div>'
+                + '</div>';
+        }).join('');
+    }
+
+    // ----- detail -----
+    function _findLeave(id) {
+        return LEAVES.find(l => l.id === id);
+    }
+    window.viewLeave = function(id) {
+        const lv = _findLeave(id);
+        if (!lv) return;
+        document.getElementById('lmDetailTitle').textContent = lv.title;
+        document.getElementById('lmDetailBody').innerHTML = ''
+            + '<div class="row"><div class="k">Staff</div><div class="v">' + esc(lv.staff_name) + ' — ' + esc(lv.staff_job_title) + '</div></div>'
+            + '<div class="row"><div class="k">Subjects</div><div class="v">' + esc(lv.subjects || '—') + '</div></div>'
+            + '<div class="row"><div class="k">Leave Type</div><div class="v">' + esc(lv.leave_type_display) + '</div></div>'
+            + '<div class="row"><div class="k">Duration</div><div class="v">' + fmtDate(lv.start_date) + ' → ' + fmtDate(lv.end_date) + ' (' + lv.total_days + ' days)</div></div>'
+            + '<div class="row"><div class="k">Status</div><div class="v"><span class="' + statusClass(lv.status) + '">' + esc(lv.status_display) + '</span></div></div>'
+            + '<div class="row"><div class="k">Reason</div><div class="v" style="white-space:pre-wrap;">' + esc(lv.reason) + '</div></div>'
+            + (lv.admin_remarks ? '<div class="row"><div class="k">Admin Remarks</div><div class="v" style="white-space:pre-wrap;">' + esc(lv.admin_remarks) + '</div></div>' : '')
+            + (lv.reviewed_by ? '<div class="row"><div class="k">Reviewed By</div><div class="v">' + esc(lv.reviewed_by) + '</div></div>' : '')
+            + '<div class="row"><div class="k">Submitted</div><div class="v">' + esc(new Date(lv.created_at).toLocaleString()) + '</div></div>';
+        document.getElementById('lmDetailBackdrop').classList.add('show');
+    };
+    window.closeDetail = function() {
+        document.getElementById('lmDetailBackdrop').classList.remove('show');
+    };
+
+    // ----- approve / reject -----
+    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF
+            },
+            body: JSON.stringify(body || {})
+        }).then(r => r.json().then(d => ({ ok: r.ok, data: d })));
+    }
+    window.approveLeave = function(id) {
+        const remarks = prompt('Optional remarks for approval:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks }).then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to approve.');
+                return;
+            }
+            location.reload();
+        });
+    };
+    window.rejectLeave = function(id) {
+        const remarks = prompt('Reason for rejection:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks }).then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to reject.');
+                return;
+            }
+            location.reload();
+        });
+    };
+
+    // ----- policy -----
+    window.openPolicyModal = function() {
+        document.getElementById('polMonth').value = POLICY.max_leaves_per_month;
+        document.getElementById('polWeek').value = POLICY.max_leaves_per_week;
+        document.getElementById('polConsec').value = POLICY.max_consecutive_days;
+        document.getElementById('polBack').checked = !!POLICY.allow_backdated;
+        document.getElementById('lmPolicyBackdrop').classList.add('show');
+    };
+    window.closePolicy = function() {
+        document.getElementById('lmPolicyBackdrop').classList.remove('show');
+    };
+    window.savePolicy = function() {
+        const body = {
+            max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
+            max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
+            max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
+            allow_backdated: document.getElementById('polBack').checked
+        };
+        postJson('/portal/' + SCHEMA + '/leave/policy/save/', body).then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to save policy.');
+                return;
+            }
+            closePolicy();
+            location.reload();
+        });
+    };
+
+    // ----- staff summary -----
+    window.openStaffSummary = function() {
+        const rows = (STAFF_SUMMARY || []).map(function(s) {
+            return '<tr>'
+                + '<td style="padding:0.5rem 0.4rem;">' + esc(s.name) + '</td>'
+                + '<td style="padding:0.5rem 0.4rem;">' + esc(s.job_title) + '</td>'
+                + '<td style="padding:0.5rem 0.4rem; text-align:right;">' + s.month_used + '</td>'
+                + '<td style="padding:0.5rem 0.4rem; text-align:right;">' + s.month_remaining + '</td>'
+                + '<td style="padding:0.5rem 0.4rem; text-align:right;">' + s.pending_requests + '</td>'
+                + '</tr>';
+        }).join('');
+        document.getElementById('lmStaffBody').innerHTML = ''
+            + '<div style="overflow-x:auto;">'
+            + '<table class="data-table" style="width:100%; font-size:0.85rem;">'
+            + '<thead><tr>'
+            + '<th style="text-align:left;">Staff</th>'
+            + '<th style="text-align:left;">Title</th>'
+            + '<th style="text-align:right;">Used</th>'
+            + '<th style="text-align:right;">Remaining</th>'
+            + '<th style="text-align:right;">Pending</th>'
+            + '</tr></thead><tbody>' + (rows || '<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:1rem;">No active staff.</td></tr>') + '</tbody></table></div>';
+        document.getElementById('lmStaffBackdrop').classList.add('show');
+    };
+    window.closeStaffSummary = function() {
+        document.getElementById('lmStaffBackdrop').classList.remove('show');
+    };
+
+    // ----- filters -----
+    window.applyFilters = function() {
+        const q = document.getElementById('lmSearch').value.trim();
+        const st = document.getElementById('lmStatus').value;
+        const ty = document.getElementById('lmType').value;
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (st) params.set('status', st);
+        if (ty) params.set('leave_type', ty);
+        window.location.search = params.toString();
+    };
+    document.getElementById('lmSearch').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') applyFilters();
+    });
+
+    // backdrop click close
+    ['lmDetailBackdrop', 'lmPolicyBackdrop', 'lmStaffBackdrop'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', function(e) {
+            if (e.target === el) el.classList.remove('show');
+        });
+    });
+
+    renderLeaves();
+})();
+</script>
+{% endblock %}

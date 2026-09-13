@@ -39,6 +39,10 @@ from .views.students import students_by_teacher
 from .pwa_views import manifest, service_worker
 from .views import voucher_status_api, generate_voucher_api, voucher_html_api, global_search_api
 from .views import fee_logs, mobile_fee_logs, global_search_api
+from .views.leave_management import (
+    leave_management, leave_detail_api, leave_approve, leave_reject,
+    leave_policy_save, leave_staff_summary_api,
+)
 
 
 
@@ -342,4 +346,12 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/timetable/labels/update/', portal_wrapper(login_required_for_schema(api_update_label)), name='api_timetable_labels_update'),
     path('portal/<slug:schema_name>/api/timetable/labels/delete/', portal_wrapper(login_required_for_schema(api_delete_label)), name='api_timetable_labels_delete'),
     # TIMETABLE_FK_REFACTOR_V1: audit/repair endpoints removed.
+
+    # ===== LEAVE MANAGEMENT =====
+    path('portal/<slug:schema_name>/leave/', portal_wrapper(login_required_for_schema(leave_management)), name='leave_management'),
+    path('portal/<slug:schema_name>/leave/<int:leave_id>/detail/', portal_wrapper(login_required_for_schema(leave_detail_api)), name='leave_detail_api'),
+    path('portal/<slug:schema_name>/leave/<int:leave_id>/approve/', portal_wrapper(login_required_for_schema(leave_approve)), name='leave_approve'),
+    path('portal/<slug:schema_name>/leave/<int:leave_id>/reject/', portal_wrapper(login_required_for_schema(leave_reject)), name='leave_reject'),
+    path('portal/<slug:schema_name>/leave/policy/save/', portal_wrapper(login_required_for_schema(leave_policy_save)), name='leave_policy_save'),
+    path('portal/<slug:schema_name>/leave/staff/<int:staff_id>/summary/', portal_wrapper(login_required_for_schema(leave_staff_summary_api)), name='leave_staff_summary_api'),
 ]

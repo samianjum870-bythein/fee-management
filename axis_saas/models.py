@@ -28,6 +28,7 @@ SCHOOL_FEATURE_CHOICES = [
     ('family_payment', 'Family Payment'),
     ('staff_management', 'Staff Management'),
     ('timetable_management', 'Time‑Table Management'),
+    ('leave_management', 'Leave Management'),
 ]
 
 STAFF_PORTAL_FEATURE_CHOICES = [
@@ -37,6 +38,7 @@ STAFF_PORTAL_FEATURE_CHOICES = [
     ('staff_profile', 'Profile & Password'),
     ('staff_notifications', 'Notifications'),
     ('staff_more', 'More'),
+    ('staff_leave_management', 'Leave Management'),
 ]
 
 FEATURE_CATEGORY_CHOICES = [
@@ -623,6 +625,88 @@ class Staff(models.Model):
 
     def __str__(self):
         return f"{self.full_name} ({self.staff_id})"
+
+
+# ========== LEAVE MANAGEMENT (LEAVE_MANAGEMENT_V1) ==========
+
+class LeavePolicy(models.Model):
+    """Tenant-wide leave settings. One row per tenant (pk=1)."""
+    max_leaves_per_month = models.PositiveIntegerField(
+        default=4,
+        help_text="Maximum leave days a staff member can take in a calendar month.",
+    )
+    max_leaves_per_week = models.PositiveIntegerField(
+        default=1,
+        help_text="Maximum leave days a staff member can take in a single week.",
+    )
+    max_consecutive_days = models.PositiveIntegerField(
+        default=7,
+        help_text="Maximum days a single leave request may span.",
+    )
+    allow_backdated = models.BooleanField(
+        default=False,
+        help_text="Allow staff to apply for leaves starting in the past.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Leave Policy'
+        verbose_name_plural = 'Leave Policies'
+
+    def __str__(self):
+        return "Leave Policy"
+
+
+class LeaveRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
+    ]
+    LEAVE_TYPE_CHOICES = [
+        ('casual', 'Casual Leave'),
+        ('sick', 'Sick Leave'),
+        ('annual', 'Annual Leave'),
+        ('emergency', 'Emergency Leave'),
+        ('other', 'Other'),
+    ]
+
+    staff = models.ForeignKey(
+        'Staff',
+        on_delete=models.CASCADE,
+        related_name='leave_requests',
+    )
+    leave_type = models.CharField(
+        max_length=20,
+        choices=LEAVE_TYPE_CHOICES,
+        default='casual',
+    )
+    title = models.CharField(max_length=200)
+    reason = models.TextField()
+    start_date = models.DateField()
+    end_date = models.DateField()
+    total_days = models.PositiveIntegerField(default=1)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+    )
+    reviewed_by = models.CharField(max_length=150, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    admin_remarks = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['staff', 'status']),
+            models.Index(fields=['status', 'start_date']),
+        ]
+
+    def __str__(self):
+        return f"{self.staff.full_name if self.staff else '?'} - {self.start_date} to {self.end_date} ({self.status})"
 
 
 class StudentAttendance(models.Model):

@@ -1,0 +1,285 @@
+{% extends 'mobile/staff/base.html' %}
+{% block title %}Leave Management{% endblock %}
+{% block body %}
+<style>
+    .lm-tabs { display:flex; gap:0.25rem; background:var(--surface-alt); border-radius:14px; padding:0.25rem; margin-bottom:1rem; border:1px solid var(--border); }
+    .lm-tab { flex:1; text-align:center; padding:0.6rem 0.5rem; border-radius:11px; font-weight:700; font-size:0.85rem; cursor:pointer; color:var(--muted); transition:var(--transition); }
+    .lm-tab.active { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; box-shadow:0 10px 18px rgba(79,70,229,0.22); }
+    .lm-panel { display:none; }
+    .lm-panel.active { display:block; }
+    .lm-quota { display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-bottom:1rem; }
+    .lm-quota .qbox { background:var(--surface-alt); border:1px solid var(--border); border-radius:14px; padding:0.65rem 0.75rem; }
+    .lm-quota .qlabel { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); font-weight:700; }
+    .lm-quota .qval { font-weight:800; font-size:1.15rem; margin-top:0.15rem; }
+    .lm-field { margin-bottom:0.75rem; }
+    .lm-field label { display:block; font-size:0.78rem; font-weight:600; color:var(--muted); margin-bottom:0.3rem; }
+    .lm-field input, .lm-field select, .lm-field textarea { width:100%; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid var(--border); background:#fff; color:var(--text); font-family:inherit; font-size:0.9rem; }
+    .lm-field textarea { resize:vertical; min-height:80px; }
+    .lm-field input:focus, .lm-field select:focus, .lm-field textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(109,94,245,0.15); }
+    .lm-row2 { display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; }
+    .lm-error { background:#fef2f2; border-left:4px solid #ef4444; color:#991b1b; padding:0.6rem 0.75rem; border-radius:0.6rem; font-size:0.82rem; margin-bottom:0.75rem; white-space:pre-wrap; }
+    .lm-success { background:#ecfdf5; border-left:4px solid #10b981; color:#065f46; padding:0.6rem 0.75rem; border-radius:0.6rem; font-size:0.82rem; margin-bottom:0.75rem; }
+    .lm-item { border:1px solid var(--border); border-radius:14px; padding:0.85rem 0.9rem; margin-bottom:0.6rem; background:#fff; box-shadow:0 6px 14px rgba(15,23,42,0.04); }
+    .lm-item-top { display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.3rem; }
+    .lm-item-title { font-weight:700; font-size:0.92rem; }
+    .lm-chip { display:inline-block; padding:0.15rem 0.55rem; border-radius:1rem; font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; }
+    .lm-chip.pending { background:#fef3c7; color:#92400e; }
+    .lm-chip.approved { background:#d1fae5; color:#065f46; }
+    .lm-chip.rejected { background:#fee2e2; color:#991b1b; }
+    .lm-chip.cancelled { background:#e5e7eb; color:#374151; }
+    .lm-meta { font-size:0.78rem; color:var(--muted); margin-top:0.15rem; }
+    .lm-reason { font-size:0.82rem; margin-top:0.5rem; color:var(--text); white-space:pre-wrap; }
+    .lm-remarks { font-size:0.78rem; color:#92400e; background:#fffbeb; border-left:3px solid #f59e0b; padding:0.4rem 0.6rem; border-radius:0.4rem; margin-top:0.5rem; }
+    .lm-empty-hint { text-align:center; color:var(--muted); padding:2rem 0.5rem; font-size:0.85rem; }
+    .lm-cancel-btn { background:#fee2e2; color:#991b1b; border:none; padding:0.35rem 0.7rem; border-radius:0.6rem; font-size:0.72rem; font-weight:700; cursor:pointer; margin-top:0.5rem; }
+    .lm-apply-btn { width:100%; padding:0.85rem; border-radius:14px; border:none; background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; font-weight:800; font-size:0.95rem; cursor:pointer; box-shadow:0 12px 18px rgba(79,70,229,0.18); }
+    .lm-apply-btn:disabled { opacity:0.6; cursor:not-allowed; }
+</style>
+
+<div class="hero">
+    <h2>Leave Management</h2>
+    <div class="sub">Apply for leave and review your history</div>
+</div>
+
+<div class="lm-quota">
+    <div class="qbox">
+        <div class="qlabel">Remaining This Month</div>
+        <div class="qval">{{ remaining_month }} / {{ policy.max_leaves_per_month }}</div>
+    </div>
+    <div class="qbox">
+        <div class="qlabel">Remaining This Week</div>
+        <div class="qval">{{ remaining_week }} / {{ policy.max_leaves_per_week }}</div>
+    </div>
+</div>
+
+<div class="lm-tabs">
+    <div class="lm-tab active" data-tab="apply">Apply for Leave</div>
+    <div class="lm-tab" data-tab="history">Leave History</div>
+</div>
+
+<!-- APPLY PANEL -->
+<div class="lm-panel active" id="panel-apply">
+    <div class="card">
+        <div id="applyAlert"></div>
+        <div class="lm-field">
+            <label for="lvTitle">Title / Subject</label>
+            <input type="text" id="lvTitle" maxlength="200" placeholder="e.g. Medical appointment">
+        </div>
+        <div class="lm-field">
+            <label for="lvType">Leave Type</label>
+            <select id="lvType">
+                {% for value, label in leave_type_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="lm-field">
+            <label for="lvReason">Reason</label>
+            <textarea id="lvReason" placeholder="Please describe why you need this leave…"></textarea>
+        </div>
+        <div class="lm-row2">
+            <div class="lm-field">
+                <label for="lvStart">Start Date</label>
+                <input type="date" id="lvStart" min="{{ today }}">
+            </div>
+            <div class="lm-field">
+                <label for="lvEnd">End Date</label>
+                <input type="date" id="lvEnd" min="{{ today }}">
+            </div>
+        </div>
+        <p style="font-size:0.75rem; color:var(--muted); margin-bottom:0.75rem;">
+            Max consecutive days allowed: <strong>{{ policy.max_consecutive_days }}</strong> •
+            Max per month: <strong>{{ policy.max_leaves_per_month }}</strong> •
+            Max per week: <strong>{{ policy.max_leaves_per_week }}</strong>
+        </p>
+        <button class="lm-apply-btn" id="lvSubmit">Submit Application</button>
+    </div>
+</div>
+
+<!-- HISTORY PANEL -->
+<div class="lm-panel" id="panel-history">
+    <div class="card">
+        <div id="historyList"><div class="lm-empty-hint">Loading…</div></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const SCHEMA = "{{ staff_schema_name|default:'' }}";
+    const CSRF = "{{ csrf_token }}";
+    // Note: staff portal doesn't have tenant in context; derive from path
+    // The actual API endpoints use absolute paths from /portal/staff/...
+    const API_HISTORY = '/portal/staff/leave/history/';
+    const API_APPLY = '/portal/staff/leave/apply/';
+    const API_CANCEL = '/portal/staff/leave/cancel/';
+    const API_POLICY = '/portal/staff/leave/policy/';
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    function fmtDate(s) {
+        if (!s) return '';
+        const d = new Date(s + 'T00:00:00');
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    function getCsrf() {
+        return CSRF || (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    }
+
+    // ----- tabs -----
+    document.querySelectorAll('.lm-tab').forEach(function(t) {
+        t.addEventListener('click', function() {
+            document.querySelectorAll('.lm-tab').forEach(x => x.classList.remove('active'));
+            document.querySelectorAll('.lm-panel').forEach(x => x.classList.remove('active'));
+            t.classList.add('active');
+            document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+            if (t.dataset.tab === 'history') loadHistory();
+        });
+    });
+
+    // ----- date default -----
+    const startEl = document.getElementById('lvStart');
+    const endEl = document.getElementById('lvEnd');
+    const today = "{{ today|escapejs }}";
+    startEl.value = today;
+    endEl.value = today;
+    startEl.addEventListener('change', function() {
+        if (endEl.value < startEl.value) endEl.value = startEl.value;
+        endEl.min = startEl.value;
+    });
+
+    // ----- submit -----
+    document.getElementById('lvSubmit').addEventListener('click', function() {
+        const alertBox = document.getElementById('applyAlert');
+        alertBox.innerHTML = '';
+        const title = document.getElementById('lvTitle').value.trim();
+        const reason = document.getElementById('lvReason').value.trim();
+        const type = document.getElementById('lvType').value;
+        const start = startEl.value;
+        const end = endEl.value;
+        if (!title || !reason || !start || !end) {
+            alertBox.innerHTML = '<div class="lm-error">Please fill in all fields.</div>';
+            return;
+        }
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Submitting…';
+
+        fetch(API_APPLY, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrf()
+            },
+            body: JSON.stringify({
+                title: title, reason: reason, leave_type: type,
+                start_date: start, end_date: end
+            })
+        }).then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+        .then(function(res) {
+            btn.disabled = false;
+            btn.textContent = 'Submit Application';
+            if (!res.ok || !res.data.ok) {
+                const errs = (res.data.errors && res.data.errors.length)
+                    ? res.data.errors.join('\n')
+                    : (res.data.error || 'Failed to submit.');
+                alertBox.innerHTML = '<div class="lm-error">' + esc(errs) + '</div>';
+                return;
+            }
+            alertBox.innerHTML = '<div class="lm-success">Leave request submitted successfully.</div>';
+            document.getElementById('lvTitle').value = '';
+            document.getElementById('lvReason').value = '';
+            // refresh history + quota
+            loadHistory();
+            refreshQuota();
+        }).catch(function() {
+            btn.disabled = false;
+            btn.textContent = 'Submit Application';
+            alertBox.innerHTML = '<div class="lm-error">Network error. Please try again.</div>';
+        });
+    });
+
+    // ----- history -----
+    function loadHistory() {
+        const box = document.getElementById('historyList');
+        box.innerHTML = '<div class="lm-empty-hint">Loading…</div>';
+        fetch(API_HISTORY, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(function(res) {
+                if (!res.ok || !res.leaves || !res.leaves.length) {
+                    box.innerHTML = '<div class="lm-empty-hint">No leave requests yet.</div>';
+                    return;
+                }
+                box.innerHTML = res.leaves.map(function(lv) {
+                    const cancelBtn = (lv.status === 'pending' || lv.status === 'approved')
+                        ? '<button class="lm-cancel-btn" onclick="cancelLeave(' + lv.id + ')">Cancel</button>'
+                        : '';
+                    const remarks = lv.admin_remarks
+                        ? '<div class="lm-remarks"><strong>Admin:</strong> ' + esc(lv.admin_remarks) + '</div>'
+                        : '';
+                    return ''
+                        + '<div class="lm-item">'
+                        +   '<div class="lm-item-top">'
+                        +     '<div class="lm-item-title">' + esc(lv.title) + '</div>'
+                        +     '<span class="lm-chip ' + esc(lv.status) + '">' + esc(lv.status_display) + '</span>'
+                        +   '</div>'
+                        +   '<div class="lm-meta">'
+                        +     fmtDate(lv.start_date) + ' → ' + fmtDate(lv.end_date)
+                        +     ' • ' + lv.total_days + ' day' + (lv.total_days > 1 ? 's' : '')
+                        +     ' • ' + esc(lv.leave_type_display)
+                        +   '</div>'
+                        +   '<div class="lm-reason">' + esc(lv.reason) + '</div>'
+                        +   remarks
+                        +   cancelBtn
+                        + '</div>';
+                }).join('');
+            })
+            .catch(function() {
+                box.innerHTML = '<div class="lm-empty-hint">Could not load history.</div>';
+            });
+    }
+
+    window.cancelLeave = function(id) {
+        if (!confirm('Cancel this leave request?')) return;
+        fetch(API_CANCEL + id + '/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrf()
+            },
+            body: '{}'
+        }).then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+        .then(function(res) {
+            if (!res.ok || !res.data.ok) {
+                alert(res.data.error || 'Failed to cancel.');
+                return;
+            }
+            loadHistory();
+            refreshQuota();
+        });
+    };
+
+    // ----- quota -----
+    function refreshQuota() {
+        fetch(API_POLICY, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(function(res) {
+                if (!res.ok) return;
+                const qboxes = document.querySelectorAll('.lm-quota .qval');
+                if (qboxes.length >= 2) {
+                    qboxes[0].textContent = res.remaining_month + ' / ' + res.max_leaves_per_month;
+                    qboxes[1].textContent = res.remaining_week + ' / ' + res.max_leaves_per_week;
+                }
+            }).catch(function(){});
+    }
+
+    // Preload history so tab switch is instant
+    loadHistory();
+})();
+</script>
+{% endblock %}

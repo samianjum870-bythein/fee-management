@@ -20,6 +20,11 @@ from axis_saas.views.staff_portal import (
     staff_profile,
     staff_student_profile,
 )
+from axis_saas.views.staff_portal_leave_managemetn import (
+    staff_leave_management, staff_leave_apply_api,
+    staff_leave_history_api, staff_leave_policy_api,
+    staff_leave_cancel_api,
+)
 
 urlpatterns = [
     path('', staff_dashboard, name='staff_dashboard_root'),
@@ -42,4 +47,10 @@ urlpatterns = [
     path('api/profile/', staff_api_profile, name='staff_api_profile'),
     path('api/attendance/<int:class_id>/<str:attendance_date>/', staff_api_attendance, name='staff_api_attendance'),
     path('api/attendance/<int:class_id>/<str:attendance_date>/submit/', staff_api_attendance_submit, name='staff_api_attendance_submit'),
+    # ===== STAFF LEAVE MANAGEMENT =====
+    path('leave/', staff_leave_management, name='staff_leave_management'),
+    path('leave/apply/', staff_leave_apply_api, name='staff_leave_apply_api'),
+    path('leave/history/', staff_leave_history_api, name='staff_leave_history_api'),
+    path('leave/policy/', staff_leave_policy_api, name='staff_leave_policy_api'),
+    path('leave/cancel/<int:leave_id>/', staff_leave_cancel_api, name='staff_leave_cancel_api'),
 ]
