@@ -604,6 +604,17 @@
     }
     /* ============ END ASSIGN_TEACHERS_v1 grid CSS ============ */
 
+    /* ============ INLINE_TEACHER_CONFLICT_V1: conflict styling ============ */
+    .timetable-modal-content .assign-grid .teacher-hint.has-conflict {
+        color: #dc2626;
+        font-weight: 700;
+    }
+    .timetable-modal-content .assign-grid td.has-conflict {
+        background: #fef2f2;
+        box-shadow: inset 0 0 0 2px #fca5a5;
+    }
+    /* ============ END INLINE_TEACHER_CONFLICT_V1 ============ */
+
 </style>
 {% endblock %}
 
@@ -1502,16 +1513,54 @@
         container.innerHTML = html;
 
         var selectMap = {};
-        subjects.forEach(function (s) { selectMap[String(s.subject_id)] = s.teacher_name || ''; });
+        var teacherIdMap = {};
+        subjects.forEach(function (s) {
+            selectMap[String(s.subject_id)] = s.teacher_name || '';
+            teacherIdMap[String(s.subject_id)] = s.teacher_id || null;
+        });
 
-        container.querySelectorAll('.cell-subject').forEach(function (sel) {
-            sel.addEventListener('change', function () {
-                var hint = sel.parentNode.querySelector('.teacher-hint');
+        // ===== INLINE_TEACHER_CONFLICT_V1 =====
+        // Detect whether the chosen subject's teacher is already booked
+        // in ANOTHER class at the same (day, period). The API returns
+        // teacher_busy = { "teacher_id|day|period":
+        //                  { "class": <other class>, "teacher_name": <full> } }
+        // so we can show "⚠ <Full Name> busy in <Class>".
+        var _busyMap = (data && data.teacher_busy) || {};
+        container._teacherIdMap    = teacherIdMap;
+        container._subjectNameMap  = selectMap;
+        container._teacherBusyMap  = _busyMap;
+
+        function _refreshInlineConflict(sel) {
+            var hint = sel.parentNode.querySelector('.teacher-hint');
+            var cell = sel.parentNode;
+            var tid  = teacherIdMap[sel.value];
+            var day   = parseInt(sel.getAttribute('data-day'), 10);
+            var order = parseInt(sel.getAttribute('data-order'), 10);
+            var conflict = '';
+            if (tid && !isNaN(day) && !isNaN(order)) {
+                conflict = _busyMap[tid + '|' + day + '|' + order] || '';
+            }
+            if (conflict) {
+                var _tFull    = conflict.teacher_name || 'Teacher';
+                var _otherCls = conflict.class || 'another class';
+                hint.textContent = '\u26a0 ' + _tFull + ' busy in ' + _otherCls;
+                hint.className = 'teacher-hint has-conflict';
+                cell.classList.add('has-conflict');
+            } else {
+                cell.classList.remove('has-conflict');
                 var t = selectMap[sel.value] || '';
                 hint.textContent = t ? '(' + t + ')' : '';
                 hint.className = 'teacher-hint' + (t ? ' has-teacher' : '');
+            }
+        }
+
+        container.querySelectorAll('.cell-subject').forEach(function (sel) {
+            _refreshInlineConflict(sel);
+            sel.addEventListener('change', function () {
+                _refreshInlineConflict(sel);
             });
         });
+        // ===== END INLINE_TEACHER_CONFLICT_V1 =====
 
         var backBtn = container.querySelector('.inline-back-btn');
         if (backBtn) backBtn.addEventListener('click', function () {
@@ -1525,6 +1574,41 @@
     }
 
     function _saveInlineSubjectsGrid(container, saveBtn) {
+        // ===== INLINE_TEACHER_CONFLICT_V1 =====
+        // Refuse to POST when a chosen subject's teacher is already
+        // booked in another class at the same (day, period). The server
+        // still re-validates with HTTP 409, but this saves a round trip
+        // and lets the user see every conflict before submitting.
+        var _busyMap    = container._teacherBusyMap  || {};
+        var _teacherMap = container._teacherIdMap    || {};
+        var _nameMap    = container._subjectNameMap  || {};
+        var _DAY_NAMES  = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+        var _conflicts  = [];
+        container.querySelectorAll('.cell-subject').forEach(function (sel) {
+            var tid = _teacherMap[sel.value];
+            if (!tid) return;
+            var day   = parseInt(sel.getAttribute('data-day'), 10);
+            var order = parseInt(sel.getAttribute('data-order'), 10);
+            var other = _busyMap[tid + '|' + day + '|' + order];
+            if (other) {
+                var _tFull    = other.teacher_name || _nameMap[sel.value] || ('Teacher #' + tid);
+                var _otherCls = other.class || 'another class';
+                var _dayStr   = _DAY_NAMES[day] || ('Day ' + day);
+                _conflicts.push(
+                    _tFull + ' is already teaching ' + _otherCls +
+                    ' on ' + _dayStr + ' P' + order + '.'
+                );
+            }
+        });
+        if (_conflicts.length) {
+            alert(
+                'Teacher conflict detected \u2014 a teacher can only be in ' +
+                'one class at a time:\n\n' + _conflicts.join('\n')
+            );
+            return;
+        }
+        // ===== END INLINE_TEACHER_CONFLICT_V1 =====
+
         var assignments = [];
         container.querySelectorAll('.cell-subject').forEach(function (sel) {
             var day = parseInt(sel.getAttribute('data-day'), 10);
