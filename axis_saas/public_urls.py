@@ -18,6 +18,7 @@ from .views.timetable import (
     api_save_timetable, api_save_day_schedules, api_update_holiday,
     api_list_labels, api_add_label, api_update_label, api_delete_label,
     api_batch_update_label_times,
+    api_audit_labels, api_repair_labels,  # TIMETABLE_LABEL_AUDIT_V1
 )
 from .views.periods import periods_management, api_update_break, api_add_bunch, api_delete_bunch
 from .views.timetable_assignments import (
@@ -360,4 +361,7 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/timetable/labels/add/', portal_wrapper(login_required_for_schema(api_add_label)), name='api_timetable_labels_add'),
     path('portal/<slug:schema_name>/api/timetable/labels/update/', portal_wrapper(login_required_for_schema(api_update_label)), name='api_timetable_labels_update'),
     path('portal/<slug:schema_name>/api/timetable/labels/delete/', portal_wrapper(login_required_for_schema(api_delete_label)), name='api_timetable_labels_delete'),
+    # ===== TIMETABLE_LABEL_AUDIT_V1 =====
+    path('portal/<slug:schema_name>/api/timetable/labels/audit/', portal_wrapper(login_required_for_schema(api_audit_labels)), name='api_timetable_labels_audit'),
+    path('portal/<slug:schema_name>/api/timetable/labels/repair/', portal_wrapper(login_required_for_schema(api_repair_labels)), name='api_timetable_labels_repair'),
 ]

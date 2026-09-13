@@ -3,6 +3,7 @@ import string
 
 from django.utils import timezone
 from django.db import models
+from django.db.models.functions import Lower
 from django_tenants.models import TenantMixin, DomainMixin
 from decimal import Decimal
 from datetime import date, timedelta
@@ -876,9 +877,15 @@ class DaySchedule(models.Model):
         # Same label on OTHER days is allowed, and different labels may
         # share the same day.
         constraints = [
+            # TIMETABLE_SAVE_V2: case-insensitive uniqueness on
+            # (label, academic_calendar, day_of_week) so that the
+            # backend matches the client-side duplicate check that
+            # already treats "Senior" == "senior".
             models.UniqueConstraint(
-                fields=['academic_calendar', 'label', 'day_of_week'],
-                name='unique_label_per_day',
+                Lower('label'),
+                'academic_calendar',
+                'day_of_week',
+                name='unique_label_per_day_ci',
             ),
         ]
 

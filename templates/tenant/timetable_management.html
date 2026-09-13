@@ -295,6 +295,10 @@
         <div class="flex" style="justify-content:space-between; align-items:center;">
             <div class="flex">
                 <span style="font-weight:600;">Quick Fill:</span>
+                <label for="universalLabel">Label</label>
+                <select id="universalLabel" class="form-control" style="width:130px;">
+                    <option value="">(All Labels)</option>
+                </select>
                 <label>Start</label>
                 <input type="time" id="universalStart" value="08:00" class="form-control" style="width:100px;">
                 <label>End</label>
@@ -542,7 +546,7 @@
             </div>
             <div class="form-group">
                 <label for="modalDuration">Duration (min)</label>
-                <input type="number" id="modalDuration" class="form-control" value="45" min="1" required>
+                <input type="number" id="modalDuration" class="form-control" value="45" min="1" required readonly style="background: var(--surface-alt); cursor: not-allowed;">
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn-cancel" id="modalCancelBtn">Cancel</button>
@@ -735,6 +739,33 @@
 </div>
 
 
+<!-- ===== TIMETABLE_SAVE_V4 : Edit Label modal ===== -->
+<div id="editLabelModal" class="slot-modal-overlay" style="z-index: 100001;">
+    <div class="slot-modal-box" style="max-width: 500px;">
+        <h3>&#9998; Edit Schedule Label</h3>
+        <p class="text-muted" style="font-size:0.85rem; margin:0 0 1rem 0;">
+            Update the display name and/or description. Existing slots that use
+            this label keep their text unchanged until you re-save them.
+        </p>
+        <form id="editLabelForm" autocomplete="off" onsubmit="return false;">
+            <div class="form-group">
+                <label for="editLabelName">Label Name</label>
+                <input type="text" id="editLabelName" class="form-control" maxlength="50" required>
+            </div>
+            <div class="form-group">
+                <label for="editLabelDesc">Description (optional)</label>
+                <input type="text" id="editLabelDesc" class="form-control" maxlength="150">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="editLabelCancelBtn">Cancel</button>
+                <button type="button" class="btn-save" id="editLabelSaveBtn">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- ===== END TIMETABLE_SAVE_V4 editLabelModal ===== -->
+
+
 <!-- ===== EDIT_TIMING_v1 : Edit Timing modal ===== -->
 <div id="editTimingModal" class="slot-modal-overlay" style="align-items: flex-start; padding-top: 2rem;">
     <div class="slot-modal-box" style="max-width: 760px;">
@@ -788,7 +819,7 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Timetable] DOM loaded, initializing...');
+        if (window.TIMETABLE_DEBUG) console.log('[Timetable] DOM loaded, initializing...');
 
         // ====== CSRF TOKEN ======
         function getCsrfToken() {
@@ -852,6 +883,10 @@
         const confirmNoBtn = document.getElementById('confirmNoBtn');
 
         let editingRow = null;
+        // TIMETABLE_SAVE_V3: tracks whether the user explicitly deleted every
+        // row in this session. Used to gate the empty-payload guard on the
+        // server so a stale DOM can't wipe the whole calendar.
+        let userClearedTable = false;
 
         // ====== CUSTOM ALERT & CONFIRM FUNCTIONS ======
         function showAlert(message, title = 'Notice') {
@@ -908,8 +943,15 @@
         // which permanently jams the async Save handler.
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
-                document.querySelectorAll('.slot-modal-overlay.active').forEach(function (m) {
-                    m.classList.remove('active');
+                // TIMETABLE_SAVE_V2: close ONLY the modals that are safe to
+                // dismiss. Never touch .custom-modal-overlay — doing so would
+                // leave showAlert()/showConfirm() Promises unresolved and
+                // permanently jam the async save handler.
+                ['slotModal', 'editTimingModal', 'manageLabelsModal', 'editLabelModal'].forEach(function (id) {
+                    var m = document.getElementById(id);
+                    if (m && m.classList.contains('active')) {
+                        m.classList.remove('active');
+                    }
                 });
                 editingRow = null;
             }
@@ -922,7 +964,9 @@
             const end = new Date('1970-01-01T' + endStr + ':00');
             const diff = (end - start) / 60000;
             if (diff <= 0) return 45;
-            return Math.round(diff / periods);
+            // TIMETABLE_SAVE_V2: must match server-side max(1, total_min // periods)
+            const p = parseInt(periods, 10) || 1;
+            return Math.max(1, Math.floor(diff / p));
         }
 
         function updateModalDuration() {
@@ -940,6 +984,17 @@
 
         // ====== AUTO-SAVE (debounced for add/edit) ======
         let saveTimeout = null;
+        let isSaving = false;
+        let pendingSave = false;  // TIMETABLE_SAVE_V3
+        // TIMETABLE_SAVE_V2: warn the user if a debounced save is still pending
+        // when they try to navigate away.
+        window.addEventListener('beforeunload', function (e) {
+            if (saveTimeout !== null || isSaving || pendingSave) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+        });
         function autoSave() {
             if (saveTimeout) clearTimeout(saveTimeout);
             saveTimeout = setTimeout(() => {
@@ -949,6 +1004,11 @@
         }
 
         async function performSave() {
+            // TIMETABLE_SAVE_V3: if a save is already in flight, queue another
+            // one instead of dropping the user's latest change on the floor.
+            if (isSaving) { pendingSave = true; return; }
+            isSaving = true;
+            let _saveFailed = false;
             const rows = dayScheduleBody.querySelectorAll('tr[data-day]');
             const schedules = [];
             rows.forEach(row => {
@@ -973,7 +1033,7 @@
                     });
                 }
             });
-            console.log('[Timetable] POST payload ->', schedules);
+            if (window.TIMETABLE_DEBUG) console.log('[Timetable] POST payload ->', schedules);
 
             setStatus('Saving…', 'info');
             saveSpinner.style.display = 'inline';
@@ -982,32 +1042,54 @@
                 const res = await fetch(`/portal/${schema}/api/timetable/day-schedules/`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify({ schedules: schedules })
+                    body: JSON.stringify({
+                        schedules: schedules,
+                        // TIMETABLE_SAVE_V3: empty-payload guard. Server refuses
+                        // to wipe the calendar unless this flag is true, and we
+                        // only set it when the user actually deleted the last row.
+                        allow_empty: userClearedTable && schedules.length === 0
+                    })
                 });
                 const data = await res.json();
                 if (!res.ok) {
                     const errorMsg = data.error || `HTTP ${res.status}`;
+                    _saveFailed = true;
                     setStatus('⚠️ ' + errorMsg, 'error');
                     await showAlert('Error: ' + errorMsg, 'Save Failed');
                     return;
                 }
                 if (data && data.success) {
-                    if (schedules.length > 0 && (data.created || 0) === 0) {
-                        console.error('[Timetable] Server accepted POST but created=0. Payload:', schedules, 'Response:', data);
-                        setStatus('⚠️ Server saved 0 rows (check console)', 'error');
-                        await showAlert('Server returned success but saved 0 rows. Open DevTools console for the payload.', 'Unexpected');
+                    const _c = data.created || 0;
+                    const _u = data.updated || 0;
+                    const _d = data.deleted || 0;
+                    if (_c === 0 && _u === 0 && _d === 0) {
+                        setStatus('Ready (no changes)', 'success');
                     } else {
-                        setStatus('All changes saved ✓ (' + (data.created || 0) + ' rows)', 'success');
+                        setStatus('Saved ✓ (' + _c + ' new, ' + _u + ' updated, ' + _d + ' removed)', 'success');
+                    }
+                    if (typeof rebuildUniversalLabelOptions === 'function') {
+                        rebuildUniversalLabelOptions();
                     }
                 } else {
                     throw new Error(data?.error || 'Unknown error');
                 }
             } catch (err) {
                 console.error('Save error:', err);
+                _saveFailed = true;
                 setStatus('⚠️ Save failed – see console', 'error');
                 await showAlert('An error occurred while saving. Please check the console.', 'Error');
             } finally {
                 saveSpinner.style.display = 'none';
+                isSaving = false;
+                // TIMETABLE_SAVE_V3: drain any save that was queued while we
+                // were in flight — but skip it if the previous attempt failed,
+                // to avoid spamming the user with duplicate error alerts.
+                if (pendingSave && !_saveFailed) {
+                    pendingSave = false;
+                    performSave();
+                } else {
+                    pendingSave = false;
+                }
             }
         }
 
@@ -1036,7 +1118,8 @@
                 modalPeriods.value = rowData.periods;
                 modalPeriods.disabled = false;
                 modalDuration.value = rowData.duration;
-                modalDuration.disabled = true;
+                // TIMETABLE_SAVE_V3: HTML readonly on modalDuration is enough;
+                // do not also toggle .disabled (two mechanisms for one job).
                 editingRow = rowData.rowElement;
             } else {
                 modalTitle.textContent = 'Add Slot';
@@ -1051,7 +1134,6 @@
                 modalPeriods.value = universalPeriods.value || 8;
                 modalPeriods.disabled = false;
                 updateModalDuration();
-                modalDuration.disabled = false;
                 editingRow = null;
             }
             slotModal.classList.add('active');
@@ -1071,7 +1153,7 @@
         modalSaveBtn.addEventListener('click', async function (e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('[Timetable] Save clicked. modalDay.value =', JSON.stringify(modalDay.value));
+            if (window.TIMETABLE_DEBUG) console.log('[Timetable] Save clicked. modalDay.value =', JSON.stringify(modalDay.value));
             const day = parseInt(modalDay.value);
             const label = modalLabel.value.trim();
             const start = modalStart.value;
@@ -1090,9 +1172,18 @@
                 if (modalLabel) modalLabel.focus();
                 return;
             }
-            console.log('[Timetable] Validation OK ->', { day: day, label: label, start: start, end: end, periods: periods, duration: duration, editing: !!editingRow });
+            if (window.TIMETABLE_DEBUG) console.log('[Timetable] Validation OK ->', { day: day, label: label, start: start, end: end, periods: periods, duration: duration, editing: !!editingRow });
             if (!start || !end || isNaN(periods) || isNaN(duration)) {
                 await showAlert('Please fill all fields correctly.', 'Invalid Data');
+                return;
+            }
+            // TIMETABLE_SAVE_V2: enforce start < end and periods >= 1 on the client
+            if (start >= end) {
+                await showAlert('Start time must be before End time.', 'Invalid Time');
+                return;
+            }
+            if (periods < 1) {
+                await showAlert('Periods must be at least 1.', 'Invalid Periods');
                 return;
             }
 
@@ -1118,7 +1209,9 @@
                 if (editingRow && existingRow === editingRow) return;
                 const existingDay = parseInt(existingRow.dataset.day, 10);
                 const existingLabel = ((existingRow.querySelectorAll('td')[1] || {}).textContent || '').trim();
-                if (existingDay === day && existingLabel.toLowerCase() === label.toLowerCase()) {
+                // TIMETABLE_SAVE_V3: mirror server-side .strip().lower() so
+                // trailing whitespace doesn't sneak past this guard.
+                if (existingDay === day && existingLabel.trim().toLowerCase() === label.trim().toLowerCase()) {
                     dupRow = existingRow;
                 }
             });
@@ -1166,6 +1259,9 @@
                     if (emptyTr) emptyTr.remove(); else emptyRow.remove();
                 }
                 attachRowEvents(tr);
+                // TIMETABLE_SAVE_V3: adding a row means the table is no longer
+                // empty, so allow_empty must be off for the next save.
+                userClearedTable = false;
             }
 
             } catch (err) {
@@ -1217,6 +1313,8 @@
                     row.remove();
                     if (dayScheduleBody.querySelectorAll('tr[data-day]').length === 0) {
                         dayScheduleBody.innerHTML = '<tr><td colspan="7" class="empty-row">No slots added yet. Click "Add Slot" to create one.</td></tr>';
+                        // TIMETABLE_SAVE_V3: user explicitly deleted the last row.
+                        userClearedTable = true;
                     }
                     await performSave();
                 }
@@ -1234,31 +1332,76 @@
         });
 
         // ====== APPLY UNIVERSAL ======
+        // TIMETABLE_SAVE_V2: rebuild the Quick Fill label dropdown from the live DOM.
+        function rebuildUniversalLabelOptions() {
+            const sel = document.getElementById('universalLabel');
+            if (!sel) return;
+            const current = sel.value;
+            const labels = new Set();
+            dayScheduleBody.querySelectorAll('tr[data-day]').forEach(function (row) {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                    const lbl = (cells[1].textContent || '').trim();
+                    if (lbl) labels.add(lbl);
+                }
+            });
+            sel.innerHTML = '<option value="">(All Labels)</option>';
+            Array.from(labels).sort().forEach(function (lbl) {
+                const opt = document.createElement('option');
+                opt.value = lbl;
+                opt.textContent = lbl;
+                sel.appendChild(opt);
+            });
+            if (current && labels.has(current)) sel.value = current;
+        }
+
         applyUniversalBtn.addEventListener('click', async function() {
+            const targetLabelEl = document.getElementById('universalLabel');
+            const targetLabel = targetLabelEl ? targetLabelEl.value : '';
+
             // ---------- apply-universal-warning ----------
             if (typeof HAS_PERIOD_TIMETABLES !== 'undefined' && HAS_PERIOD_TIMETABLES) {
+                const scopeText = targetLabel
+                    ? ('label "' + targetLabel + '"')
+                    : 'ALL labels';
                 const ok = await showConfirm(
-                    'Warning: Applying these universal values may affect existing Periods Timetables.\n\n' +
+                    'Warning: Applying these universal values to ' + scopeText +
+                    ' may affect existing Periods Timetables.\n\n' +
                     'Do you want to continue?',
                     'Academic Calendar Warning'
                 );
                 if (!ok) return;
             }
             // ---------- end apply-universal-warning ----------
+
             const start = universalStart.value;
             const end = universalEnd.value;
             const periods = universalPeriods.value;
+
+            if (start >= end) {
+                await showAlert('Start time must be before End time.', 'Invalid Time');
+                return;
+            }
+            if (parseInt(periods, 10) < 1) {
+                await showAlert('Periods must be at least 1.', 'Invalid Periods');
+                return;
+            }
+
             const rows = dayScheduleBody.querySelectorAll('tr[data-day]');
             rows.forEach(row => {
                 const cells = row.querySelectorAll('td');
+                if (targetLabel) {
+                    const rowLabel = (cells[1].textContent || '').trim();
+                    if (rowLabel !== targetLabel) return;
+                }
                 const duration = calculateDuration(start, end, periods);
                 cells[2].textContent = start;
                 cells[3].textContent = end;
                 cells[4].textContent = periods;
                 cells[5].textContent = duration;
             });
+            setStatus('Queued for save…', 'info');
             autoSave();
-            setStatus('Universal values applied and saved.', 'success');
         });
 
         // ====== INITIAL LOAD ======
@@ -1270,7 +1413,10 @@
             universalPeriods.value = parseInt(cells[4]?.textContent) || 8;
         }
         setStatus('Ready', 'info');
-        console.log('[Timetable] Initialization complete.');
+        if (typeof rebuildUniversalLabelOptions === 'function') {
+            rebuildUniversalLabelOptions();
+        }
+        if (window.TIMETABLE_DEBUG) console.log('[Timetable] Initialization complete.');
 
         // ====== HOLIDAY MANAGEMENT ======
         async function addHoliday(type, data) {
@@ -1611,27 +1757,130 @@
             }
         }
 
-        async function editLabel(lbl) {
-            const newName = prompt(`Edit label name (current: ${lbl.name}):`, lbl.name);
-            if (newName === null) return;
-            const trimmed = newName.trim();
-            if (!trimmed) { await showAlert('Label name cannot be empty.', 'Invalid'); return; }
-            const newDesc = prompt('Edit description (optional):', lbl.description || '');
-            if (newDesc === null) return;
-            try {
-                const res = await fetch(`/portal/${schema}/api/timetable/labels/update/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify({ id: lbl.id, name: trimmed, description: newDesc }),
-                });
-                const data = await res.json();
-                if (!res.ok) { await showAlert(data.error || 'Update failed', 'Error'); return; }
-                await refreshLabelsFromServer();
-            } catch (e) {
-                console.error(e);
-                await showAlert('Network error', 'Error');
-            }
+        // TIMETABLE_SAVE_V4: modal-based label editor.
+        // The previous prompt() version silently failed on browsers that
+        // refuse to open modal dialogs (returns undefined instead of a
+        // string, then .trim() threw inside a naked async function).
+        let editingLabelId = null;
+        // TIMETABLE_LABEL_RENAME_V1: keep the label's ORIGINAL name so we
+        // can mirror the server-side cascade in the DOM after a rename.
+        let editingLabelOriginalName = '';
+        const editLabelModal = document.getElementById('editLabelModal');
+        const editLabelName  = document.getElementById('editLabelName');
+        const editLabelDesc  = document.getElementById('editLabelDesc');
+        const editLabelSaveBtn   = document.getElementById('editLabelSaveBtn');
+        const editLabelCancelBtn = document.getElementById('editLabelCancelBtn');
+
+        function openEditLabelModal(lbl) {
+            editingLabelId = lbl.id;
+            editingLabelOriginalName = lbl.name || '';
+            editLabelName.value = lbl.name || '';
+            editLabelDesc.value = lbl.description || '';
+            editLabelModal.classList.add('active');
+            // Focus after the CSS transition starts so the field is visible.
+            setTimeout(function () {
+                try { editLabelName.focus(); editLabelName.select(); } catch (e) {}
+            }, 50);
         }
+
+        function closeEditLabelModal() {
+            editLabelModal.classList.remove('active');
+            editingLabelId = null;
+        }
+
+        function editLabel(lbl) {
+            openEditLabelModal(lbl);
+        }
+
+        // TIMETABLE_LABEL_RENAME_V1: the API cascaded the rename to every
+        // DaySchedule row that referenced the old label text. Mirror that
+        // in the rendered table so the user doesn't have to hard-refresh.
+        function applyLabelRenameToDOM(oldName, newName) {
+            if (!oldName || oldName === newName) return;
+            const oldLower = oldName.toLowerCase();
+            let touched = 0;
+            dayScheduleBody.querySelectorAll('tr[data-day]').forEach(function (row) {
+                const cells = row.querySelectorAll('td');
+                if (cells.length < 2) return;
+                const current = (cells[1].textContent || '').trim();
+                if (current.toLowerCase() === oldLower) {
+                    cells[1].textContent = newName;
+                    touched += 1;
+                }
+            });
+            if (touched && typeof rebuildUniversalLabelOptions === 'function') {
+                rebuildUniversalLabelOptions();
+            }
+            return touched;
+        }
+
+        if (editLabelCancelBtn) {
+            editLabelCancelBtn.addEventListener('click', closeEditLabelModal);
+        }
+        if (editLabelModal) {
+            editLabelModal.addEventListener('click', function (e) {
+                if (e.target === editLabelModal) closeEditLabelModal();
+            });
+        }
+        if (editLabelSaveBtn) {
+            editLabelSaveBtn.addEventListener('click', async function () {
+                const newName = (editLabelName.value || '').trim();
+                const newDesc = (editLabelDesc.value || '').trim();
+                if (!editingLabelId) return;
+                if (!newName) {
+                    await showAlert('Label name cannot be empty.', 'Invalid');
+                    editLabelName.focus();
+                    return;
+                }
+                if (newName.length > 50) {
+                    await showAlert('Label name too long (max 50 chars).', 'Invalid');
+                    return;
+                }
+                editLabelSaveBtn.disabled = true;
+                const _orig = editLabelSaveBtn.textContent;
+                editLabelSaveBtn.textContent = 'Saving\u2026';
+                try {
+                    const res = await fetch(`/portal/${schema}/api/timetable/labels/update/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        body: JSON.stringify({ id: editingLabelId, name: newName, description: newDesc }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        await showAlert(data.error || 'Update failed', 'Error');
+                        editLabelSaveBtn.disabled = false;
+                        editLabelSaveBtn.textContent = _orig;
+                        return;
+                    }
+                    closeEditLabelModal();
+                    // TIMETABLE_LABEL_RENAME_V1: cascade the rename in
+                    // the DOM before refreshing the label list, so the
+                    // day-schedule table below reflects the new name
+                    // immediately without a page reload.
+                    if (editingLabelOriginalName && editingLabelOriginalName !== newName) {
+                        applyLabelRenameToDOM(editingLabelOriginalName, newName);
+                    }
+                    await refreshLabelsFromServer();
+                } catch (e) {
+                    console.error('[Timetable] editLabel failed', e);
+                    await showAlert('Network error: ' + (e && e.message ? e.message : e), 'Error');
+                } finally {
+                    editLabelSaveBtn.disabled = false;
+                    editLabelSaveBtn.textContent = _orig;
+                }
+            });
+        }
+        // Enter inside a field saves; handled here so the <form> default
+        // (page reload) never fires.
+        [editLabelName, editLabelDesc].forEach(function (el) {
+            if (!el) return;
+            el.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (editLabelSaveBtn) editLabelSaveBtn.click();
+                }
+            });
+        });
 
         async function deleteLabel(lbl) {
             const ok = await showConfirm(
@@ -1748,6 +1997,25 @@
             }
 
             function openEditTiming() {
+                // TIMETABLE_SAVE_V2: rebuild SLOTS_BY_LABEL from the live
+                // DOM, because autosave may have added / removed / edited
+                // rows since the page was rendered.
+                SLOTS_BY_LABEL = {};
+                dayScheduleBody.querySelectorAll('tr[data-day]').forEach(function (row) {
+                    var cells = row.querySelectorAll('td');
+                    if (cells.length < 6) return;
+                    var lbl = (cells[1].textContent || '').trim();
+                    if (!lbl) return;
+                    if (!SLOTS_BY_LABEL[lbl]) SLOTS_BY_LABEL[lbl] = [];
+                    SLOTS_BY_LABEL[lbl].push({
+                        day: parseInt(row.dataset.day, 10),
+                        day_label: (cells[0].textContent || '').trim(),
+                        start: (cells[2].textContent || '').trim(),
+                        end: (cells[3].textContent || '').trim(),
+                        periods: parseInt(cells[4].textContent, 10),
+                        duration: parseInt(cells[5].textContent, 10)
+                    });
+                });
                 populateLabelDropdown();
                 editTimingLabelSelect.value = '';
                 editTimingNewStart.value = '';

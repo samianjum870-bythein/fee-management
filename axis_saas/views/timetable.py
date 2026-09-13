@@ -181,7 +181,29 @@ def timetable_management(request, schema_name):
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
+@transaction.atomic  # TIMETABLE_SAVE_V3: all-or-nothing save
 def api_save_day_schedules(request, schema_name):
+    """Save day schedules using a diff (create / update / delete) strategy.
+
+    TIMETABLE_SAVE_V2
+    -----------------
+    The previous implementation wiped EVERY DaySchedule row for the tenant
+    and re-created them from scratch on every autosave. That was fragile:
+
+      * primary keys churned on every save
+      * concurrent edits clobbered each other
+      * a mid-save failure left the calendar empty
+      * break_after / break_duration were silently reset to defaults
+
+    We now diff by the natural key (label.lower(), day_of_week) which the
+    model already guarantees unique via the CI constraint, and only touch
+    rows that actually changed.
+
+    Duration is ALWAYS computed server-side as max(1, total_min // periods).
+    Any duration the client sends is ignored on purpose — this keeps the DB
+    internally consistent regardless of which UI path (Add Slot, Edit Slot,
+    Edit Timing, Quick Fill) triggered the save.
+    """
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -198,50 +220,105 @@ def api_save_day_schedules(request, schema_name):
         if created:
             logger.info(f"Created new AcademicCalendar for schema {schema_name}")
 
-        # ---- Duplicate check inside payload ----
+        # ---------- Validate the full payload BEFORE touching the DB ----------
         seen = {}
         for i, item in enumerate(schedules_data):
             lbl = (item.get('label') or '').strip()
-            dy  = item.get('day')
-            if lbl and dy is not None:
-                key = (int(dy), lbl.lower())
-                if key in seen:
-                    day_name = dict(TimetableEntry.DAY_CHOICES).get(dy, str(dy))
-                    return JsonResponse({
-                        'error': f"Ye label '{lbl}' {day_name} ke liye pehle hi set hai. "
-                                 f"Koi doosra label ya doosra din chunain."
-                    }, status=400)
-                seen[key] = i
-
-        deleted_all, _ = DaySchedule.objects.filter(academic_calendar=calendar).delete()
-        logger.info(f"Deleted {deleted_all} existing schedules for calendar {calendar.pk}")
-
-        total_created = 0
-        for idx, item in enumerate(schedules_data):
-            day = item.get('day')
+            dy = item.get('day')
             start = item.get('start')
             end = item.get('end')
-            periods = item.get('periods')
-            duration = item.get('duration')
-            label = item.get('label', '')
+            periods_raw = item.get('periods')
 
-            if day is None or start is None or end is None or periods is None or duration is None:
-                logger.warning(f"Skipping incomplete schedule at index {idx}")
-                continue
-
+            if not lbl:
+                return JsonResponse({'error': f"Row {i + 1}: Label is required."}, status=400)
+            if len(lbl) > 50:
+                return JsonResponse({'error': f"Row {i + 1}: Label is too long (max 50 chars)."}, status=400)
+            if dy is None or dy == '':
+                return JsonResponse({'error': f"Row {i + 1}: Day is required."}, status=400)
             try:
-                start_time = datetime.strptime(start, '%H:%M').time()
-                end_time = datetime.strptime(end, '%H:%M').time()
-                periods_int = int(periods)
-                duration_int = int(duration)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Invalid data at index {idx}: {e}")
-                continue
-
-            if not label:
-                return JsonResponse({"error": "Label is required"}, status=400)
-
+                dy_int = int(dy)
+            except (TypeError, ValueError):
+                return JsonResponse({'error': f"Row {i + 1}: Invalid day value."}, status=400)
+            if dy_int < 0 or dy_int > 6:
+                return JsonResponse({'error': f"Row {i + 1}: Day must be 0-6."}, status=400)
+            if not start or not end:
+                return JsonResponse({'error': f"Row {i + 1}: Start and End are required."}, status=400)
             try:
+                start_t = datetime.strptime(start, '%H:%M').time()
+                end_t = datetime.strptime(end, '%H:%M').time()
+            except (ValueError, TypeError):
+                return JsonResponse({'error': f"Row {i + 1}: Invalid time format (use HH:MM)."}, status=400)
+            if start_t >= end_t:
+                return JsonResponse({'error': f"Row {i + 1}: Start time must be before End time."}, status=400)
+            try:
+                periods_int = int(periods_raw)
+            except (TypeError, ValueError):
+                return JsonResponse({'error': f"Row {i + 1}: Invalid periods value."}, status=400)
+            if periods_int < 1:
+                return JsonResponse({'error': f"Row {i + 1}: Periods must be at least 1."}, status=400)
+
+            key = (dy_int, lbl.lower())
+            if key in seen:
+                day_name = dict(TimetableEntry.DAY_CHOICES).get(dy_int, str(dy_int))
+                return JsonResponse({
+                    'error': f"Ye label '{lbl}' {day_name} ke liye pehle hi set hai. "
+                             f"Koi doosra label ya doosra din chunain."
+                }, status=400)
+            seen[key] = i
+
+        # ---------- Diff-based apply ----------
+        existing_rows = list(DaySchedule.objects.filter(academic_calendar=calendar))
+
+        # TIMETABLE_SAVE_V3: refuse to silently wipe the whole calendar when
+        # the client sends an empty payload unless it explicitly says it just
+        # deleted every row. This guards against a stale / corrupted DOM.
+        allow_empty = bool(data.get('allow_empty', False))
+        if not schedules_data and existing_rows and not allow_empty:
+            return JsonResponse({
+                'error': (
+                    f"Empty schedules payload received, but {len(existing_rows)} "
+                    f"slot(s) already exist. Refusing to delete them. "
+                    f"Reload the page and try again."
+                )
+            }, status=400)
+
+        existing_map = {}
+        dup_ids = []
+        for ds in existing_rows:
+            key = (ds.day_of_week, (ds.label or '').strip().lower())
+            if key in existing_map:
+                # TIMETABLE_SAVE_V3: pre-migration legacy duplicate
+                # ("Senior" and "senior" on the same day). Keep the lower-id
+                # row, drop the rest so the CI constraint stays satisfied.
+                dup_ids.append(ds.id)
+            else:
+                existing_map[key] = ds
+        if dup_ids:
+            logger.warning(
+                "Found %d legacy case-variant DaySchedule duplicate(s) in "
+                "schema %s — deleting extras.", len(dup_ids), schema_name
+            )
+            DaySchedule.objects.filter(id__in=dup_ids).delete()
+
+        incoming_keys = set()
+        created_count = 0
+        updated_count = 0
+
+        for idx, item in enumerate(schedules_data):
+            day = int(item.get('day'))
+            label = (item.get('label') or '').strip()
+            start_time = datetime.strptime(item.get('start'), '%H:%M').time()
+            end_time = datetime.strptime(item.get('end'), '%H:%M').time()
+            periods_int = int(item.get('periods'))
+
+            total_min = (end_time.hour * 60 + end_time.minute) - (start_time.hour * 60 + start_time.minute)
+            duration_int = max(1, total_min // periods_int)
+
+            key = (day, label.lower())
+            incoming_keys.add(key)
+
+            ds = existing_map.get(key)
+            if ds is None:
                 DaySchedule.objects.create(
                     academic_calendar=calendar,
                     day_of_week=day,
@@ -250,23 +327,57 @@ def api_save_day_schedules(request, schema_name):
                     start_time=start_time,
                     end_time=end_time,
                     periods=periods_int,
-                    duration=duration_int
+                    duration=duration_int,
                 )
-                total_created += 1
-            except IntegrityError as e:
-                day_name = dict(TimetableEntry.DAY_CHOICES).get(day, str(day))
-                logger.warning(f"Duplicate schedule for {day_name} / {label}: {e}")
-                return JsonResponse({
-                    'error': f"Ye label '{label}' {day_name} ke liye pehle hi set hai. "
-                             f"Koi doosra label ya doosra din chunain."
-                }, status=400)
-            except Exception as e:
-                logger.exception(f"Error creating DaySchedule for day {day}, index {idx}: {e}")
-                return JsonResponse({'error': f'Failed to save day {day} slot {idx}: {str(e)}'}, status=500)
+                created_count += 1
+            else:
+                # TIMETABLE_SAVE_V3: also compare / update label so a case-only
+                # change ("Senior" -> "senior") is not silently ignored.
+                changed = (
+                    ds.label != label
+                    or ds.start_time != start_time
+                    or ds.end_time != end_time
+                    or ds.periods != periods_int
+                    or ds.duration != duration_int
+                    or ds.order != idx
+                )
+                if changed:
+                    ds.label = label
+                    ds.start_time = start_time
+                    ds.end_time = end_time
+                    ds.periods = periods_int
+                    ds.duration = duration_int
+                    ds.order = idx
+                    _update_fields = ['label', 'start_time', 'end_time',
+                                      'periods', 'duration', 'order']
+                    # TIMETABLE_SAVE_V4: if periods shrank below break_after,
+                    # the stored break no longer fits — reset it so the DB row
+                    # matches what _compute_periods actually produces.
+                    if ds.break_after is not None and ds.break_after >= periods_int:
+                        ds.break_after = None
+                        _update_fields.append('break_after')
+                    ds.save(update_fields=_update_fields)
+                    updated_count += 1
 
-        logger.info(f"Successfully created {total_created} day schedules for schema {schema_name}")
+        deleted_count = 0
+        for key, ds in existing_map.items():
+            if key not in incoming_keys:
+                ds.delete()
+                deleted_count += 1
 
-    return JsonResponse({'success': True, 'created': total_created, 'deleted': deleted_all})
+        logger.info(
+            f"Day schedules saved for schema {schema_name}: "
+            f"created={created_count}, updated={updated_count}, deleted={deleted_count}"
+        )
+
+    return JsonResponse({
+        'success': True,
+        'created': created_count,
+        'updated': updated_count,
+        'deleted': deleted_count,
+    })
+
+
 
 
 # ========== EDIT_TIMING_v1 : batch-update timing for a label ==========
@@ -274,6 +385,7 @@ def api_save_day_schedules(request, schema_name):
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
+@transaction.atomic  # TIMETABLE_SAVE_V4: all-or-nothing batch
 def api_batch_update_label_times(request, schema_name):
     """Batch-update start/end times for all DaySchedule rows of a label.
 
@@ -607,6 +719,7 @@ def api_add_label(request, schema_name):
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
+@transaction.atomic  # TIMETABLE_LABEL_AUDIT_V1: rename must be all-or-nothing
 def api_update_label(request, schema_name):
     try:
         data = json.loads(request.body)
@@ -628,11 +741,205 @@ def api_update_label(request, schema_name):
             return JsonResponse({'error': 'Label not found'}, status=404)
         if ScheduleLabel.objects.filter(name__iexact=name).exclude(id=lbl_id).exists():
             return JsonResponse({'error': f"Another label '{name}' already exists"}, status=400)
+
+        old_name = (lbl.name or '').strip()
+        old_key = old_name.lower()
+        new_key = name.strip().lower()
+
+        day_schedules_updated = 0
+        timetables_updated = 0
+
+        if old_key and old_key != new_key:
+            # TIMETABLE_LABEL_AUDIT_V1: ScheduleLabel.name is canonical but
+            # DaySchedule.label and PeriodsTimetable.label are denormalized
+            # copies of that text. If the rename doesn't cascade everywhere,
+            # the calendar table below, the Periods Timetable page, and every
+            # class detail page keep showing the stale string forever.
+            #
+            # Matching uses `.strip().lower()` on BOTH sides so legacy rows
+            # with trailing whitespace or mixed case are still caught. The
+            # CI unique constraint (unique_label_per_day_ci) guarantees at
+            # most one case variant per (calendar, day), so this cannot
+            # accidentally steal a differently-cased sibling row.
+
+            # ---- Find DaySchedule rows to rename -------------------------
+            ds_to_update = []
+            ds_days = set()
+            for ds in DaySchedule.objects.all():
+                if (ds.label or '').strip().lower() == old_key:
+                    ds_to_update.append(ds.id)
+                    ds_days.add(ds.day_of_week)
+
+            # ---- Collision guard -----------------------------------------
+            if ds_to_update:
+                collisions = list(
+                    DaySchedule.objects
+                    .filter(day_of_week__in=ds_days)
+                    .exclude(id__in=ds_to_update)
+                    .values_list('label', 'day_of_week')
+                )
+                clashing = [
+                    d for l, d in collisions
+                    if (l or '').strip().lower() == new_key
+                ]
+                if clashing:
+                    day_names = dict(TimetableEntry.DAY_CHOICES)
+                    collision_labels = ', '.join(
+                        day_names.get(d, str(d)) for d in sorted(set(clashing))
+                    )
+                    return JsonResponse({
+                        'error': (
+                            f"Cannot rename '{old_name}' to '{name}': the new "
+                            f"name is already used on {collision_labels}. "
+                            f"Rename or delete those slots first, then try again."
+                        )
+                    }, status=400)
+
+            # ---- Apply DaySchedule cascade -------------------------------
+            if ds_to_update:
+                day_schedules_updated = (
+                    DaySchedule.objects
+                    .filter(id__in=ds_to_update)
+                    .update(label=name)
+                )
+
+            # ---- Find & update PeriodsTimetable rows ---------------------
+            tt_to_update = []
+            for tt in PeriodsTimetable.objects.all():
+                if (tt.label or '').strip().lower() == old_key:
+                    tt_to_update.append(tt.id)
+            if tt_to_update:
+                timetables_updated = (
+                    PeriodsTimetable.objects
+                    .filter(id__in=tt_to_update)
+                    .update(label=name)
+                )
+
         lbl.name = name
         lbl.description = description[:150]
         lbl.save()
-        return JsonResponse({'success': True,
-                             'label': {'id': lbl.id, 'name': lbl.name, 'description': lbl.description or ''}})
+
+        # ---- Post-write verification block -------------------------------
+        # Surfaces the current DB state so the frontend / DevTools can
+        # confirm the cascade actually ran.
+        try:
+            verify = {
+                'schedule_label_names': list(
+                    ScheduleLabel.objects.order_by('name').values_list('name', flat=True)
+                ),
+                'day_schedule_labels': sorted(set(
+                    (l or '') for l in DaySchedule.objects.values_list('label', flat=True)
+                )),
+                'timetable_labels': sorted(set(
+                    (l or '') for l in PeriodsTimetable.objects.values_list('label', flat=True)
+                )),
+            }
+        except Exception:
+            verify = None
+
+        return JsonResponse({
+            'success': True,
+            'label': {'id': lbl.id, 'name': lbl.name, 'description': lbl.description or ''},
+            'cascaded': {
+                'day_schedules_updated': day_schedules_updated,
+                'timetables_updated': timetables_updated,
+                'old_name': old_name,
+                'new_name': name,
+            },
+            'verify': verify,
+        })
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_audit_labels(request, schema_name):
+    """TIMETABLE_LABEL_AUDIT_V1: report label references that have drifted
+    away from their canonical ScheduleLabel.
+
+    Categories:
+      * orphans         - label text exists on DaySchedule / PeriodsTimetable
+                          but no ScheduleLabel matches it at all.
+      * case_variants   - label text matches a ScheduleLabel only after
+                          .strip().lower() (so the rendered text differs).
+    """
+    with schema_context(schema_name):
+        canonical_by_key = {}
+        for l in ScheduleLabel.objects.all():
+            canonical_by_key[(l.name or '').strip().lower()] = l.name
+
+        def _scan(values):
+            orphans = {}
+            variants = {}
+            for v in values:
+                key = (v or '').strip().lower()
+                if not key:
+                    continue
+                if key not in canonical_by_key:
+                    orphans[v] = orphans.get(v, 0) + 1
+                elif v != canonical_by_key[key]:
+                    variants[v] = variants.get(v, 0) + 1
+            return orphans, variants
+
+        ds_orphans, ds_variants = _scan(DaySchedule.objects.values_list('label', flat=True))
+        tt_orphans, tt_variants = _scan(PeriodsTimetable.objects.values_list('label', flat=True))
+
+        return JsonResponse({
+            'schedule_labels': list(
+                ScheduleLabel.objects.order_by('name').values_list('name', flat=True)
+            ),
+            'day_schedule_orphans': ds_orphans,
+            'day_schedule_case_variants': ds_variants,
+            'timetable_orphans': tt_orphans,
+            'timetable_case_variants': tt_variants,
+            'clean': not (ds_orphans or ds_variants or tt_orphans or tt_variants),
+        })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+@transaction.atomic  # TIMETABLE_LABEL_AUDIT_V1
+def api_repair_labels(request, schema_name):
+    """TIMETABLE_LABEL_AUDIT_V1: rewrite every DaySchedule / PeriodsTimetable
+    label that matches a canonical ScheduleLabel only after
+    .strip().lower() — so "Seniors " becomes "seniors".
+
+    Orphan labels (no matching ScheduleLabel at all) are NOT touched; the
+    caller decides what those should become.
+    """
+    with schema_context(schema_name):
+        canonical_by_key = {}
+        for l in ScheduleLabel.objects.all():
+            canonical_by_key[(l.name or '').strip().lower()] = l.name
+
+        # DaySchedule
+        ds_by_target = {}
+        for ds in DaySchedule.objects.all():
+            key = (ds.label or '').strip().lower()
+            if key in canonical_by_key and ds.label != canonical_by_key[key]:
+                ds_by_target.setdefault(canonical_by_key[key], []).append(ds.id)
+        ds_fixed = 0
+        for target, ids in ds_by_target.items():
+            ds_fixed += DaySchedule.objects.filter(id__in=ids).update(label=target)
+
+        # PeriodsTimetable
+        tt_by_target = {}
+        for tt in PeriodsTimetable.objects.all():
+            key = (tt.label or '').strip().lower()
+            if key in canonical_by_key and tt.label != canonical_by_key[key]:
+                tt_by_target.setdefault(canonical_by_key[key], []).append(tt.id)
+        tt_fixed = 0
+        for target, ids in tt_by_target.items():
+            tt_fixed += PeriodsTimetable.objects.filter(id__in=ids).update(label=target)
+
+        return JsonResponse({
+            'success': True,
+            'day_schedules_repaired': ds_fixed,
+            'timetables_repaired': tt_fixed,
+        })
 
 
 @csrf_exempt
