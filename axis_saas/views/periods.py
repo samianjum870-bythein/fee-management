@@ -301,7 +301,8 @@ def _reconcile_timetables(schema_name):
                     _assigned = 0
                 _deleted_info.append({
                     'title': _tt.title or '(untitled)',
-                    'label': _tt.label or '',
+                    # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+                    'label': _tt.label.name if _tt.label_id else '',
                     'assigned': _assigned,
                 })
         except Exception:

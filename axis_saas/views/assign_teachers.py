@@ -56,7 +56,8 @@ def timetable_assign_teachers(request, schema_name):
                 'class_id': cls.id,
                 'class_display_name': display,
                 'timetable_title': a.timetable.title,
-                'timetable_label': a.timetable.label or '',
+                # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+                'timetable_label': a.timetable.label.name if a.timetable.label_id else '',
                 'total_periods': total_periods,
                 'assigned_count': assigned_count,
             })
@@ -137,7 +138,8 @@ def api_get_teacher_assignments(request, schema_name, class_id):
             'class_id': school_class.id,
             'class_display': class_display,
             'timetable_title': tt.title,
-            'timetable_label': tt.label or '',
+            # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+            'timetable_label': tt.label.name if tt.label_id else '',
             'timetable_days': tt.days or [],
             'subjects': subjects,
             'existing': existing,

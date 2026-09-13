@@ -67,7 +67,8 @@ def _build_context(schema_name, tenant, class_id):
             assigned_timetable = {
                 'id': _tt.id,
                 'title': _tt.title,
-                'label': _tt.label or '',
+                # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+                'label': _tt.label.name if _tt.label_id else '',
                 'break_duration': _tt.break_duration or 0,
                 'days': _tt.days or [],
             }
@@ -208,7 +209,8 @@ def _build_context(schema_name, tenant, class_id):
             _edit_timetables.append({
                 'id': _tt.id,
                 'title': _tt.title,
-                'label': _tt.label or '',
+                # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+                'label': _tt.label.name if _tt.label_id else '',
                 'break_duration': _tt.break_duration or 0,
                 'days': _tt.days or [],
             })

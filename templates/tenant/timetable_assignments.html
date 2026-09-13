@@ -170,8 +170,8 @@
                     </td>
                     <td>
                         <span class="tag tag-blue">{{ a.timetable.title }}</span>
-                        {% if a.timetable.label %}
-                        <span class="text-muted" style="font-size:0.8rem;"> · {{ a.timetable.label }}</span>
+                        {% if a.timetable.label_id %}
+                        <span class="text-muted" style="font-size:0.8rem;"> · {{ a.timetable.label.name }}</span>
                         {% endif %}
                     </td>
                     <td class="text-muted" style="font-size:0.85rem;">{{ a.assigned_at|date:"Y-m-d H:i" }}</td>
@@ -211,7 +211,7 @@
                 <select name="timetable_id" id="assignTimetableSelect" class="form-control" required>
                     <option value="">-- Select Timetable --</option>
                     {% for tt in timetables %}
-                    <option value="{{ tt.id }}">{{ tt.title }}{% if tt.label %} ({{ tt.label }}){% endif %}</option>
+                    <option value="{{ tt.id }}">{{ tt.title }}{% if tt.label_id %} ({{ tt.label.name }}){% endif %}</option>
                     {% endfor %}
                 </select>
                 {% if not timetables %}

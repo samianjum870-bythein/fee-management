@@ -128,7 +128,8 @@ def timetable_management(request, schema_name):
         for ds in all_day_schedules:
             if ds.day_of_week not in weekly_holiday_days:
                 day_schedules.setdefault(ds.day_of_week, []).append(ds)
-            _lbl = (ds.label or '').strip()
+            # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
+            _lbl = ds.label.name if ds.label_id else ''
             if _lbl:
                 slots_by_label.setdefault(_lbl, []).append({
                     'id': ds.id,
