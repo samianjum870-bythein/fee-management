@@ -1296,6 +1296,9 @@ class PeriodTeacherAssignment(models.Model):
         null=True, blank=True,
         related_name='period_teacher_assignments',
     )
+    # ASSIGN_TEACHERS_HARDENING_V2: audit trail for admin actions.
+    created_by = models.CharField(max_length=150, blank=True, default='')
+    updated_by = models.CharField(max_length=150, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1347,7 +1350,12 @@ class SubstituteAssignment(models.Model):
     )
     day_of_week = models.IntegerField(choices=DAY_CHOICES)
     period_order = models.PositiveIntegerField()
-    date = models.DateField(default=date.today)
+    # HARDENING_V5: use the project's local timezone. The previous
+    # default (datetime.date.today) reads the system clock, which
+    # on a UTC server returns *yesterday* between 00:00 and 05:00
+    # PKT. The views already pass `date` explicitly, so this only
+    # affects admin-panel and ORM-created rows.
+    date = models.DateField(default=timezone.localdate)
     reason = models.CharField(max_length=255, blank=True, default='')
     created_by = models.CharField(max_length=150, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)

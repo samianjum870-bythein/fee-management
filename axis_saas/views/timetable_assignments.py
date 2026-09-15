@@ -22,6 +22,7 @@ from axis_saas.utils.class_display import get_class_display_name
 
 
 logger = logging.getLogger(__name__)
+# ASSIGN_TEACHERS_HARDENING_V3: CSRF enforced on POST endpoints.
 
 
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
@@ -62,7 +63,6 @@ def timetable_assignments(request, schema_name):
     return response
 
 
-@csrf_exempt
 @require_http_methods(['POST'])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -85,10 +85,24 @@ def api_assign_timetable(request, schema_name):
             request,
             f'Timetable "{timetable.title}" assigned to {school_class}.',
         )
+
+    # BUG-9 fix: if the admin swapped the class to a timetable with
+    # fewer periods (or different days), the class's existing
+    # PeriodTeacherAssignment rows for now-invalid slots are orphans.
+    # Reconcile against the newly-assigned timetable so they are
+    # removed immediately rather than lingering in the DB.
+    try:
+        from .assign_teachers import _reconcile_period_teacher_assignments
+        _reconcile_period_teacher_assignments(schema_name, timetable.id)
+    except Exception as _exc:
+        logger.warning(
+            'ASSIGN_TEACHERS_HARDENING_V4_2: reconcile after assign '
+            'failed: %s', _exc,
+        )
+
     return redirect('timetable_assignments', schema_name=schema_name)
 
 
-@csrf_exempt
 @require_http_methods(['POST'])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -103,4 +117,19 @@ def api_unassign_timetable(request, schema_name):
         class_label = str(assignment.school_class)
         assignment.delete()
         messages.success(request, f'Timetable unassigned from {class_label}.')
+
+    # BUG-10 fix: after unassignment the class has no timetable, so
+    # every PeriodTeacherAssignment row for it is now an orphan.
+    # Call the full-schema reconcile (no timetable_id) — the V4_2
+    # reconcile treats "class has no current timetable" as "delete
+    # all its PTA rows".
+    try:
+        from .assign_teachers import _reconcile_period_teacher_assignments
+        _reconcile_period_teacher_assignments(schema_name)
+    except Exception as _exc:
+        logger.warning(
+            'ASSIGN_TEACHERS_HARDENING_V4_2: reconcile after unassign '
+            'failed: %s', _exc,
+        )
+
     return redirect('timetable_assignments', schema_name=schema_name)

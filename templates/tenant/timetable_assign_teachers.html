@@ -275,6 +275,7 @@
 {% endblock %}
 
 {% block body %}
+{% csrf_token %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Assign Periods to Teachers</h1>
@@ -399,11 +400,26 @@
 </div>
 
 <script>
+// ASSIGN_TEACHERS_HARDENING_V5: URLs come from Django's url tag
+// so renaming a route in public_urls.py cannot silently break
+// this page. The `__CLASS_ID__` token is replaced at fetch time
+// by the current class id.
+window.TT_URLS = {
+    assign:      "{% url 'timetable_assignments' schema_name=tenant.schema_name %}",
+    apiGrid:     "{% url 'api_get_teacher_assignments' schema_name=tenant.schema_name class_id=0 %}".replace('/0/', '/__CLASS_ID__/'),
+    apiSave:     "{% url 'api_save_teacher_assignments' schema_name=tenant.schema_name class_id=0 %}".replace('/0/', '/__CLASS_ID__/'),
+    apiBunchAdd: "{% url 'api_timetable_periods_bunch_add' schema_name=tenant.schema_name %}",
+    apiTodaysLeave: "{% url 'api_timetable_todays_leave' schema_name=tenant.schema_name %}",
+    apiSubCreate:   "{% url 'api_timetable_substitute_create' schema_name=tenant.schema_name %}",
+    apiSubDelete:   "{% url 'api_timetable_substitute_delete' schema_name=tenant.schema_name %}",
+    apiSubRecords:  "{% url 'api_timetable_substitute_records' schema_name=tenant.schema_name %}",
+    classDetail:    "{% url 'class_detailed' schema_name=tenant.schema_name class_id=0 %}".replace('/0/', '/__CLASS_ID__/')
+};
 (function () {
     'use strict';
 
     var SCHEMA = '{{ tenant.schema_name|escapejs }}';
-    var ASSIGN_URL = '/portal/' + SCHEMA + '/timetable/assign/';
+    var ASSIGN_URL = window.TT_URLS.assign;
     var overlay = document.getElementById('assignTeachersOverlay');
     var openBtn = document.getElementById('openAssignTeachersBtn');
     var cancelBtn = document.getElementById('cancelAssignBtn');
@@ -469,7 +485,7 @@
             '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>';
         saveBtn.disabled = true;
 
-        fetch('/portal/' + SCHEMA + '/api/timetable/teacher-assignments/' + classId + '/', {
+        fetch(window.TT_URLS.apiGrid.replace('__CLASS_ID__', classId), {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
         .then(function (r) { return r.json(); })
@@ -508,7 +524,7 @@
                     'This class has no subject teachers assigned yet. ' +
                     'Please assign subjects/teachers to this class first.' +
                     '<div style="margin-top:1rem;">' +
-                        '<a href="/portal/' + SCHEMA + '/my-classes/' + CURRENT_CLASS_ID + '/" ' +
+                        '<a href="' + window.TT_URLS.classDetail.replace('__CLASS_ID__', CURRENT_CLASS_ID) + '" ' +
                            'style="display:inline-flex; align-items:center; gap:0.5rem; ' +
                                   'padding:0.6rem 1.2rem; border-radius:0.75rem; ' +
                                   'background:linear-gradient(135deg,var(--primary),var(--primary-dark)); ' +
@@ -625,6 +641,10 @@
                 cell.classList.add('has-conflict');
             } else {
                 cell.classList.remove('has-conflict');
+                // HARDENING_V5: also clear the V1 red has-empty
+                // background so a cell that was empty before the
+                // admin picked a subject goes back to normal.
+                cell.classList.remove('has-empty');
                 var t = selectMap[sel.value] || '';
                 hint.textContent = t ? '(' + t + ')' : '';
                 hint.className = 'teacher-hint' + (t ? ' has-teacher' : '');
@@ -675,7 +695,13 @@
             return;
         }
 
-        var payload = { assignments: [] };
+        var payload = {
+            assignments: [],
+            // ASSIGN_TEACHERS_HARDENING_V2: optimistic-lock token.
+            timetable_updated_at: (
+                CURRENT_DATA && CURRENT_DATA.timetable_updated_at
+            ) || ''
+        };
         CURRENT_SELECTS.forEach(function (sel) {
             var day = parseInt(sel.getAttribute('data-day'), 10);
             var order = parseInt(sel.getAttribute('data-order'), 10);
@@ -704,7 +730,7 @@
             return v;
         }
 
-        fetch('/portal/' + SCHEMA + '/api/timetable/teacher-assignments/' + CURRENT_CLASS_ID + '/save/', {
+        fetch(window.TT_URLS.apiSave.replace('__CLASS_ID__', CURRENT_CLASS_ID), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -720,6 +746,18 @@
             if (!res.ok || !res.data.success) {
                 alert('Error: ' + ((res.data && res.data.error) || 'Unknown error'));
                 return;
+            }
+            // ASSIGN_TEACHERS_HARDENING_V2: surface skipped rows to the
+            // user instead of silently dropping them.
+            if (res.data.skipped && res.data.skipped > 0) {
+                var _msgs = [
+                    'Assignments saved, but ' + res.data.skipped +
+                    ' item(s) were skipped:'
+                ];
+                (res.data.skipped_items || []).forEach(function (s) {
+                    _msgs.push(' - ' + (s.reason || 'unknown'));
+                });
+                alert(_msgs.join('\n'));
             }
             window.location.reload();
         })
@@ -1001,7 +1039,7 @@
             return v;
         }
 
-        fetch('/portal/' + SCHEMA + '/api/timetable/periods/bunch/add/', {
+        fetch(window.TT_URLS.apiBunchAdd, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1052,10 +1090,10 @@
     'use strict';
 
     var SCHEMA = '{{ tenant.schema_name|escapejs }}';
-    var API_LEAVE      = '/portal/' + SCHEMA + '/api/timetable/todays-leave/';
-    var API_SUB_CREATE = '/portal/' + SCHEMA + '/api/timetable/substitute/create/';
-    var API_SUB_DELETE = '/portal/' + SCHEMA + '/api/timetable/substitute/delete/';
-    var API_SUB_RECORD = '/portal/' + SCHEMA + '/api/timetable/substitute/records/';
+    var API_LEAVE      = window.TT_URLS.apiTodaysLeave;
+    var API_SUB_CREATE = window.TT_URLS.apiSubCreate;
+    var API_SUB_DELETE = window.TT_URLS.apiSubDelete;
+    var API_SUB_RECORD = window.TT_URLS.apiSubRecords;
 
     var leaveCard     = document.getElementById('todayLeaveCard');
     var leaveMeta     = document.getElementById('todayLeaveMeta');

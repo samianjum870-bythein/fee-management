@@ -24,6 +24,7 @@ from .helpers import get_tenant, require_tenant_type, require_school_feature
 logger = logging.getLogger(__name__)
 
 
+# ASSIGN_TEACHERS_HARDENING_V3: CSRF enforced on all POST endpoints.
 SESSION_KEY_TEMPLATE = 'periods_timetables_{schema}'
 
 
@@ -292,20 +293,31 @@ def _reconcile_timetables(schema_name):
         # ClassTimetableAssignment row that pointed at them.
         _deleted_info = []
         try:
-            for _tt in PeriodsTimetable.objects.filter(id__in=delete_ids):
-                try:
-                    _assigned = ClassTimetableAssignment.objects.filter(
-                        timetable=_tt
-                    ).count()
-                except Exception:
-                    _assigned = 0
+            # HARDENING_V5: one aggregate query instead of one
+            # COUNT per deleted timetable. On a tenant where 50
+            # timetables are being removed at once this drops from
+            # 50 queries to 2.
+            from django.db.models import Count as _Count
+            _count_by_tt = dict(
+                ClassTimetableAssignment.objects
+                .filter(timetable_id__in=delete_ids)
+                .values('timetable_id')
+                .annotate(_n=_Count('id'))
+                .values_list('timetable_id', '_n')
+            )
+            _tts = list(
+                PeriodsTimetable.objects
+                .filter(id__in=delete_ids)
+                .select_related('label')
+            )
+            for _tt in _tts:
                 _deleted_info.append({
                     'title': _tt.title or '(untitled)',
-                    # TIMETABLE_FK_REFACTOR_V1_READ_SITE_FIX: label is a FK now.
                     'label': _tt.label.name if _tt.label_id else '',
-                    'assigned': _assigned,
+                    'assigned': _count_by_tt.get(_tt.id, 0),
                 })
-        except Exception:
+        except Exception as _exc:
+            logger.warning('reconcile delete-info failed: %s', _exc)
             _deleted_info = []
 
         ClassTimetableAssignment.objects.filter(timetable_id__in=delete_ids).delete()
@@ -388,7 +400,6 @@ def periods_management(request, schema_name):
 # ---------------------------------------------------------------------
 # API: generate / edit periods timetable
 # ---------------------------------------------------------------------
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -419,6 +430,11 @@ def api_add_bunch(request, schema_name):
     except (TypeError, ValueError):
         break_duration = 0
     days = data.get('days') or []
+    # HARDENING_V5: a client sending "days": "Monday" would
+    # iterate characters below and hit 'M'.get(...) -> 500.
+    # Reject non-list payloads before they reach the loop.
+    if not isinstance(days, list):
+        return JsonResponse({'error': 'days must be a list'}, status=400)
 
     edit_id = data.get('edit_id')
     if edit_id is not None:
@@ -472,6 +488,17 @@ def api_add_bunch(request, schema_name):
         except Exception:
             return JsonResponse(
                 {'error': f'Invalid time for day {day_of_week}: {start_str}-{end_str}'},
+                status=400,
+            )
+        # ASSIGN_TEACHERS_HARDENING_V2: explicit start < end check so
+        # we don't surface a misleading "break too large" error for
+        # the reversed-time case.
+        if start_t >= end_t:
+            return JsonResponse(
+                {'error': (
+                    f'Start time ({start_str}) must be before end time '
+                    f'({end_str}) for day {day_of_week}.'
+                )},
                 status=400,
             )
 
@@ -552,6 +579,42 @@ def api_add_bunch(request, schema_name):
                     )
                 }, status=400)
 
+        # ASSIGN_TEACHERS_HARDENING_V2: overlap guard. Refuse to save
+        # if another timetable under the same label already uses the
+        # same (day, start, end) slot. Without this, direct API calls
+        # could persist overlapping timetables.
+        requested_slots = set()
+        for _cd in computed_days:
+            requested_slots.add(
+                (_cd['day_of_week'], _cd['start'], _cd['end'])
+            )
+        _overlap_qs = PeriodsTimetable.objects.filter(label=_schedule_label)
+        if edit_id is not None:
+            _overlap_qs = _overlap_qs.exclude(id=edit_id)
+        _overlap_hits = []
+        _day_names = dict(DaySchedule.DAY_CHOICES)
+        for _other in _overlap_qs:
+            for _d in (_other.days or []):
+                try:
+                    _dow = int(_d.get('day_of_week'))
+                except (TypeError, ValueError):
+                    continue
+                _key = (_dow, _d.get('start'), _d.get('end'))
+                if _key in requested_slots:
+                    _overlap_hits.append(
+                        f"{_other.title} "
+                        f"({_day_names.get(_dow, str(_dow))} "
+                        f"{_d.get('start')}-{_d.get('end')})"
+                    )
+        if _overlap_hits:
+            return JsonResponse({
+                'error': (
+                    'These slots are already used by another timetable '
+                    'under the same label: '
+                    + ', '.join(sorted(set(_overlap_hits)))
+                )
+            }, status=400)
+
         if edit_id is not None:
             try:
                 tt = PeriodsTimetable.objects.get(id=edit_id)
@@ -571,6 +634,19 @@ def api_add_bunch(request, schema_name):
             )
         timetables = _load_timetables()
 
+    # ASSIGN_TEACHERS_HARDENING_V2: after a successful timetable edit,
+    # reconcile PeriodTeacherAssignment rows for the classes that use
+    # this timetable. Removed periods leave orphan rows behind, which
+    # then show up as false conflicts in the busy map.
+    try:
+        from .assign_teachers import _reconcile_period_teacher_assignments
+        _reconcile_period_teacher_assignments(schema_name, tt.id)
+    except Exception as _exc:
+        logger.warning(
+            'ASSIGN_TEACHERS_HARDENING_V2: reconcile after edit failed: %s',
+            _exc,
+        )
+
     return JsonResponse({
         'success': True,
         'timetables': timetables,
@@ -581,7 +657,6 @@ def api_add_bunch(request, schema_name):
 # ---------------------------------------------------------------------
 # API: delete a timetable by id
 # ---------------------------------------------------------------------
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -628,7 +703,6 @@ def api_delete_bunch(request, schema_name):
 # ---------------------------------------------------------------------
 # API: keep legacy break-update endpoint functional (unchanged)
 # ---------------------------------------------------------------------
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')

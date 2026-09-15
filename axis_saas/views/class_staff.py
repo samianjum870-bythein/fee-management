@@ -1,3 +1,4 @@
+# ASSIGN_TEACHERS_HARDENING_V3: CSRF enforced on POST endpoints.
 """
 AXIS views - class staff management API (CLASS_STAFF_MANAGEMENT_v1).
 
@@ -15,7 +16,6 @@ from ..models import SchoolClass, Staff, Subject, ClassSubject
 from .helpers import get_tenant, require_tenant_type, require_school_feature
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('classes_management')
@@ -65,7 +65,6 @@ def api_assign_class_teacher(request, schema_name, class_id):
         })
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('classes_management')

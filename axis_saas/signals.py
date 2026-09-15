@@ -124,6 +124,30 @@ def _tt_lock_schedule_reconcile(schema_name):
                 'TIMETABLE_OPTIMISTIC_LOCK_V1: reconcile failed for '
                 'schema %s: %s', schema_name, exc,
             )
+        # ASSIGN_TEACHERS_HARDENING_V3: after the timetable days are
+        # recomputed, also clean up orphan PeriodTeacherAssignment
+        # rows. V2 only triggered this from periods.api_add_bunch, so
+        # an admin editing the calendar via api_save_day_schedules
+        # (which changes DaySchedule.periods from 8 to 6, say) left
+        # rows for periods 7 and 8 stranded. Those then showed up as
+        # false conflicts in the busy map and as phantom absent
+        # periods in api_get_todays_leave.
+        try:
+            from axis_saas.views.assign_teachers import (
+                _reconcile_period_teacher_assignments,
+            )
+            _deleted = _reconcile_period_teacher_assignments(schema_name)
+            if _deleted:
+                logger.info(
+                    'ASSIGN_TEACHERS_HARDENING_V3: reconcile removed '
+                    '%s orphan PeriodTeacherAssignment row(s) in '
+                    'schema %s', _deleted, schema_name,
+                )
+        except Exception as exc:
+            logger.warning(
+                'ASSIGN_TEACHERS_HARDENING_V3: PeriodTeacherAssignment '
+                'reconcile failed for schema %s: %s', schema_name, exc,
+            )
 
     from django.db import transaction as _tt_lock_tx
     _tt_lock_tx.on_commit(_run)

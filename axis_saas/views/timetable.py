@@ -20,6 +20,9 @@ from ..models import (
 from .helpers import get_tenant, require_tenant_type, require_school_feature
 
 logger = logging.getLogger(__name__)
+# ASSIGN_TEACHERS_HARDENING_V3: all POST endpoints in this file
+# are no longer @csrf_exempt. The frontends already send
+# X-CSRFToken + X-Requested-With.
 
 
 # ---------- Helper for annual holiday next occurrence ----------
@@ -178,7 +181,6 @@ def timetable_management(request, schema_name):
 
 
 # ========== API: SAVE DAY SCHEDULES ==========
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -435,7 +437,6 @@ def api_save_day_schedules(request, schema_name):
 
 
 # ========== EDIT_TIMING_v1 : batch-update timing for a label ==========
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -502,7 +503,6 @@ def api_batch_update_label_times(request, schema_name):
 
 
 # ========== HOLIDAY API ENDPOINTS ==========
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -575,7 +575,6 @@ def api_add_holiday(request, schema_name):
     return JsonResponse({'error': 'Unexpected error'}, status=500)
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -611,7 +610,6 @@ def api_delete_holiday(request, schema_name):
             return JsonResponse({'error': str(e)}, status=500)
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -692,7 +690,6 @@ def api_update_holiday(request, schema_name):
 
 
 # ========== OTHER STUB ENDPOINTS ==========
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -700,7 +697,6 @@ def api_update_calendar(request, schema_name):
     return JsonResponse({'error': 'Not implemented yet'}, status=501)
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -708,7 +704,6 @@ def api_add_period(request, schema_name):
     return JsonResponse({'error': 'Not implemented yet'}, status=501)
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -716,7 +711,6 @@ def api_delete_period(request, schema_name):
     return JsonResponse({'error': 'Not implemented yet'}, status=501)
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -731,7 +725,6 @@ def api_get_timetable(request, schema_name):
     return JsonResponse({'error': 'Not implemented yet'}, status=501)
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -752,7 +745,6 @@ def api_list_labels(request, schema_name):
     return JsonResponse({'labels': labels})
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -775,7 +767,6 @@ def api_add_label(request, schema_name):
                              'label': {'id': lbl.id, 'name': lbl.name, 'description': lbl.description or ''}})
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
@@ -834,7 +825,6 @@ def api_update_label(request, schema_name):
 # ForeignKeys, so drift is structurally impossible.
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('timetable_management')
