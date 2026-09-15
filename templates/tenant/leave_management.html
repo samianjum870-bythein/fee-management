@@ -145,9 +145,19 @@
             <label for="polMonth">Max leave days per month</label>
             <input type="number" id="polMonth" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
         </div>
+        <!-- LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1: the upper bound is
+             the tenant's actual working-days count (7 minus their
+             WeeklyHoliday entries), not a hard-coded 7. -->
         <div class="row">
             <label for="polWeek">Max leave days per week</label>
-            <input type="number" id="polWeek" min="1" style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+            <input type="number" id="polWeek" min="1"
+                   max="{{ working_days_count }}"
+                   style="width:100%; padding:0.55rem 0.75rem; border-radius:0.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);">
+            <p class="page-desc" style="font-size:0.75rem; margin-top:0.35rem;">
+                Your school has <strong>{{ working_days_count }}</strong> working day{{ working_days_count|pluralize }}
+                per week ({{ working_days_names }}).
+                Weekly holidays are never counted towards leave quotas.
+            </p>
         </div>
         <div class="row">
             <label for="polConsec">Max consecutive days</label>
@@ -525,8 +535,20 @@
 
     // ----- policy -----
     window.openPolicyModal = function() {
+        // LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1: enforce the tenant's
+        // working-days cap on the weekly input.  The server also
+        // clamps, but setting max + value here means the browser
+        // refuses out-of-range numbers before they are ever submitted.
+        var _weekMax = parseInt(POLICY.working_days_count, 10) || 7;
+        var _polWeekEl = document.getElementById('polWeek');
+        _polWeekEl.setAttribute('max', String(_weekMax));
+        // If the stored value is above the cap (legacy data from
+        // before this fix), show it clamped, so the next save will
+        // persist the corrected value.
+        var _storedWeek = parseInt(POLICY.max_leaves_per_week, 10) || 1;
+        _polWeekEl.value = Math.min(_storedWeek, _weekMax);
+
         document.getElementById('polMonth').value = POLICY.max_leaves_per_month;
-        document.getElementById('polWeek').value = POLICY.max_leaves_per_week;
         document.getElementById('polConsec').value = POLICY.max_consecutive_days;
         document.getElementById('polBack').checked = !!POLICY.allow_backdated;
         document.getElementById('polApprovedOnly').checked = POLICY.count_approved_only !== false;
@@ -541,9 +563,17 @@
         document.getElementById('lmPolicyBackdrop').classList.remove('show');
     };
     window.savePolicy = function() {
+        // LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1: clamp the weekly value
+        // to the tenant's working-days count.  This makes the client
+        // agree with the server, so a user who somehow bypasses the
+        // input's max attribute sees the same number that gets saved.
+        var _weekMax = parseInt(POLICY.working_days_count, 10) || 7;
+        var _rawWeek = parseInt(document.getElementById('polWeek').value, 10) || 1;
+        var _clampedWeek = Math.max(1, Math.min(_rawWeek, _weekMax));
+
         const body = {
             max_leaves_per_month: parseInt(document.getElementById('polMonth').value, 10) || 1,
-            max_leaves_per_week: parseInt(document.getElementById('polWeek').value, 10) || 1,
+            max_leaves_per_week: _clampedWeek,
             max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
             allow_backdated: document.getElementById('polBack').checked,
             count_approved_only: document.getElementById('polApprovedOnly').checked,

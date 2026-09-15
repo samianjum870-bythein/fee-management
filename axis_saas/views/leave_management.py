@@ -148,6 +148,24 @@ def _working_days_set_cache_clear(schema_name=None):
         pass
 
 
+def _working_days_count():
+    """Number of working days per week for the current tenant.
+
+    LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1
+    ------------------------------------
+    A week has 7 calendar days, but a school that marks Saturday and
+    Sunday as weekly holidays only has 5 real working days.  The
+    maximum value the admin can meaningfully put in
+    `LeavePolicy.max_leaves_per_week` is that working-days count, not
+    a hard 7.  This helper exposes it so both `leave_policy_save` and
+    the policy modal template agree on the same bound.
+    """
+    try:
+        return max(1, min(7, len(_working_days_set())))
+    except Exception:
+        return 7
+
+
 def _expire_stale_suspensions():
     """Bulk-deactivate suspensions whose end_date has passed.
 
@@ -533,6 +551,10 @@ def leave_management(request, schema_name):
             'count_working_days_only': policy.count_working_days_only,
             'max_rejections_before_suspension': policy.max_rejections_before_suspension,
             'suspension_days': policy.suspension_days,
+            # LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1: consumed by the
+            # policy modal's client-side code so it can set max="N"
+            # on the weekly input.
+            'working_days_count': _working_days_count(),
         }
 
         suspensions_qs = (
@@ -569,6 +591,17 @@ def leave_management(request, schema_name):
             'page_size': ADMIN_LEAVES_PAGE_SIZE,
         }
 
+        # LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1: expose the tenant's
+        # working-days count to the template so the policy modal can
+        # constrain the weekly input and show a hint.
+        working_days_count = _working_days_count()
+        working_days_names = [
+            name for d, name in [
+                (0, 'Mon'), (1, 'Tue'), (2, 'Wed'),
+                (3, 'Thu'), (4, 'Fri'), (5, 'Sat'), (6, 'Sun'),
+            ] if d in _working_days_set()
+        ]
+
     def _safe_json(obj):
         s = json.dumps(obj)
         return (
@@ -596,6 +629,9 @@ def leave_management(request, schema_name):
         'leave_type_choices': LeaveRequest.LEAVE_TYPE_CHOICES,
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
         'max_suspension_days': MAX_SUSPENSION_DAYS,
+        # LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1
+        'working_days_count': working_days_count,
+        'working_days_names': ', '.join(working_days_names) or 'none',
     }
     response = render(request, 'tenant/leave_management.html', context)
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -780,14 +816,22 @@ def leave_policy_save(request, schema_name):
             if policy is None:
                 policy = LeavePolicy.current()
             # Upper bounds are the maximum meaningful value for each
-            # field (7 days in a week, 31 days in a month, 90-day
-            # consecutive cap to match the docs, 100 rejections, and
-            # MAX_SUSPENSION_DAYS for suspension length).
+            # field.
+            #
+            # LEAVE_WEEKLY_CAP_PER_WORKING_DAYS_V1: `max_leaves_per_week`
+            # is capped at the tenant's actual working-days count, not
+            # the fixed calendar-week 7.  A school that takes Saturday
+            # and Sunday off has 5 working days per week, so 5 is the
+            # only meaningful upper bound.  `_working_days_count()`
+            # computes this from the WeeklyHoliday table (already
+            # cached and signal-invalidated elsewhere in this module).
+            _week_hi = _working_days_count()
             policy.max_leaves_per_month = _to_int(
                 'max_leaves_per_month', policy.max_leaves_per_month, 1, 31,
             )
             policy.max_leaves_per_week = _to_int(
-                'max_leaves_per_week', policy.max_leaves_per_week, 1, 7,
+                'max_leaves_per_week', policy.max_leaves_per_week,
+                1, _week_hi,
             )
             policy.max_consecutive_days = _to_int(
                 'max_consecutive_days', policy.max_consecutive_days, 1, 90,
