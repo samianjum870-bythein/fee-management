@@ -20,7 +20,9 @@ from axis_saas.views.staff_portal import (
     staff_profile,
     staff_student_profile,
 )
-from axis_saas.views.staff_portal_leave_managemetn import (
+# LEAVE_MANAGEMENT_HARDENING_V3: import from the correctly-named
+# module (typo in the old filename fixed; shim kept for compatibility).
+from axis_saas.views.staff_portal_leave_management import (
     staff_leave_management, staff_leave_apply_api,
     staff_leave_history_api, staff_leave_policy_api,
     staff_leave_cancel_api,

@@ -186,15 +186,19 @@
             <textarea id="lvReason" placeholder="Please describe why you need this leave…"
                       {% if active_suspension or active_leave %}disabled{% endif %}></textarea>
         </div>
+        <!-- LEAVE_MANAGEMENT_HARDENING_V3 (#10): `min` on the start
+             date is only applied when the policy forbids backdated
+             leaves. Previously it was hard-coded to `today`, which
+             silently disabled the admin's allow_backdated setting. -->
         <div class="lm-row2">
             <div class="lm-field">
                 <label for="lvStart">Start Date</label>
-                <input type="date" id="lvStart" min="{{ today }}"
+                <input type="date" id="lvStart"{% if min_date %} min="{{ min_date }}"{% endif %}
                        {% if active_suspension or active_leave %}disabled{% endif %}>
             </div>
             <div class="lm-field">
                 <label for="lvEnd">End Date</label>
-                <input type="date" id="lvEnd" min="{{ today }}"
+                <input type="date" id="lvEnd"{% if min_date %} min="{{ min_date }}"{% endif %}
                        {% if active_suspension or active_leave %}disabled{% endif %}>
             </div>
         </div>

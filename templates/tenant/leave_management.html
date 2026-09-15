@@ -115,6 +115,15 @@
 
     <div id="lmList" class="lm-grid"></div>
     <div id="lmEmpty" class="lm-empty" style="display:none;">No leave requests match your filters.</div>
+
+    <!-- LEAVE_MANAGEMENT_HARDENING_V3 (#2): admin list is paginated.
+         The UI below lets the admin walk through pages without
+         manually editing the URL. -->
+    <div id="lmPager" style="display:none; margin-top:1.25rem; align-items:center; gap:0.75rem; flex-wrap:wrap; justify-content:center;">
+        <button type="button" class="lm-btn-view" id="lmPrevBtn">← Previous</button>
+        <span id="lmPagerInfo" class="lm-dates" style="font-size:0.85rem;"></span>
+        <button type="button" class="lm-btn-view" id="lmNextBtn">Next →</button>
+    </div>
 </div>
 
 <!-- Detail modal -->
@@ -155,6 +164,14 @@
             </label>
             <p class="page-desc" style="font-size:0.75rem; margin-top:0.35rem;">
                 Rejected and cancelled leaves are never counted, no matter what.
+            </p>
+        </div>
+        <div class="row" style="border-top:1px solid var(--border); padding-top:0.75rem; margin-top:0.75rem;">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="polWorkingDaysOnly"> Count only working days towards monthly / weekly quota
+            </label>
+            <p class="page-desc" style="font-size:0.75rem; margin-top:0.35rem;">
+                When enabled, weekly holidays (from the timetable setup) are excluded from quota counting.
             </p>
         </div>
         <div class="row">
@@ -235,6 +252,7 @@
 
 <script>
 (function() {
+    // LEAVE_MANAGEMENT_HARDENING_V3 — pagination, auto-suspension, workdays toggle.
     const SCHEMA = "{{ tenant.schema_name|escapejs }}";
     const LEAVES = {{ leaves_json|safe }};
     const STAFF_SUMMARY = {{ staff_summary_json|safe }};
@@ -460,6 +478,20 @@
                     btn.textContent = (action === 'approve' ? 'Approve' : 'Reject');
                     return;
                 }
+                // LEAVE_MANAGEMENT_HARDENING_V3 (#9): surface the
+                // auto-suspension the reject endpoint returns.
+                if (res.data.auto_suspension) {
+                    var s = res.data.auto_suspension;
+                    var until = s.end_date || 'an indefinite period';
+                    setTimeout(function () {
+                        alert(
+                            '⚠ Auto-suspension triggered\n\n' +
+                            s.staff_name + ' has been suspended from applying ' +
+                            'for leave until ' + until + '.\n\n' +
+                            'Reason: ' + (s.reason || '(no reason)')
+                        );
+                    }, 80);
+                }
                 location.reload();
             })
             .catch(function (err) {
@@ -498,6 +530,7 @@
         document.getElementById('polConsec').value = POLICY.max_consecutive_days;
         document.getElementById('polBack').checked = !!POLICY.allow_backdated;
         document.getElementById('polApprovedOnly').checked = POLICY.count_approved_only !== false;
+        document.getElementById('polWorkingDaysOnly').checked = POLICY.count_working_days_only !== false;
         document.getElementById('polMaxRejections').value = (POLICY.max_rejections_before_suspension != null)
             ? POLICY.max_rejections_before_suspension : 3;
         document.getElementById('polSuspensionDays').value = (POLICY.suspension_days != null)
@@ -514,6 +547,7 @@
             max_consecutive_days: parseInt(document.getElementById('polConsec').value, 10) || 1,
             allow_backdated: document.getElementById('polBack').checked,
             count_approved_only: document.getElementById('polApprovedOnly').checked,
+            count_working_days_only: document.getElementById('polWorkingDaysOnly').checked,
             max_rejections_before_suspension: parseInt(document.getElementById('polMaxRejections').value, 10) || 0,
             suspension_days: parseInt(document.getElementById('polSuspensionDays').value, 10) || 7
         };
@@ -691,6 +725,44 @@
             if (e.target === el) el.classList.remove('show');
         });
     });
+
+    // LEAVE_MANAGEMENT_HARDENING_V3 (#2): pagination controls.
+    (function () {
+        const PAGINATION = {{ pagination_json|safe }};
+        const pager = document.getElementById('lmPager');
+        const info = document.getElementById('lmPagerInfo');
+        const prevBtn = document.getElementById('lmPrevBtn');
+        const nextBtn = document.getElementById('lmNextBtn');
+        if (!pager || !info || !prevBtn || !nextBtn) return;
+
+        const numPages = PAGINATION.num_pages || 1;
+        const total = PAGINATION.total_count || 0;
+        if (total === 0) {
+            pager.style.display = 'none';
+            return;
+        }
+        pager.style.display = 'flex';
+        info.textContent = 'Page ' + PAGINATION.page_number + ' of ' +
+            numPages + ' · ' + total + ' total';
+
+        function gotoPage(n) {
+            const params = new URLSearchParams(window.location.search);
+            params.set('page', String(n));
+            window.location.search = params.toString();
+        }
+
+        prevBtn.disabled = !PAGINATION.has_previous;
+        nextBtn.disabled = !PAGINATION.has_next;
+
+        prevBtn.addEventListener('click', function () {
+            if (!PAGINATION.has_previous) return;
+            gotoPage(PAGINATION.previous_page_number);
+        });
+        nextBtn.addEventListener('click', function () {
+            if (!PAGINATION.has_next) return;
+            gotoPage(PAGINATION.next_page_number);
+        });
+    })();
 
     renderLeaves();
 })();

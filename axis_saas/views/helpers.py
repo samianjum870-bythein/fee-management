@@ -102,6 +102,29 @@ def require_school_feature(feature_key):
         return wrapper
     return decorator
 
+
+def require_ajax_post(view_func):
+    """LEAVE_MANAGEMENT_HARDENING_V3: enforce POST + X-Requested-With.
+
+    Replaces the previous `@csrf_exempt` pattern on state-changing
+    endpoints. The client already sends `X-CSRFToken` and
+    `X-Requested-With: XMLHttpRequest`. Django's CSRF middleware is
+    active on these views again (no @csrf_exempt), so this decorator
+    is pure defence-in-depth.
+    """
+    @functools.wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if request.method != 'POST':
+            return JsonResponse(
+                {'ok': False, 'error': 'POST required.'}, status=405,
+            )
+        if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+            return JsonResponse(
+                {'ok': False, 'error': 'AJAX request required.'}, status=400,
+            )
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
 def create_fee_generation_notification(schema_name, month, year, created_count, triggered_by, mobile=False):
     """Create a notification for fee generation."""
     from ..models import Notification

@@ -52,10 +52,14 @@ class StaffTenantMiddleware:
             cached_token = None
 
         session_token = request.session.get('staff_session_token')
-        token_invalid = False
-        if not settings.DEBUG:
-            token_invalid = not session_token or cached_token in ['logged_out'] or cached_token != session_token
-
+        # LEAVE_MANAGEMENT_HARDENING_V3: never bypass session-token
+        # validation. Previously, `if not settings.DEBUG` skipped the
+        # whole check when DEBUG was on.
+        token_invalid = (
+            not session_token
+            or cached_token in ('logged_out', None)
+            or cached_token != session_token
+        )
         if token_invalid:
             request.session.flush()
             return redirect('staff_login')

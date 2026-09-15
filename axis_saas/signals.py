@@ -143,3 +143,42 @@ def _tt_lock_on_dayschedule_change(sender, instance, **kwargs):
 # PeriodsTimetable.label are now ForeignKeys, so reads follow
 # ScheduleLabel.name automatically. ScheduleLabel deletion is guarded
 # by on_delete=PROTECT, so no post_delete hook is needed either.
+
+
+# ========== LEAVE_MANAGEMENT_HARDENING_V4_1 ===========================
+# _working_days_set() in views/leave_management.py caches the tenant's
+# WeeklyHoliday set in Redis, keyed by (schema_name, today). If an
+# admin edits WeeklyHoliday mid-day, that cache entry must be
+# invalidated, or the quota counters keep using yesterday's working-
+# day set until the key self-expires at midnight.
+#
+# Doing the invalidation via signals means we do NOT have to sprinkle
+# cache-clear calls into the timetable views (api_add_holiday,
+# api_update_holiday, api_delete_holiday). Any ORM save or delete of
+# a WeeklyHoliday row — from a view, from the admin, from a shell, or
+# from a test — triggers the invalidation.
+from axis_saas.models import WeeklyHoliday as _LMV41_WeeklyHoliday
+
+
+def _lmv41_clear_working_days_cache(schema_name):
+    if not schema_name or schema_name == 'public':
+        return
+    try:
+        from django.core.cache import cache as _lmv41_cache
+        from django.utils import timezone as _lmv41_tz
+        _lmv41_cache.delete(
+            'leave.working_days:'
+            + schema_name + ':'
+            + _lmv41_tz.localdate().isoformat()
+        )
+    except Exception:
+        # Cache backend may be down; the key self-expires at midnight
+        # anyway, so a failed delete is not fatal.
+        pass
+
+
+@receiver(post_save, sender=_LMV41_WeeklyHoliday)
+@receiver(post_delete, sender=_LMV41_WeeklyHoliday)
+def _lmv41_on_weekly_holiday_change(sender, instance, **kwargs):
+    _lmv41_clear_working_days_cache(connection.schema_name)
+# ===== END LEAVE_MANAGEMENT_HARDENING_V4_1 ===========================

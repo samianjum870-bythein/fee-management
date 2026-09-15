@@ -161,13 +161,19 @@ def require_staff_login(view_func):
             )
             return redirect('staff_login')
 
-        if not settings.DEBUG:
-            session_token = request.session.get('staff_session_token')
-            cached_token = cache.get(f'staff_session_token:{schema_name}:{staff_id}') if schema_name and staff_id else None
-            token_invalid = not session_token or cached_token in ['logged_out'] or cached_token != session_token
-        else:
-            token_invalid = False
-
+        # LEAVE_MANAGEMENT_HARDENING_V3: never bypass the cached-token
+        # check. Previous code short-circuited it entirely when DEBUG
+        # was on, which let an attacker guess staff_id.
+        session_token = request.session.get('staff_session_token')
+        cached_token = (
+            cache.get(f'staff_session_token:{schema_name}:{staff_id}')
+            if schema_name and staff_id else None
+        )
+        token_invalid = (
+            not session_token
+            or cached_token in ('logged_out', None)
+            or cached_token != session_token
+        )
         if token_invalid:
             request.session.flush()
             return redirect('staff_login')

@@ -645,7 +645,16 @@ class Staff(models.Model):
 # ========== LEAVE MANAGEMENT (LEAVE_MANAGEMENT_V1) ==========
 
 class LeavePolicy(models.Model):
-    """Tenant-wide leave settings. One row per tenant (pk=1)."""
+    """Tenant-wide leave settings. Singleton per tenant schema.
+
+    LEAVE_MANAGEMENT_HARDENING_V3: replaced the "pk=1" convention with a
+    proper boolean singleton column and a DB constraint, so a bug or a
+    manual INSERT can never create a second row. `LeavePolicy.current()`
+    is the safe entry point.
+    """
+    is_singleton = models.BooleanField(
+        default=True, unique=True, editable=False,
+    )
     max_leaves_per_month = models.PositiveIntegerField(
         default=4,
         help_text="Maximum leave days a staff member can take in a calendar month.",
@@ -686,6 +695,14 @@ class LeavePolicy(models.Model):
             "admin can always lift the suspension earlier."
         ),
     )
+    # LEAVE_MANAGEMENT_HARDENING_V3 -------------------------------------
+    count_working_days_only = models.BooleanField(
+        default=True,
+        help_text=(
+            "If True, weekly/monthly quota counters skip the tenant's "
+            "WeeklyHoliday days. If False, calendar days are counted."
+        ),
+    )
     # --------------------------------------------------------------------
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -695,6 +712,21 @@ class LeavePolicy(models.Model):
 
     def __str__(self):
         return "Leave Policy"
+
+    @classmethod
+    def current(cls):
+        """Return the singleton LeavePolicy row for this schema.
+
+        Safe under concurrent access thanks to the UNIQUE constraint on
+        `is_singleton`. Callers that intend to *mutate* the row should
+        wrap their work in a `transaction.atomic()` block and re-fetch
+        it with `select_for_update()` (see `leave_policy_save`).
+        """
+        obj, _ = cls.objects.get_or_create(
+            is_singleton=True,
+            defaults={},
+        )
+        return obj
 
 
 class LeaveRequest(models.Model):

@@ -26,11 +26,30 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-fallback-for-build-on
 PUBLIC_URL = os.environ.get('PUBLIC_URL') or os.environ.get('APP_URL') or os.environ.get('SITE_URL') or 'http://localhost:8000'
 WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID') or urlparse(PUBLIC_URL).hostname or 'localhost'
 WEBAUTHN_ORIGIN = os.environ.get('WEBAUTHN_ORIGIN') or PUBLIC_URL.rstrip('/')
-# Auto-detect local development (no DATABASE_URL means local)
-if not os.environ.get('DATABASE_URL'):
+# LEAVE_MANAGEMENT_HARDENING_V3: safe DEBUG default.
+# The previous logic inferred DEBUG=True whenever DATABASE_URL was
+# missing, which meant a mis-deployed container (forgotten env var)
+# silently ran with DEBUG on — bypassing session validation in the
+# middleware (see StaffTenantMiddleware / require_staff_login).
+_ENVIRONMENT = os.environ.get('ENVIRONMENT', '').strip().lower()
+_DEBUG_ENV = os.environ.get('DEBUG', '').strip().lower()
+_HAS_DATABASE_URL = bool(os.environ.get('DATABASE_URL'))
+
+if _ENVIRONMENT == 'production':
+    DEBUG = False
+elif _DEBUG_ENV in ('1', 'true', 'yes', 'on'):
+    DEBUG = True
+elif _DEBUG_ENV in ('0', 'false', 'no', 'off'):
+    DEBUG = False
+elif _ENVIRONMENT == 'development':
+    DEBUG = True
+elif not _HAS_DATABASE_URL and not _ENVIRONMENT:
+    # Legacy local-dev convenience: no DATABASE_URL + no ENVIRONMENT
+    # flag => developer's laptop. Once ENVIRONMENT is set this escape
+    # hatch goes away.
     DEBUG = True
 else:
-    DEBUG = env('DEBUG', default=False)
+    DEBUG = False
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']
 # Auto-add local development hosts when DEBUG is True
