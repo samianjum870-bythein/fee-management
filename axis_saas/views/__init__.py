@@ -59,4 +59,8 @@ from .assign_teachers import (  # noqa: F401
     timetable_assign_teachers,
     api_get_teacher_assignments,
     api_save_teacher_assignments,
+    api_get_todays_leave,
+    api_create_substitute,
+    api_delete_substitute,
+    api_get_substitute_records,
 )

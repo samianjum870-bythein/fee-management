@@ -1259,3 +1259,62 @@ class PeriodTeacherAssignment(models.Model):
     def __str__(self):
         subject_name = self.subject.name if self.subject else '—'
         return f"{self.school_class} | D{self.day_of_week} P{self.period_order}: {subject_name}"
+
+
+# ========== SUBSTITUTE FIXTURES (SUBSTITUTE_FIXTURE_V1) ==========
+
+class SubstituteAssignment(models.Model):
+    """One-day substitute / fixture assignment.
+
+    When a teacher has an approved leave that covers `date`, another
+    teacher who is FREE at that exact (day_of_week, period_order) can be
+    assigned as a substitute for the absent teacher's period in a
+    specific class. This is scoped to a single calendar date — it does
+    NOT modify PeriodTeacherAssignment.
+    """
+    DAY_CHOICES = [
+        (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'),
+        (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
+    ]
+
+    absent_teacher = models.ForeignKey(
+        'Staff',
+        on_delete=models.CASCADE,
+        related_name='substitute_absences',
+    )
+    substitute_teacher = models.ForeignKey(
+        'Staff',
+        on_delete=models.CASCADE,
+        related_name='substitute_assignments',
+    )
+    school_class = models.ForeignKey(
+        'SchoolClass',
+        on_delete=models.CASCADE,
+        related_name='substitute_assignments',
+    )
+    subject = models.ForeignKey(
+        'Subject',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='substitute_assignments',
+    )
+    day_of_week = models.IntegerField(choices=DAY_CHOICES)
+    period_order = models.PositiveIntegerField()
+    date = models.DateField(default=date.today)
+    reason = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', 'day_of_week', 'period_order']
+        unique_together = [
+            ('school_class', 'day_of_week', 'period_order', 'date'),
+        ]
+
+    def __str__(self):
+        sub = self.substitute_teacher.full_name if self.substitute_teacher else '?'
+        abs_ = self.absent_teacher.full_name if self.absent_teacher else '?'
+        return (
+            f"{self.date} P{self.period_order} "
+            f"{self.school_class}: {abs_} → {sub}"
+        )

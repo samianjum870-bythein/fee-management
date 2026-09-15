@@ -32,6 +32,10 @@ from .views.assign_teachers import (
     timetable_assign_teachers,
     api_get_teacher_assignments,
     api_save_teacher_assignments,
+    api_get_todays_leave,
+    api_create_substitute,
+    api_delete_substitute,
+    api_get_substitute_records,
 )
 from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
 from .views.staff_portal import staff_login, staff_logout
@@ -344,6 +348,19 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/timetable/teacher-assignments/<int:class_id>/save/',
          portal_wrapper(login_required_for_schema(api_save_teacher_assignments)),
          name='api_save_teacher_assignments'),
+    # ===== SUBSTITUTE_FIXTURE_V1 =====
+    path('portal/<slug:schema_name>/api/timetable/todays-leave/',
+         portal_wrapper(login_required_for_schema(api_get_todays_leave)),
+         name='api_timetable_todays_leave'),
+    path('portal/<slug:schema_name>/api/timetable/substitute/create/',
+         portal_wrapper(login_required_for_schema(api_create_substitute)),
+         name='api_timetable_substitute_create'),
+    path('portal/<slug:schema_name>/api/timetable/substitute/delete/',
+         portal_wrapper(login_required_for_schema(api_delete_substitute)),
+         name='api_timetable_substitute_delete'),
+    path('portal/<slug:schema_name>/api/timetable/substitute/records/',
+         portal_wrapper(login_required_for_schema(api_get_substitute_records)),
+         name='api_timetable_substitute_records'),
     path('portal/<slug:schema_name>/api/timetable/periods/break/update/', portal_wrapper(login_required_for_schema(api_update_break)), name='api_timetable_periods_break_update'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/add/', portal_wrapper(login_required_for_schema(api_add_bunch)), name='api_timetable_periods_bunch_add'),
     path('portal/<slug:schema_name>/api/timetable/periods/bunch/delete/', portal_wrapper(login_required_for_schema(api_delete_bunch)), name='api_timetable_periods_bunch_delete'),

@@ -282,6 +282,7 @@
     </div>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}" class="btn-secondary btn-lg" style="text-decoration:none;">← Back to Periods</a>
+        <button type="button" id="seeRecordsBtn" class="btn-secondary btn-lg">📜 See Records</button>
         <button type="button" id="openAssignTeachersBtn" class="btn-primary btn-lg">📅 Assign Periods to Teachers</button>
     </div>
 </div>
@@ -335,6 +336,18 @@
     </div>
     {% endif %}
 </div>
+
+<!-- ===== SUBSTITUTE_FIXTURE_V1: Today's Leave & Fixtures ===== -->
+<div class="card" id="todayLeaveCard" style="border-left:4px solid #ef4444;">
+    <div class="card-header">
+        <h3>🚨 Today's Leave &amp; Fixtures</h3>
+        <span class="text-muted" style="font-size:0.85rem;" id="todayLeaveMeta">Loading…</span>
+    </div>
+    <div id="todayLeaveBody">
+        <p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>
+    </div>
+</div>
+<!-- ===== END SUBSTITUTE_FIXTURE_V1 ===== -->
 
 {% if classes_without_timetable %}
 <div class="card" style="border-left:4px solid #f59e0b;">
@@ -1020,4 +1033,292 @@
     // ===== END INLINE_TIMETABLE_ASSIGN_V1 =====
 })();
 </script>
+
+<!-- ===== SUBSTITUTE_FIXTURE_V1: Records overlay + client JS ===== -->
+<div id="subRecordsOverlay" class="overlay">
+    <div class="overlay-content">
+        <h2>📜 Substitute / Fixture Records</h2>
+        <div id="subRecordsBody">
+            <p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>
+        </div>
+        <div class="form-actions">
+            <button type="button" id="closeRecordsBtn" class="btn-secondary">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    var API_LEAVE      = '/portal/' + SCHEMA + '/api/timetable/todays-leave/';
+    var API_SUB_CREATE = '/portal/' + SCHEMA + '/api/timetable/substitute/create/';
+    var API_SUB_DELETE = '/portal/' + SCHEMA + '/api/timetable/substitute/delete/';
+    var API_SUB_RECORD = '/portal/' + SCHEMA + '/api/timetable/substitute/records/';
+
+    var leaveCard     = document.getElementById('todayLeaveCard');
+    var leaveMeta     = document.getElementById('todayLeaveMeta');
+    var leaveBody     = document.getElementById('todayLeaveBody');
+    var recordsOverlay = document.getElementById('subRecordsOverlay');
+    var recordsBody   = document.getElementById('subRecordsBody');
+    var seeRecordsBtn = document.getElementById('seeRecordsBtn');
+    var closeRecordsBtn = document.getElementById('closeRecordsBtn');
+
+    function esc(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+        });
+    }
+
+    function getCookie(name) {
+        var v = null;
+        if (document.cookie) {
+            document.cookie.split(';').forEach(function (c) {
+                c = c.trim();
+                if (c.substring(0, name.length + 1) === (name + '=')) {
+                    v = decodeURIComponent(c.substring(name.length + 1));
+                }
+            });
+        }
+        return v;
+    }
+
+    // ---- Today's leave + fixtures -----------------------------------
+    function loadTodaysLeave() {
+        if (!leaveBody) return;
+        leaveBody.innerHTML = '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>';
+        fetch(API_LEAVE, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) {
+                    leaveBody.innerHTML = '<p style="color:#dc2626; text-align:center;">Failed to load.</p>';
+                    return;
+                }
+                renderTodaysLeave(data);
+            })
+            .catch(function (err) {
+                leaveBody.innerHTML = '<p style="color:#dc2626; text-align:center;">Network error: ' + esc(err.message) + '</p>';
+            });
+    }
+
+    function renderTodaysLeave(data) {
+        if (leaveMeta) {
+            leaveMeta.textContent = data.day_name + ' · ' + data.date +
+                ' · ' + data.on_leave_count + ' teacher(s) on leave';
+        }
+        var list = data.assignments || [];
+        if (list.length === 0) {
+            leaveBody.innerHTML =
+                '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">' +
+                '✅ No teachers on leave with scheduled periods today. Nothing to cover.</p>';
+            return;
+        }
+
+        var html = '<div style="overflow-x:auto;">';
+        html += '<table class="data-table">';
+        html += '<thead><tr>';
+        html += '<th>Period</th>';
+        html += '<th>Absent Teacher</th>';
+        html += '<th>Class</th>';
+        html += '<th>Subject</th>';
+        html += '<th>Leave</th>';
+        html += '<th>Substitute</th>';
+        html += '<th style="text-align:right;">Action</th>';
+        html += '</tr></thead><tbody>';
+
+        list.forEach(function (a, idx) {
+            html += '<tr>';
+            html += '<td><strong>P' + a.period_order + '</strong></td>';
+            html += '<td><strong>' + esc(a.absent_teacher_name) + '</strong>' +
+                    (a.absent_teacher_job_title ? '<br><span class="text-muted" style="font-size:0.78rem;">' + esc(a.absent_teacher_job_title) + '</span>' : '') +
+                    '</td>';
+            html += '<td>' + esc(a.class_display) + '</td>';
+            html += '<td>' + esc(a.subject_name || '—') + '</td>';
+            html += '<td><span class="tag" style="font-size:0.72rem;">' +
+                    esc(a.leave_start) + ' → ' + esc(a.leave_end) + '</span></td>';
+
+            if (a.existing_substitute) {
+                html += '<td><span class="tag tag-green">✓ ' +
+                        esc(a.existing_substitute.teacher_name) +
+                        '</span></td>';
+                html += '<td style="text-align:right; white-space:nowrap;">' +
+                        '<button type="button" class="btn-danger btn-sm remove-sub-btn" data-id="' +
+                        a.existing_substitute.id + '">Remove</button></td>';
+            } else if (!a.free_teachers || a.free_teachers.length === 0) {
+                html += '<td colspan="2" class="text-muted" style="text-align:center;">' +
+                        'No free teacher available at this period</td>';
+            } else {
+                var opts = '<option value="">— Choose free teacher —</option>';
+                a.free_teachers.forEach(function (t) {
+                    opts += '<option value="' + t.id + '">' +
+                            esc(t.name) +
+                            (t.job_title ? ' (' + esc(t.job_title) + ')' : '') +
+                            '</option>';
+                });
+                html += '<td><select class="form-control sub-select" data-idx="' +
+                        idx + '" style="min-width:180px;">' + opts + '</select></td>';
+                html += '<td style="text-align:right;">' +
+                        '<button type="button" class="btn-success btn-sm assign-sub-btn" data-idx="' +
+                        idx + '">Assign</button></td>';
+            }
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        leaveBody.innerHTML = html;
+
+        leaveBody.querySelectorAll('.assign-sub-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var idx = parseInt(btn.getAttribute('data-idx'), 10);
+                var sel = leaveBody.querySelector('.sub-select[data-idx="' + idx + '"]');
+                var subId = sel ? sel.value : '';
+                if (!subId) {
+                    alert('Please choose a substitute teacher first.');
+                    return;
+                }
+                createSubstitute(list[idx], parseInt(subId, 10), btn);
+            });
+        });
+        leaveBody.querySelectorAll('.remove-sub-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var id = parseInt(btn.getAttribute('data-id'), 10);
+                if (!confirm('Remove this substitute assignment?')) return;
+                removeSubstitute(id, btn);
+            });
+        });
+    }
+
+    function createSubstitute(a, substituteId, btn) {
+        if (btn) { btn.disabled = true; btn.textContent = 'Assigning…'; }
+        fetch(API_SUB_CREATE, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({
+                absent_teacher_id: a.absent_teacher_id,
+                substitute_teacher_id: substituteId,
+                class_id: a.class_id,
+                subject_id: a.subject_id,
+                period_order: a.period_order,
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+            if (!res.success) {
+                alert('Error: ' + (res.error || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
+                return;
+            }
+            loadTodaysLeave();
+        })
+        .catch(function (err) {
+            alert('Network error: ' + err.message);
+            if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
+        });
+    }
+
+    function removeSubstitute(id, btn) {
+        if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+        fetch(API_SUB_DELETE, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ id: id })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+            if (!res.success) {
+                alert('Error: ' + (res.error || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.textContent = 'Remove'; }
+                return;
+            }
+            loadTodaysLeave();
+        })
+        .catch(function (err) {
+            alert('Network error: ' + err.message);
+            if (btn) { btn.disabled = false; btn.textContent = 'Remove'; }
+        });
+    }
+
+    // ---- Records overlay --------------------------------------------
+    function openRecords() {
+        if (!recordsOverlay) return;
+        recordsOverlay.classList.add('active');
+        recordsBody.innerHTML = '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">Loading…</p>';
+        fetch(API_SUB_RECORD, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) {
+                    recordsBody.innerHTML = '<p style="color:#dc2626; text-align:center;">Failed to load records.</p>';
+                    return;
+                }
+                var recs = data.records || [];
+                if (recs.length === 0) {
+                    recordsBody.innerHTML = '<p class="text-muted" style="text-align:center; padding:1.5rem 0;">No substitute records yet.</p>';
+                    return;
+                }
+                var html = '<div style="overflow-x:auto; max-height:60vh;">';
+                html += '<table class="data-table">';
+                html += '<thead><tr>';
+                html += '<th>Date</th>';
+                html += '<th>Day</th>';
+                html += '<th>Period</th>';
+                html += '<th>Class</th>';
+                html += '<th>Subject</th>';
+                html += '<th>Absent</th>';
+                html += '<th>Substitute</th>';
+                html += '<th>Created By</th>';
+                html += '<th>Created At</th>';
+                html += '</tr></thead><tbody>';
+                recs.forEach(function (r) {
+                    var createdShort = (r.created_at || '').replace('T', ' ').substring(0, 19);
+                    html += '<tr>';
+                    html += '<td>' + esc(r.date) + '</td>';
+                    html += '<td>' + esc(r.day_name) + '</td>';
+                    html += '<td><strong>P' + r.period_order + '</strong></td>';
+                    html += '<td>' + esc(r.class_name) + '</td>';
+                    html += '<td>' + esc(r.subject_name || '—') + '</td>';
+                    html += '<td>' + esc(r.absent_teacher_name) + '</td>';
+                    html += '<td><span class="tag tag-green">' +
+                            esc(r.substitute_teacher_name) + '</span></td>';
+                    html += '<td><span class="text-muted" style="font-size:0.78rem;">' +
+                            esc(r.created_by || '—') + '</span></td>';
+                    html += '<td><span class="text-muted" style="font-size:0.78rem;">' +
+                            esc(createdShort) + '</span></td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+                recordsBody.innerHTML = html;
+            })
+            .catch(function (err) {
+                recordsBody.innerHTML = '<p style="color:#dc2626; text-align:center;">Network error: ' + esc(err.message) + '</p>';
+            });
+    }
+
+    if (seeRecordsBtn) seeRecordsBtn.addEventListener('click', openRecords);
+    if (closeRecordsBtn) closeRecordsBtn.addEventListener('click', function () {
+        recordsOverlay.classList.remove('active');
+    });
+    if (recordsOverlay) recordsOverlay.addEventListener('click', function (e) {
+        if (e.target === recordsOverlay) recordsOverlay.classList.remove('active');
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && recordsOverlay && recordsOverlay.classList.contains('active')) {
+            recordsOverlay.classList.remove('active');
+        }
+    });
+
+    // Auto-load on page open.
+    if (leaveCard) loadTodaysLeave();
+})();
+</script>
+<!-- ===== END SUBSTITUTE_FIXTURE_V1 ===== -->
 {% endblock %}

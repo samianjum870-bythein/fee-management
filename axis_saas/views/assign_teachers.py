@@ -317,3 +317,404 @@ def api_save_teacher_assignments(request, schema_name, class_id):
             'removed': removed,
             'skipped': skipped,
         })
+
+
+# =====================================================================
+# SUBSTITUTE_FIXTURE_V1
+# ---------------------------------------------------------------------
+# Today's leave teachers + their periods + free substitute teachers +
+# the fixture-assignment endpoints.
+# =====================================================================
+
+def _today_dow():
+    from datetime import date as _d
+    return _d.today().weekday()
+
+
+def _today_date():
+    from datetime import date as _d
+    return _d.today()
+
+
+def _day_label(dow):
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
+            'Friday', 'Saturday', 'Sunday'][dow]
+
+
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_get_todays_leave(request, schema_name):
+    """GET: today's approved-leave teachers + their periods today +
+    the free teachers available at each of those periods.
+
+    Also returns any existing SubstituteAssignment for the same
+    (class, day, period, date) so the UI can show "✓ already covered".
+    """
+    from datetime import date as _date
+
+    from ..models import (
+        LeaveRequest, Staff, PeriodTeacherAssignment, SubstituteAssignment,
+    )
+
+    tenant = get_tenant(request, schema_name)
+    today = _date.today()
+    today_dow = today.weekday()
+
+    with schema_context(schema_name):
+        leave_qs = (
+            LeaveRequest.objects
+            .filter(
+                status='approved',
+                start_date__lte=today,
+                end_date__gte=today,
+            )
+            .select_related('staff')
+        )
+        on_leave_map = {lv.staff_id: lv for lv in leave_qs if lv.staff_id}
+        on_leave_ids = set(on_leave_map.keys())
+
+        if not on_leave_ids:
+            return JsonResponse({
+                'success': True,
+                'date': today.isoformat(),
+                'day_name': _day_label(today_dow),
+                'day_of_week': today_dow,
+                'on_leave_count': 0,
+                'assignments': [],
+            })
+
+        # Every period the absent teachers are supposed to teach today.
+        absent_periods = (
+            PeriodTeacherAssignment.objects
+            .filter(teacher_id__in=on_leave_ids, day_of_week=today_dow)
+            .select_related(
+                'teacher', 'school_class', 'school_class__wing_category',
+                'subject',
+            )
+            .order_by('period_order', 'school_class__name',
+                      'school_class__section')
+        )
+
+        # Busy map: which teacher has a PeriodTeacherAssignment today
+        # at which period (across all classes).
+        busy_rows = (
+            PeriodTeacherAssignment.objects
+            .filter(day_of_week=today_dow, teacher__isnull=False)
+            .values_list('teacher_id', 'period_order')
+        )
+        busy_by_period = {}
+        for _tid, _porder in busy_rows:
+            busy_by_period.setdefault(_porder, set()).add(_tid)
+
+        # Existing substitute assignments today.
+        existing_subs = {}
+        for sa in (
+            SubstituteAssignment.objects
+            .filter(date=today, day_of_week=today_dow)
+            .select_related('substitute_teacher')
+        ):
+            existing_subs[(sa.school_class_id, sa.period_order)] = sa
+
+        # Same map keyed by (substitute_teacher_id, period_order) so we
+        # can exclude already-used substitutes from the free list.
+        already_used_sub_by_period = {}
+        for sa in existing_subs.values():
+            already_used_sub_by_period.setdefault(
+                sa.period_order, set()
+            ).add(sa.substitute_teacher_id)
+
+        all_active_teachers = list(
+            Staff.objects.filter(status='active').order_by('full_name')
+        )
+
+        assignments = []
+        for ap in absent_periods:
+            absent_teacher = ap.teacher
+            if absent_teacher is None:
+                continue
+            period = ap.period_order
+            cls = ap.school_class
+            subject = ap.subject
+
+            busy_at_period = busy_by_period.get(period, set())
+            used_subs = already_used_sub_by_period.get(period, set())
+
+            free_teachers = []
+            for t in all_active_teachers:
+                if t.id == absent_teacher.id:
+                    continue
+                if t.id in on_leave_ids:
+                    continue
+                if t.id in busy_at_period:
+                    continue
+                if t.id in used_subs:
+                    continue
+                free_teachers.append({
+                    'id': t.id,
+                    'name': t.full_name,
+                    'job_title': t.job_title or '',
+                })
+
+            leave = on_leave_map.get(absent_teacher.id)
+            existing_sa = existing_subs.get((cls.id, period))
+
+            try:
+                cls_display = get_class_display_name(
+                    cls, tenant.tenant_type,
+                )
+            except Exception:
+                cls_display = str(cls)
+
+            assignments.append({
+                'absent_teacher_id': absent_teacher.id,
+                'absent_teacher_name': absent_teacher.full_name,
+                'absent_teacher_job_title': absent_teacher.job_title or '',
+                'leave_reason': (leave.reason or '') if leave else '',
+                'leave_start': leave.start_date.isoformat() if leave else '',
+                'leave_end': leave.end_date.isoformat() if leave else '',
+                'class_id': cls.id,
+                'class_display': cls_display,
+                'subject_id': subject.id if subject else None,
+                'subject_name': subject.name if subject else '',
+                'day_of_week': today_dow,
+                'period_order': period,
+                'free_teachers': free_teachers,
+                'existing_substitute': ({
+                    'id': existing_sa.id,
+                    'teacher_id': existing_sa.substitute_teacher_id,
+                    'teacher_name': (
+                        existing_sa.substitute_teacher.full_name
+                        if existing_sa.substitute_teacher else ''
+                    ),
+                } if existing_sa else None),
+            })
+
+        return JsonResponse({
+            'success': True,
+            'date': today.isoformat(),
+            'day_name': _day_label(today_dow),
+            'day_of_week': today_dow,
+            'on_leave_count': len(on_leave_ids),
+            'assignments': assignments,
+        })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_create_substitute(request, schema_name):
+    """POST: create / update a substitute assignment for today."""
+    from datetime import date as _date
+
+    from ..models import (
+        Staff, SchoolClass, Subject, PeriodTeacherAssignment,
+        SubstituteAssignment, LeaveRequest,
+    )
+
+    try:
+        data = json.loads(request.body or '{}')
+    except Exception:
+        return JsonResponse(
+            {'success': False, 'error': 'Invalid JSON'}, status=400,
+        )
+
+    def _to_int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    absent_teacher_id = _to_int(data.get('absent_teacher_id'))
+    substitute_teacher_id = _to_int(data.get('substitute_teacher_id'))
+    class_id = _to_int(data.get('class_id'))
+    subject_id = _to_int(data.get('subject_id'))
+    period_order = _to_int(data.get('period_order'))
+
+    if not (absent_teacher_id and substitute_teacher_id and class_id
+            and period_order):
+        return JsonResponse(
+            {'success': False,
+             'error': 'absent_teacher_id, substitute_teacher_id, class_id '
+                      'and period_order are required.'},
+            status=400,
+        )
+    if absent_teacher_id == substitute_teacher_id:
+        return JsonResponse(
+            {'success': False,
+             'error': 'The substitute cannot be the same as the absent '
+                      'teacher.'},
+            status=400,
+        )
+
+    today = _date.today()
+    today_dow = today.weekday()
+
+    with schema_context(schema_name):
+        absent = Staff.objects.filter(id=absent_teacher_id).first()
+        substitute = Staff.objects.filter(
+            id=substitute_teacher_id, status='active',
+        ).first()
+        school_class = SchoolClass.objects.filter(id=class_id).first()
+        if not (absent and substitute and school_class):
+            return JsonResponse(
+                {'success': False, 'error': 'Invalid teacher or class.'},
+                status=400,
+            )
+
+        subject = None
+        if subject_id:
+            subject = Subject.objects.filter(id=subject_id).first()
+
+        # The absent teacher must actually be on approved leave today.
+        on_leave = LeaveRequest.objects.filter(
+            staff=absent,
+            status='approved',
+            start_date__lte=today,
+            end_date__gte=today,
+        ).exists()
+        if not on_leave:
+            return JsonResponse({
+                'success': False,
+                'error': (
+                    f'{absent.full_name} is not on approved leave today. '
+                    f'Cannot create a substitute.'
+                ),
+            }, status=400)
+
+        # The substitute must be free at this period.
+        busy = PeriodTeacherAssignment.objects.filter(
+            teacher=substitute,
+            day_of_week=today_dow,
+            period_order=period_order,
+        ).exclude(school_class=school_class).exists()
+        if busy:
+            return JsonResponse({
+                'success': False,
+                'error': (
+                    f'{substitute.full_name} is already teaching another '
+                    f'class at period {period_order}.'
+                ),
+            }, status=400)
+
+        # The substitute must not already be covering another class at
+        # the same period today.
+        clash = SubstituteAssignment.objects.filter(
+            substitute_teacher=substitute,
+            date=today,
+            day_of_week=today_dow,
+            period_order=period_order,
+        ).exclude(school_class=school_class).first()
+        if clash:
+            return JsonResponse({
+                'success': False,
+                'error': (
+                    f'{substitute.full_name} is already covering '
+                    f'{clash.school_class} at this period.'
+                ),
+            }, status=400)
+
+        obj, created = SubstituteAssignment.objects.update_or_create(
+            school_class=school_class,
+            day_of_week=today_dow,
+            period_order=period_order,
+            date=today,
+            defaults={
+                'absent_teacher': absent,
+                'substitute_teacher': substitute,
+                'subject': subject,
+                'reason': (data.get('reason') or '').strip()[:255] or (
+                    f'{absent.full_name} on leave'
+                ),
+                'created_by': request.session.get(
+                    'school_admin_username', 'admin',
+                ) or 'admin',
+            },
+        )
+
+        return JsonResponse({
+            'success': True,
+            'created': created,
+            'id': obj.id,
+        })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_delete_substitute(request, schema_name):
+    """POST: delete a substitute assignment by id."""
+    from ..models import SubstituteAssignment
+
+    try:
+        data = json.loads(request.body or '{}')
+    except Exception:
+        return JsonResponse(
+            {'success': False, 'error': 'Invalid JSON'}, status=400,
+        )
+
+    sub_id = data.get('id')
+    try:
+        sub_id = int(sub_id)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {'success': False, 'error': 'id required'}, status=400,
+        )
+
+    with schema_context(schema_name):
+        sa = SubstituteAssignment.objects.filter(id=sub_id).first()
+        if sa is None:
+            return JsonResponse(
+                {'success': False, 'error': 'Record not found'}, status=404,
+            )
+        sa.delete()
+        return JsonResponse({'success': True})
+
+
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('timetable_management')
+def api_get_substitute_records(request, schema_name):
+    """GET: full history of substitute assignments, newest first."""
+    from ..models import SubstituteAssignment
+
+    with schema_context(schema_name):
+        qs = (
+            SubstituteAssignment.objects
+            .select_related(
+                'absent_teacher', 'substitute_teacher',
+                'school_class', 'school_class__wing_category',
+                'subject',
+            )
+            .order_by('-date', '-created_at')[:500]
+        )
+
+        records = []
+        for sa in qs:
+            try:
+                cls_label = str(sa.school_class) if sa.school_class else ''
+            except Exception:
+                cls_label = ''
+            records.append({
+                'id': sa.id,
+                'date': sa.date.isoformat(),
+                'day_of_week': sa.day_of_week,
+                'day_name': sa.get_day_of_week_display(),
+                'period_order': sa.period_order,
+                'class_name': cls_label,
+                'subject_name': sa.subject.name if sa.subject else '',
+                'absent_teacher_name': (
+                    sa.absent_teacher.full_name if sa.absent_teacher else ''
+                ),
+                'substitute_teacher_name': (
+                    sa.substitute_teacher.full_name
+                    if sa.substitute_teacher else ''
+                ),
+                'reason': sa.reason or '',
+                'created_by': sa.created_by or '',
+                'created_at': (
+                    sa.created_at.isoformat() if sa.created_at else ''
+                ),
+            })
+
+        return JsonResponse({'success': True, 'records': records})
