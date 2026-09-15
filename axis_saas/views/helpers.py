@@ -1,3 +1,4 @@
+import functools
 
 # ========== REDIS CACHE HELPERS ==========
 import logging
@@ -64,9 +65,11 @@ from ..models import ManualGenerationLog, WingCategory
 MOBILE_AGENT_RE = re.compile(r"Mobile|Android|iP(hone|od|ad)|Opera Mini|IEMobile|BlackBerry|webOS|Fennec|Silk", re.I)
 
 def require_tenant_type(allowed_types):
+    """LEAVE_BUTTONS_FIX_03: functools.wraps added so view attributes
+    (notably csrf_exempt) survive this decorator layer."""
 
     def decorator(view_func):
-
+        @functools.wraps(view_func)
         def wrapper(request, schema_name, *args, **kwargs):
             if hasattr(request, 'tenant') and request.tenant is not None:
                 tenant = request.tenant
@@ -82,9 +85,11 @@ def require_tenant_type(allowed_types):
     return decorator
 
 def require_school_feature(feature_key):
+    """LEAVE_BUTTONS_FIX_03: functools.wraps added so view attributes
+    (notably csrf_exempt) survive this decorator layer."""
 
     def decorator(view_func):
-
+        @functools.wraps(view_func)
         def wrapper(request, schema_name, *args, **kwargs):
             if hasattr(request, 'tenant') and request.tenant is not None:
                 tenant = request.tenant

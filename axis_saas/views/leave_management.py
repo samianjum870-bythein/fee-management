@@ -305,13 +305,27 @@ def leave_management(request, schema_name):
             for s in Staff.objects.filter(status='active').order_by('full_name')
         ]
 
+    # LEAVE_BUTTONS_FIX_03: escape <, >, & and JS line separators so a
+    # staff-supplied string containing "</script>" cannot break the
+    # enclosing <script> tag in the template and silently kill every
+    # global function (including approveLeave / rejectLeave).
+    def _safe_json(obj):
+        s = json.dumps(obj)
+        return (
+            s.replace('&', '\\u0026')
+             .replace('<', '\\u003c')
+             .replace('>', '\\u003e')
+             .replace('\u2028', '\\u2028')
+             .replace('\u2029', '\\u2029')
+        )
+
     context = {
         'tenant': tenant,
-        'leaves_json': json.dumps(leaves),
-        'staff_summary_json': json.dumps(staff_summary),
-        'policy_json': json.dumps(policy_data),
-        'suspensions_json': json.dumps(suspensions),
-        'staff_picker_json': json.dumps(staff_picker),
+        'leaves_json': _safe_json(leaves),
+        'staff_summary_json': _safe_json(staff_summary),
+        'policy_json': _safe_json(policy_data),
+        'suspensions_json': _safe_json(suspensions),
+        'staff_picker_json': _safe_json(staff_picker),
         'stats': stats,
         'active_suspension_count': active_count,
         'status_filter': status_filter,

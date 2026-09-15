@@ -3,45 +3,44 @@
 axis_patcher.py
 ===============
 
-STAFF_BIOMETRIC_ADMIN_CONTROL_V1
---------------------------------
+LEAVE_BUTTONS_FIX_03
+--------------------
 
-Gives the **school admin** the power to enable / disable biometric login
-for any individual staff member from that staff member's profile page.
+Follow-up to LEAVE_ADMIN_APPROVE_FIX_02. That patch already added
+`functools.wraps` to the URL wrappers, so `csrf_exempt` now propagates
+correctly. But the Approve / Reject buttons on
+    /portal/<schema>/leave/
+can still fail silently in the real world for three remaining reasons:
 
-Behaviour:
-  * Admin enables  -> identical to today: staff MUST register & use
-                      biometric (fingerprint / Face ID / passkey) to log
-                      in.
-  * Admin disables -> staff biometric is bypassed end-to-end:
-                      staff signs in with username + password only.
-                      No forced redirect to the biometric setup page.
-                      No "Biometric verification is required" error.
-                      No biometric WebAuthn prompt on the login screen.
+  1. `require_tenant_type` and `require_school_feature` in
+     `axis_saas/views/helpers.py` are NOT decorated with
+     `functools.wraps`. They sit between the view and `csrf_exempt`'s
+     outermost decorator. In most ordering they don't break the
+     propagation, but any reordering of decorators silently kills the
+     CSRF exemption. Fixing the helpers removes that class of bug.
 
-Implementation summary
------------------------
-1. Adds `Staff.biometric_login_enabled` (BooleanField, default=True).
-2. New migration `0028_staff_biometric_login_enabled.py`.
-3. `staff_login` view respects the flag.
-4. `staff_biometric_prepare_login` view respects the flag.
-5. `StaffTenantMiddleware` skips the biometric-setup redirect when the
-   flag is False.
-6. `staff_biometric_setup` view redirects to dashboard when flag False.
-7. New admin endpoint:
-       POST /portal/<schema>/staff/<staff_id>/toggle-biometric/
-   exposed as `staff_toggle_biometric` in `axis_saas.views.staff`.
-8. New URL route + views-`__init__` export.
-9. Adds a toggle card in `templates/tenant/staff_profile.html`.
-10. Extends `get_staff_profile_context` to expose the current state +
-    registered device count.
+  2. The template reads remarks through `window.prompt()`. Some
+     browsers and mobile webviews silently suppress prompt() after the
+     page has been idle, and any extension that blocks modal dialogs
+     does the same. The button then appears to "do nothing". This
+     patch replaces prompt() with a small inline modal.
 
-Idempotent, safe to re-run.
+  3. The template embeds server JSON via `{{ leaves_json|safe }}` and
+     friends. If any staff-supplied string contains `</script>` (a
+     leave title, a reason, a name), the browser terminates the
+     enclosing `<script>` early and the whole IIFE never finishes
+     executing — so `window.approveLeave` is never defined and the
+     inline `onclick` throws a ReferenceError that most browsers log
+     to the console but don't surface to the user.
+
+  4. As a defence-in-depth on top of #3, the new modal handler logs
+     everything to the console and surfaces any failure with an
+     alert, including the exact URL it hit.
 
 Usage:
     python3 axis_patcher.py --dry-run --verbose
     python3 axis_patcher.py --target-dir /path/to/project
-    python3 axis_patcher.py                       # apply in place
+    python3 axis_patcher.py                 # apply in place
 """
 
 import argparse
@@ -50,20 +49,16 @@ from datetime import datetime
 from pathlib import Path
 
 
-MARKER = "STAFF_BIOMETRIC_ADMIN_CONTROL_V1"
-
-
+# ---------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------
 def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
-def _replace_once(content, old, new, label, verbose, marker=None):
-    """Replace first literal occurrence.
-
-    If `marker` is supplied and already present anywhere in `content`,
-    the edit is considered already applied and skipped.
-    """
-    if marker and marker in content:
+def _replace_once(content, old, new, label, verbose):
+    """Replace first literal occurrence. Returns (content, changed)."""
+    if new.strip() and new.strip() in content:
         if verbose:
             log(f"  SKIP (already patched): {label}")
         return content, False
@@ -81,8 +76,7 @@ def _write(path, content, dry_run, verbose, label):
         log(f"  DRY-RUN: would write {path} ({label})")
         return True
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding='utf-8')
         log(f"  WROTE: {path} ({label})")
         return True
     except Exception as exc:
@@ -90,703 +84,418 @@ def _write(path, content, dry_run, verbose, label):
         return False
 
 
-def _read(path):
-    return path.read_text(encoding="utf-8")
-
-
 # =====================================================================
-# 1) models.py — add Staff.biometric_login_enabled
+# 1) helpers.py — add functools.wraps to the two decorators
 # =====================================================================
-MODELS_REL = Path("axis_saas") / "models.py"
+HELPERS_REL = Path('axis_saas') / 'views' / 'helpers.py'
 
-MODELS_ANCHOR = """    photo = models.ImageField(upload_to='staff_photos/', blank=True, null=True)
-    notes = models.TextField(blank=True, null=True)
-    created_on = models.DateTimeField(auto_now_add=True)
-    updated_on = models.DateTimeField(auto_now=True)
+HELPERS_TT_OLD = '''def require_tenant_type(allowed_types):
 
-    class Meta:
-        ordering = ['-created_on']
-"""
+    def decorator(view_func):
 
-MODELS_NEW = """    photo = models.ImageField(upload_to='staff_photos/', blank=True, null=True)
-    notes = models.TextField(blank=True, null=True)
-    # ========== STAFF_BIOMETRIC_ADMIN_CONTROL_V1 ==========
-    # Per-staff switch that only the school admin can flip.
-    # True  -> the staff member must register & use biometric to sign in.
-    # False -> biometric is bypassed; username + password login only.
-    biometric_login_enabled = models.BooleanField(
-        default=True,
-        help_text=(
-            "If True (default), this staff member must register and use "
-            "biometric (fingerprint / Face ID / passkey) to sign in. "
-            "If False, biometric is bypassed and the staff member signs "
-            "in with username and password only. Managed by the school "
-            "admin from the staff profile page."
-        ),
-    )
-    # =====================================================
-    created_on = models.DateTimeField(auto_now_add=True)
-    updated_on = models.DateTimeField(auto_now=True)
+        def wrapper(request, schema_name, *args, **kwargs):
+            if hasattr(request, 'tenant') and request.tenant is not None:
+                tenant = request.tenant
+            else:
+                tenant = get_tenant(request, schema_name)
+            tenant_type_matches = tenant.tenant_type in allowed_types or (
+                'school' in allowed_types and tenant.tenant_type in ('school', 'wing_school', 'single_small_school')
+            )
+            if not tenant_type_matches:
+                raise Http404('Not available for this tenant type')
+            return view_func(request, schema_name, *args, **kwargs)
+        return wrapper
+    return decorator
+'''
 
-    class Meta:
-        ordering = ['-created_on']
-"""
+HELPERS_TT_NEW = '''def require_tenant_type(allowed_types):
+    """LEAVE_BUTTONS_FIX_03: functools.wraps added so view attributes
+    (notably csrf_exempt) survive this decorator layer."""
 
+    def decorator(view_func):
+        @functools.wraps(view_func)
+        def wrapper(request, schema_name, *args, **kwargs):
+            if hasattr(request, 'tenant') and request.tenant is not None:
+                tenant = request.tenant
+            else:
+                tenant = get_tenant(request, schema_name)
+            tenant_type_matches = tenant.tenant_type in allowed_types or (
+                'school' in allowed_types and tenant.tenant_type in ('school', 'wing_school', 'single_small_school')
+            )
+            if not tenant_type_matches:
+                raise Http404('Not available for this tenant type')
+            return view_func(request, schema_name, *args, **kwargs)
+        return wrapper
+    return decorator
+'''
 
-def patch_models(root, dry_run, verbose):
-    path = root / MODELS_REL
-    if not path.is_file():
-        log(f"ERROR: {path} not found")
-        return False
-    content = _read(path)
+HELPERS_SF_OLD = '''def require_school_feature(feature_key):
 
-    if "biometric_login_enabled" in content:
-        log(f"SKIP (already patched): {path}")
-        return True
+    def decorator(view_func):
 
-    content, changed = _replace_once(
-        content, MODELS_ANCHOR, MODELS_NEW,
-        "models.py: Staff.biometric_login_enabled", verbose,
-    )
-    if not changed:
-        return False
-    return _write(path, content, dry_run, verbose, "Staff field")
+        def wrapper(request, schema_name, *args, **kwargs):
+            if hasattr(request, 'tenant') and request.tenant is not None:
+                tenant = request.tenant
+            else:
+                tenant = get_tenant(request, schema_name)
+            channel = 'mobile' if '/mobile/' in request.path or is_mobile_user_agent(request) else 'desktop'
+            if tenant.tenant_type not in ('school', 'wing_school', 'single_small_school') or not tenant.is_feature_enabled(feature_key, channel):
+                raise Http404('This school feature is not enabled for this tenant.')
+            return view_func(request, schema_name, *args, **kwargs)
+        return wrapper
+    return decorator
+'''
 
+HELPERS_SF_NEW = '''def require_school_feature(feature_key):
+    """LEAVE_BUTTONS_FIX_03: functools.wraps added so view attributes
+    (notably csrf_exempt) survive this decorator layer."""
 
-# =====================================================================
-# 2) migration 0028
-# =====================================================================
-MIGRATION_REL = (
-    Path("axis_saas") / "migrations" / "0028_staff_biometric_login_enabled.py"
-)
-
-MIGRATION_CONTENT = '''# Generated by axis_patcher — STAFF_BIOMETRIC_ADMIN_CONTROL_V1
-#
-# Adds Staff.biometric_login_enabled. When False, biometric is bypassed
-# for that staff member and username+password login works normally.
-# Only the school admin can toggle this from the staff profile page.
-
-from django.db import migrations, models
-
-
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ('axis_saas', '0027_substitute_assignment'),
-    ]
-
-    operations = [
-        migrations.AddField(
-            model_name='staff',
-            name='biometric_login_enabled',
-            field=models.BooleanField(
-                default=True,
-                help_text=(
-                    "If True (default), this staff member must register and "
-                    "use biometric (fingerprint / Face ID / passkey) to sign "
-                    "in. If False, biometric is bypassed and the staff member "
-                    "signs in with username and password only. Managed by "
-                    "the school admin from the staff profile page."
-                ),
-            ),
-        ),
-    ]
+    def decorator(view_func):
+        @functools.wraps(view_func)
+        def wrapper(request, schema_name, *args, **kwargs):
+            if hasattr(request, 'tenant') and request.tenant is not None:
+                tenant = request.tenant
+            else:
+                tenant = get_tenant(request, schema_name)
+            channel = 'mobile' if '/mobile/' in request.path or is_mobile_user_agent(request) else 'desktop'
+            if tenant.tenant_type not in ('school', 'wing_school', 'single_small_school') or not tenant.is_feature_enabled(feature_key, channel):
+                raise Http404('This school feature is not enabled for this tenant.')
+            return view_func(request, schema_name, *args, **kwargs)
+        return wrapper
+    return decorator
 '''
 
 
-def patch_migration(root, dry_run, verbose):
-    path = root / MIGRATION_REL
-    if path.is_file():
-        log(f"SKIP (already exists): {path}")
-        return True
-    return _write(path, MIGRATION_CONTENT, dry_run, verbose, "new migration")
-
-
-# =====================================================================
-# 3) staff_portal.py — respect the flag in staff_login
-# =====================================================================
-STAFF_PORTAL_REL = Path("axis_saas") / "views" / "staff_portal.py"
-
-STAFF_PORTAL_LOGIN_OLD = """                with schema_context('public'):
-                    biometric_enabled = StaffBiometricCredential.objects.filter(
-                        staff_id=staff.pk,
-                        schema_name=credential.schema_name,
-                        enabled=True,
-                    ).exists()
-                if biometric_enabled:
-                    return render(request, 'mobile/staff/login.html', {
-                        'error': 'Biometric verification is required for this account. Please use a registered device.',
-                        'biometric_available': True,
-                    })
-"""
-
-STAFF_PORTAL_LOGIN_NEW = """                with schema_context('public'):
-                    biometric_enabled = StaffBiometricCredential.objects.filter(
-                        staff_id=staff.pk,
-                        schema_name=credential.schema_name,
-                        enabled=True,
-                    ).exists()
-                # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: only force biometric when
-                # the school admin has left biometric enabled for this
-                # specific staff member. If disabled, allow password login
-                # to succeed exactly as if no biometric credential existed.
-                _staff_biometric_allowed = getattr(
-                    staff, 'biometric_login_enabled', True,
-                )
-                if biometric_enabled and _staff_biometric_allowed:
-                    return render(request, 'mobile/staff/login.html', {
-                        'error': 'Biometric verification is required for this account. Please use a registered device.',
-                        'biometric_available': True,
-                    })
-"""
-
-STAFF_PORTAL_SETUP_OLD = """@require_staff_login
-@require_http_methods(['GET'])
-@require_staff_feature('staff_profile')
-def staff_biometric_setup(request):
-    schema_name = request.session['staff_schema_name']
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-    return render(request, 'mobile/staff/biometric_setup.html', {'staff': staff})
-"""
-
-STAFF_PORTAL_SETUP_NEW = """@require_staff_login
-@require_http_methods(['GET'])
-@require_staff_feature('staff_profile')
-def staff_biometric_setup(request):
-    schema_name = request.session['staff_schema_name']
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-    # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: if the school admin disabled
-    # biometric for this staff member, do not force the setup page on
-    # them — send them straight to the dashboard.
-    if not getattr(staff, 'biometric_login_enabled', True):
-        return redirect('staff_dashboard')
-    return render(request, 'mobile/staff/biometric_setup.html', {'staff': staff})
-"""
-
-
-def patch_staff_portal(root, dry_run, verbose):
-    path = root / STAFF_PORTAL_REL
+def patch_helpers(root, dry_run, verbose):
+    path = root / HELPERS_REL
     if not path.is_file():
         log(f"ERROR: {path} not found")
         return False
-    content = _read(path)
-    any_change = False
+    content = path.read_text(encoding='utf-8')
+
+    if 'LEAVE_BUTTONS_FIX_03' in content:
+        log(f"SKIP (already patched): {path}")
+        return True
+
+    # Ensure functools is imported.
+    if 'import functools' not in content:
+        # Prepend after the docstring / first import line. Simplest safe
+        # approach: put it on its own line at the very top, before any
+        # other import. Python accepts imports above docstrings only
+        # for module-level comments, but the file starts with a big
+        # comment block then "import re". We insert right before the
+        # first import.
+        if content.startswith('"""') or content.startswith("'''"):
+            # Skip past the closing triple-quote.
+            quote = content[:3]
+            close = content.find(quote, 3)
+            if close != -1:
+                insert_at = content.find('\n', close) + 1
+                content = content[:insert_at] + '\nimport functools\n' + content[insert_at:]
+            else:
+                content = 'import functools\n' + content
+        else:
+            content = 'import functools\n' + content
 
     content, c1 = _replace_once(
-        content,
-        STAFF_PORTAL_LOGIN_OLD,
-        STAFF_PORTAL_LOGIN_NEW,
-        "staff_portal.py: staff_login biometric gate",
-        verbose,
-        marker="STAFF_BIOMETRIC_ADMIN_CONTROL_V1: only force biometric when",
-    )
-    any_change = any_change or c1
-
-    content, c2 = _replace_once(
-        content,
-        STAFF_PORTAL_SETUP_OLD,
-        STAFF_PORTAL_SETUP_NEW,
-        "staff_portal.py: staff_biometric_setup redirect",
-        verbose,
-        marker="do not force the setup page on",
-    )
-    any_change = any_change or c2
-
-    if not any_change:
-        return True
-    return _write(path, content, dry_run, verbose, "staff_portal.py")
-
-
-# =====================================================================
-# 4) staff_biometric.py — respect the flag in prepare_login
-# =====================================================================
-STAFF_BIOMETRIC_REL = Path("axis_saas") / "views" / "staff_biometric.py"
-
-STAFF_BIOMETRIC_PREP_OLD = """    with schema_context('public'):
-        biometrics = list(StaffBiometricCredential.objects.filter(
-            staff_id=staff.pk,
-            schema_name=credential.schema_name,
-            enabled=True,
-        ))
-    if not biometrics:
-        return JsonResponse({'ok': True, 'biometric_enabled': False, 'message': 'No biometric credential found.'})
-"""
-
-STAFF_BIOMETRIC_PREP_NEW = """    # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: if the school admin disabled
-    # biometric for this staff member, immediately tell the client that
-    # no biometric step is needed and let the normal password login
-    # proceed on the server side.
-    if not getattr(staff, 'biometric_login_enabled', True):
-        return JsonResponse({
-            'ok': True,
-            'biometric_enabled': False,
-            'message': 'Biometric is disabled for this account by the school admin.',
-        })
-
-    with schema_context('public'):
-        biometrics = list(StaffBiometricCredential.objects.filter(
-            staff_id=staff.pk,
-            schema_name=credential.schema_name,
-            enabled=True,
-        ))
-    if not biometrics:
-        return JsonResponse({'ok': True, 'biometric_enabled': False, 'message': 'No biometric credential found.'})
-"""
-
-
-def patch_staff_biometric(root, dry_run, verbose):
-    path = root / STAFF_BIOMETRIC_REL
-    if not path.is_file():
-        log(f"ERROR: {path} not found")
-        return False
-    content = _read(path)
-
-    if "Biometric is disabled for this account by the school admin" in content:
-        log(f"SKIP (already patched): {path}")
-        return True
-
-    content, changed = _replace_once(
-        content,
-        STAFF_BIOMETRIC_PREP_OLD,
-        STAFF_BIOMETRIC_PREP_NEW,
-        "staff_biometric.py: prepare_login gate",
-        verbose,
-    )
-    if not changed:
-        return False
-    return _write(path, content, dry_run, verbose, "staff_biometric.py")
-
-
-# =====================================================================
-# 5) middleware — skip forced setup when flag is False
-# =====================================================================
-MIDDLEWARE_REL = Path("axis_saas") / "middleware" / "staff_tenant_middleware.py"
-
-MIDDLEWARE_OLD = """        with schema_context('public'):
-            biometric_enabled = StaffBiometricCredential.objects.filter(
-                staff_id=staff_id,
-                schema_name=schema_name,
-                enabled=True,
-            ).exists()
-        if not biometric_enabled and request.path_info != '/portal/staff/biometric/setup/':
-            return redirect('staff_biometric_setup')
-"""
-
-MIDDLEWARE_NEW = """        with schema_context('public'):
-            biometric_enabled = StaffBiometricCredential.objects.filter(
-                staff_id=staff_id,
-                schema_name=schema_name,
-                enabled=True,
-            ).exists()
-
-        # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: read the per-staff admin switch.
-        # When False, biometric is bypassed entirely — do NOT redirect the
-        # staff member to the setup page even if they have never
-        # registered a credential.
-        try:
-            with schema_context(schema_name):
-                _staff_biometric_allowed = (
-                    Staff.objects
-                    .filter(pk=staff_id)
-                    .values_list('biometric_login_enabled', flat=True)
-                    .first()
-                )
-        except Exception:
-            _staff_biometric_allowed = None
-        if _staff_biometric_allowed is None:
-            _staff_biometric_allowed = True
-
-        if (
-            _staff_biometric_allowed
-            and not biometric_enabled
-            and request.path_info != '/portal/staff/biometric/setup/'
-        ):
-            return redirect('staff_biometric_setup')
-"""
-
-
-def patch_middleware(root, dry_run, verbose):
-    path = root / MIDDLEWARE_REL
-    if not path.is_file():
-        log(f"ERROR: {path} not found")
-        return False
-    content = _read(path)
-
-    if "STAFF_BIOMETRIC_ADMIN_CONTROL_V1" in content:
-        log(f"SKIP (already patched): {path}")
-        return True
-
-    content, changed = _replace_once(
-        content,
-        MIDDLEWARE_OLD,
-        MIDDLEWARE_NEW,
-        "staff_tenant_middleware.py: admin flag",
-        verbose,
-    )
-    if not changed:
-        return False
-    return _write(path, content, dry_run, verbose, "middleware")
-
-
-# =====================================================================
-# 6) staff.py views — new toggle endpoint + enriched profile context
-# =====================================================================
-STAFF_VIEWS_REL = Path("axis_saas") / "views" / "staff.py"
-
-STAFF_VIEWS_IMPORT_OLD = (
-    "from ..models import SchoolClient, Staff, StaffCredential, SchoolClass, ClassSubject"
-)
-
-STAFF_VIEWS_IMPORT_NEW = (
-    "from ..models import (\n"
-    "    SchoolClient, Staff, StaffCredential, StaffBiometricCredential,\n"
-    "    SchoolClass, ClassSubject,\n"
-    ")"
-)
-
-STAFF_VIEWS_CONTEXT_OLD = """    with schema_context('public'):
-        credential = StaffCredential.objects.filter(staff_id=staff.id, schema_name=schema_name).first()
-    if credential is not None:
-"""
-
-STAFF_VIEWS_CONTEXT_NEW = """    with schema_context('public'):
-        credential = StaffCredential.objects.filter(staff_id=staff.id, schema_name=schema_name).first()
-        # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: count devices so the admin
-        # can see whether any biometric credential is currently
-        # registered for this staff member.
-        biometric_device_count = StaffBiometricCredential.objects.filter(
-            staff_id=staff.id,
-            schema_name=schema_name,
-            enabled=True,
-        ).count()
-    if credential is not None:
-"""
-
-STAFF_VIEWS_RETURN_OLD = """    return {
-        'tenant': tenant,
-        'classes': classes,
-        'sections': sections,
-        'selected_class_id': class_id,
-        'selected_section': section,
-        'staff': staff,
-        'credential': credential,
-        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
-        'assigned_classes': assigned_classes,
-        'class_teacher_classes': class_teacher_classes,
-    }
-"""
-
-STAFF_VIEWS_RETURN_NEW = """    return {
-        'tenant': tenant,
-        'classes': classes,
-        'sections': sections,
-        'selected_class_id': class_id,
-        'selected_section': section,
-        'staff': staff,
-        'credential': credential,
-        'logo_url': tenant.school_logo.url if tenant.school_logo else None,
-        'assigned_classes': assigned_classes,
-        'class_teacher_classes': class_teacher_classes,
-        # STAFF_BIOMETRIC_ADMIN_CONTROL_V1
-        'biometric_login_enabled': getattr(staff, 'biometric_login_enabled', True),
-        'biometric_device_count': biometric_device_count,
-    }
-"""
-
-
-STAFF_VIEWS_TOGGLE = '''
-# =====================================================================
-# STAFF_BIOMETRIC_ADMIN_CONTROL_V1
-# ---------------------------------------------------------------------
-# Admin-only endpoint: flip Staff.biometric_login_enabled for a single
-# staff member from their profile page.
-# =====================================================================
-
-@require_tenant_type(['school'])
-@require_school_feature('staff_management')
-@require_http_methods(['POST'])
-def staff_toggle_biometric(request, schema_name, staff_id):
-    """Enable / disable biometric login for a specific staff member.
-
-    POST param:
-        enabled : "true"/"1"/"yes"/"on"  -> enable
-                  anything else           -> disable
-    """
-    raw = request.POST.get('enabled', '')
-    enabled = str(raw).strip().lower() in ('true', '1', 'yes', 'on')
-
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, id=staff_id)
-        staff.biometric_login_enabled = enabled
-        staff.save(update_fields=['biometric_login_enabled'])
-
-    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-        return JsonResponse({
-            'success': True,
-            'enabled': enabled,
-            'message': (
-                'Biometric login enabled for this staff member.'
-                if enabled else
-                'Biometric login disabled — staff can now sign in with '
-                'username and password only.'
-            ),
-        })
-
-    messages.success(
-        request,
-        'Biometric login updated successfully.' if enabled
-        else 'Biometric login disabled for this staff member.'
-    )
-    return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)
-'''
-
-
-def patch_staff_views(root, dry_run, verbose):
-    path = root / STAFF_VIEWS_REL
-    if not path.is_file():
-        log(f"ERROR: {path} not found")
-        return False
-    content = _read(path)
-    any_change = False
-
-    # import
-    if 'StaffBiometricCredential' not in content:
-        content, c = _replace_once(
-            content,
-            STAFF_VIEWS_IMPORT_OLD,
-            STAFF_VIEWS_IMPORT_NEW,
-            "staff.py: import StaffBiometricCredential",
-            verbose,
-        )
-        any_change = any_change or c
-
-    # context enrichment
-    if 'biometric_device_count' not in content:
-        content, c = _replace_once(
-            content,
-            STAFF_VIEWS_CONTEXT_OLD,
-            STAFF_VIEWS_CONTEXT_NEW,
-            "staff.py: get_staff_profile_context biometric count",
-            verbose,
-        )
-        any_change = any_change or c
-
-        content, c = _replace_once(
-            content,
-            STAFF_VIEWS_RETURN_OLD,
-            STAFF_VIEWS_RETURN_NEW,
-            "staff.py: get_staff_profile_context return biometric keys",
-            verbose,
-        )
-        any_change = any_change or c
-
-    # new toggle view
-    if "def staff_toggle_biometric(" not in content:
-        content = content.rstrip() + "\n\n" + STAFF_VIEWS_TOGGLE
-        if verbose:
-            log("  patched: staff.py: staff_toggle_biometric appended")
-        any_change = True
-
-    if not any_change:
-        log(f"SKIP (already patched): {path}")
-        return True
-    return _write(path, content, dry_run, verbose, "staff.py")
-
-
-# =====================================================================
-# 7) views/__init__.py — export new view
-# =====================================================================
-VIEWS_INIT_REL = Path("axis_saas") / "views" / "__init__.py"
-
-VIEWS_INIT_OLD = """from .staff import (
-    staff_list, mobile_staff_list, staff_profile, mobile_staff_profile,
-    staff_add, staff_add_mobile, staff_edit, staff_search_api
-)"""
-
-VIEWS_INIT_NEW = """from .staff import (
-    staff_list, mobile_staff_list, staff_profile, mobile_staff_profile,
-    staff_add, staff_add_mobile, staff_edit, staff_search_api,
-    staff_toggle_biometric,
-)"""
-
-
-def patch_views_init(root, dry_run, verbose):
-    path = root / VIEWS_INIT_REL
-    if not path.is_file():
-        log(f"ERROR: {path} not found")
-        return False
-    content = _read(path)
-
-    if 'staff_toggle_biometric' in content:
-        log(f"SKIP (already patched): {path}")
-        return True
-
-    content, changed = _replace_once(
-        content, VIEWS_INIT_OLD, VIEWS_INIT_NEW,
-        "views/__init__.py: staff_toggle_biometric export", verbose,
-    )
-    if not changed:
-        # Fallback: append an explicit import at the end.
-        content = content.rstrip() + (
-            "\n\nfrom .staff import staff_toggle_biometric  # noqa: F401\n"
-        )
-    return _write(path, content, dry_run, verbose, "views __init__")
-
-
-# =====================================================================
-# 8) public_urls.py — import + register new route
-# =====================================================================
-URLS_REL = Path("axis_saas") / "public_urls.py"
-
-URLS_IMPORT_OLD = (
-    "from .views.staff import staff_list, mobile_staff_list, staff_profile, "
-    "mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, "
-    "staff_search_api, staff_toggle_status, staff_force_logout, "
-    "staff_reset_password"
-)
-
-URLS_IMPORT_NEW = (
-    "from .views.staff import staff_list, mobile_staff_list, staff_profile, "
-    "mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, "
-    "staff_search_api, staff_toggle_status, staff_force_logout, "
-    "staff_reset_password, staff_toggle_biometric"
-)
-
-URLS_ROUTE_ANCHOR = (
-    "    path('portal/<slug:schema_name>/staff/<int:staff_id>/reset-password/', "
-    "portal_wrapper(login_required_for_schema(staff_reset_password)), "
-    "name='staff_reset_password'),\n"
-)
-
-URLS_ROUTE_NEW = (
-    "    path('portal/<slug:schema_name>/staff/<int:staff_id>/reset-password/', "
-    "portal_wrapper(login_required_for_schema(staff_reset_password)), "
-    "name='staff_reset_password'),\n"
-    "    # ===== STAFF_BIOMETRIC_ADMIN_CONTROL_V1 =====\n"
-    "    path('portal/<slug:schema_name>/staff/<int:staff_id>/toggle-biometric/', "
-    "portal_wrapper(login_required_for_schema(staff_toggle_biometric)), "
-    "name='staff_toggle_biometric'),\n"
-)
-
-
-def patch_urls(root, dry_run, verbose):
-    path = root / URLS_REL
-    if not path.is_file():
-        log(f"ERROR: {path} not found")
-        return False
-    content = _read(path)
-
-    if 'staff_toggle_biometric' in content:
-        log(f"SKIP (already patched): {path}")
-        return True
-
-    content, c1 = _replace_once(
-        content, URLS_IMPORT_OLD, URLS_IMPORT_NEW,
-        "public_urls.py: import staff_toggle_biometric", verbose,
+        content, HELPERS_TT_OLD, HELPERS_TT_NEW,
+        "require_tenant_type", verbose,
     )
     content, c2 = _replace_once(
-        content, URLS_ROUTE_ANCHOR, URLS_ROUTE_NEW,
-        "public_urls.py: route staff_toggle_biometric", verbose,
+        content, HELPERS_SF_OLD, HELPERS_SF_NEW,
+        "require_school_feature", verbose,
     )
+
     if not (c1 and c2):
-        log("ERROR: public_urls.py anchors not all found — leaving file alone.")
+        log("ERROR: helpers.py anchors not all found — aborting this file.")
         return False
-    return _write(path, content, dry_run, verbose, "public_urls.py")
+    return _write(path, content, dry_run, verbose, "helpers decorators")
 
 
 # =====================================================================
-# 9) templates/tenant/staff_profile.html — admin toggle card
+# 2) leave_management.py — safe JSON for the template
 # =====================================================================
-TEMPLATE_REL = Path("templates") / "tenant" / "staff_profile.html"
+LEAVE_VIEWS_REL = Path('axis_saas') / 'views' / 'leave_management.py'
 
-TEMPLATE_ANCHOR = """<div class="action-panel" style="margin-top:1.5rem;">
-    <div class="info-card">
-        <h3>Account Control</h3>"""
+LEAVE_CTX_OLD = '''    context = {
+        'tenant': tenant,
+        'leaves_json': json.dumps(leaves),
+        'staff_summary_json': json.dumps(staff_summary),
+        'policy_json': json.dumps(policy_data),
+        'suspensions_json': json.dumps(suspensions),
+        'staff_picker_json': json.dumps(staff_picker),
+'''
 
-TEMPLATE_NEW = """<!-- ===== STAFF_BIOMETRIC_ADMIN_CONTROL_V1 ===== -->
-<div class="info-card" style="margin-top:1.5rem;" id="biometricControlCard">
-    <h3>Staff Portal Biometric Login</h3>
-    <p style="color:var(--muted); font-size:0.85rem; margin:0.5rem 0 0.75rem 0; line-height:1.5;">
-        When <strong>enabled</strong>, this staff member must register and use
-        biometric (fingerprint / Face ID / passkey) to sign in.<br>
-        When <strong>disabled</strong>, biometric is bypassed and the staff member
-        signs in with username and password only.
-    </p>
-    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-        <span class="status-badge" style="background:{% if biometric_login_enabled %}#22C55E{% else %}#94A3B8{% endif %}; color:white; padding:0.3rem 0.85rem; border-radius:1rem; font-size:0.8rem; font-weight:600; letter-spacing:0.02em;">
-            {% if biometric_login_enabled %}Enabled{% else %}Disabled{% endif %}
-        </span>
-        <span style="color:var(--muted); font-size:0.78rem;">
-            Registered device(s): <strong>{{ biometric_device_count }}</strong>
-        </span>
-        <form method="post"
-              action="{% url 'staff_toggle_biometric' schema_name=tenant.schema_name staff_id=staff.id %}"
-              style="margin-left:auto; display:inline;">
-            {% csrf_token %}
-            <input type="hidden" name="enabled" value="{% if biometric_login_enabled %}false{% else %}true{% endif %}">
-            {% if biometric_login_enabled %}
-                <button type="submit" class="btn-secondary"
-                        onclick="return confirm('Disable biometric login for {{ staff.full_name|escapejs }}? They will be able to sign in with username and password only.');">
-                    Disable Biometric
-                </button>
-            {% else %}
-                <button type="submit" class="btn-primary">
-                    Enable Biometric
-                </button>
-            {% endif %}
-        </form>
+LEAVE_CTX_NEW = '''    # LEAVE_BUTTONS_FIX_03: escape <, >, & and JS line separators so a
+    # staff-supplied string containing "</script>" cannot break the
+    # enclosing <script> tag in the template and silently kill every
+    # global function (including approveLeave / rejectLeave).
+    def _safe_json(obj):
+        s = json.dumps(obj)
+        return (
+            s.replace('&', '\\\\u0026')
+             .replace('<', '\\\\u003c')
+             .replace('>', '\\\\u003e')
+             .replace('\\u2028', '\\\\u2028')
+             .replace('\\u2029', '\\\\u2029')
+        )
+
+    context = {
+        'tenant': tenant,
+        'leaves_json': _safe_json(leaves),
+        'staff_summary_json': _safe_json(staff_summary),
+        'policy_json': _safe_json(policy_data),
+        'suspensions_json': _safe_json(suspensions),
+        'staff_picker_json': _safe_json(staff_picker),
+'''
+
+
+def patch_leave_views(root, dry_run, verbose):
+    path = root / LEAVE_VIEWS_REL
+    if not path.is_file():
+        log(f"ERROR: {path} not found")
+        return False
+    content = path.read_text(encoding='utf-8')
+
+    if '_safe_json' in content and 'LEAVE_BUTTONS_FIX_03' in content:
+        log(f"SKIP (already patched): {path}")
+        return True
+
+    content, changed = _replace_once(
+        content, LEAVE_CTX_OLD, LEAVE_CTX_NEW,
+        "leave_management context safe JSON", verbose,
+    )
+    if not changed:
+        return False
+    return _write(path, content, dry_run, verbose, "safe JSON context")
+
+
+# =====================================================================
+# 3) leave_management.html — remarks modal + robust handlers
+# =====================================================================
+LEAVE_TEMPLATE_REL = Path('templates') / 'tenant' / 'leave_management.html'
+
+# --- 3a) Modal HTML --------------------------------------------------
+MODAL_ANCHOR = '''<!-- Staff usage modal -->
+<div class="lm-modal-backdrop" id="lmStaffBackdrop">'''
+
+MODAL_NEW = '''<!-- Approve / Reject remarks modal (LEAVE_BUTTONS_FIX_03) -->
+<div class="lm-modal-backdrop" id="lmRemarksBackdrop">
+    <div class="lm-modal">
+        <button class="close" onclick="closeRemarks()">×</button>
+        <h3 id="lmRemarksTitle">Approve Leave</h3>
+        <p class="page-desc" id="lmRemarksDesc"></p>
+        <div class="row" style="margin-top:1rem;">
+            <label for="lmRemarksText">Remarks (optional)</label>
+            <textarea id="lmRemarksText" rows="3" placeholder="Add a note…"></textarea>
+        </div>
+        <div id="lmRemarksError" style="display:none; color:#ef4444; font-size:0.8rem; margin-top:0.5rem;"></div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+            <button class="btn-secondary" onclick="closeRemarks()">Cancel</button>
+            <button class="btn-primary" id="lmRemarksConfirm">Confirm</button>
+        </div>
     </div>
 </div>
-<!-- ===== END STAFF_BIOMETRIC_ADMIN_CONTROL_V1 ===== -->
 
-<div class="action-panel" style="margin-top:1.5rem;">
-    <div class="info-card">
-        <h3>Account Control</h3>"""
+<!-- Staff usage modal -->
+<div class="lm-modal-backdrop" id="lmStaffBackdrop">'''
+
+# --- 3b) Replace the two handlers ------------------------------------
+HANDLERS_OLD = '''    window.approveLeave = function(id) {
+        const remarks = prompt('Optional remarks for approval:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to approve.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[approveLeave]', err);
+                if (err && err.__sessionExpired && err.__loginUrl) {
+                    alert('Your session has expired. Redirecting to login…');
+                    window.location.href = err.__loginUrl;
+                    return;
+                }
+                alert('Could not approve leave:\\n\\n' + err.message);
+            });
+    };
+    window.rejectLeave = function(id) {
+        const remarks = prompt('Reason for rejection:', '');
+        if (remarks === null) return;
+        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks })
+            .then(function(res) {
+                if (!res.ok || !res.data.ok) {
+                    alert(res.data.error || 'Failed to reject.');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function(err) {
+                console.error('[rejectLeave]', err);
+                if (err && err.__sessionExpired && err.__loginUrl) {
+                    alert('Your session has expired. Redirecting to login…');
+                    window.location.href = err.__loginUrl;
+                    return;
+                }
+                alert('Could not reject leave:\\n\\n' + err.message);
+            });
+    };
+'''
+
+HANDLERS_NEW = '''    // LEAVE_BUTTONS_FIX_03: prompt()-free modal flow. The previous
+    // version relied on window.prompt(), which some browsers and mobile
+    // webviews silently suppress — the button then appeared to do
+    // nothing. We now use an inline modal, log everything to the
+    // console, and surface every failure through the modal's own error
+    // slot AND a fallback alert.
+    var _pendingLeaveAction = null;
+
+    function _openRemarksModal(action, id) {
+        _pendingLeaveAction = { action: action, id: id };
+        var isApprove = action === 'approve';
+        document.getElementById('lmRemarksTitle').textContent =
+            isApprove ? 'Approve Leave' : 'Reject Leave';
+        document.getElementById('lmRemarksDesc').textContent = isApprove
+            ? 'Optionally add remarks that will be stored on the leave record.'
+            : 'Add a reason for rejection (shown to the staff member).';
+        document.getElementById('lmRemarksText').value = '';
+        var errBox = document.getElementById('lmRemarksError');
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+        var confirmBtn = document.getElementById('lmRemarksConfirm');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = isApprove ? 'Approve' : 'Reject';
+        confirmBtn.style.background = isApprove ? '#10b981' : '#ef4444';
+        document.getElementById('lmRemarksBackdrop').classList.add('show');
+        setTimeout(function () {
+            var ta = document.getElementById('lmRemarksText');
+            if (ta) ta.focus();
+        }, 40);
+    }
+
+    window.closeRemarks = function () {
+        document.getElementById('lmRemarksBackdrop').classList.remove('show');
+        _pendingLeaveAction = null;
+    };
+
+    window.approveLeave = function (id) {
+        console.log('[approveLeave] clicked for leave id=' + id);
+        _openRemarksModal('approve', id);
+    };
+    window.rejectLeave = function (id) {
+        console.log('[rejectLeave] clicked for leave id=' + id);
+        _openRemarksModal('reject', id);
+    };
+
+    document.getElementById('lmRemarksConfirm').addEventListener('click', function () {
+        if (!_pendingLeaveAction) return;
+        var action = _pendingLeaveAction.action;
+        var id = _pendingLeaveAction.id;
+        var remarks = (document.getElementById('lmRemarksText').value || '');
+        var url = '/portal/' + SCHEMA + '/leave/' + id + '/' + action + '/';
+        var btn = this;
+        var errBox = document.getElementById('lmRemarksError');
+
+        console.log('[leave-' + action + '] POST', url, 'remarks=', remarks);
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        errBox.style.display = 'none';
+
+        postJson(url, { remarks: remarks })
+            .then(function (res) {
+                console.log('[leave-' + action + '] response', res);
+                if (!res.ok || !res.data.ok) {
+                    errBox.textContent = (res.data && res.data.error) || 'Failed to ' + action + '.';
+                    errBox.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = (action === 'approve' ? 'Approve' : 'Reject');
+                    return;
+                }
+                location.reload();
+            })
+            .catch(function (err) {
+                console.error('[leave-' + action + '] error', err);
+                btn.disabled = false;
+                btn.textContent = (action === 'approve' ? 'Approve' : 'Reject');
+                if (err && err.__sessionExpired && err.__loginUrl) {
+                    errBox.textContent = 'Your session expired. Redirecting to login…';
+                    errBox.style.display = 'block';
+                    setTimeout(function () { window.location.href = err.__loginUrl; }, 900);
+                    return;
+                }
+                errBox.textContent = 'Could not ' + action + ': ' + (err.message || err);
+                errBox.style.display = 'block';
+            });
+    });
+
+    // Backdrop click + Escape close the remarks modal too.
+    (function () {
+        var back = document.getElementById('lmRemarksBackdrop');
+        if (back) back.addEventListener('click', function (e) {
+            if (e.target === back) closeRemarks();
+        });
+    })();
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            var back = document.getElementById('lmRemarksBackdrop');
+            if (back && back.classList.contains('show')) closeRemarks();
+        }
+    });
+'''
 
 
-def patch_template(root, dry_run, verbose):
-    path = root / TEMPLATE_REL
+def patch_leave_template(root, dry_run, verbose):
+    path = root / LEAVE_TEMPLATE_REL
     if not path.is_file():
         log(f"ERROR: {path} not found")
         return False
-    content = _read(path)
+    content = path.read_text(encoding='utf-8')
 
-    if MARKER in content:
+    if 'LEAVE_BUTTONS_FIX_03' in content:
         log(f"SKIP (already patched): {path}")
         return True
 
-    content, changed = _replace_once(
-        content, TEMPLATE_ANCHOR, TEMPLATE_NEW,
-        "staff_profile.html: biometric control card", verbose,
+    content, c1 = _replace_once(
+        content, MODAL_ANCHOR, MODAL_NEW,
+        "template: remarks modal", verbose,
     )
-    if not changed:
+    content, c2 = _replace_once(
+        content, HANDLERS_OLD, HANDLERS_NEW,
+        "template: approve/reject handlers", verbose,
+    )
+
+    if not (c1 and c2):
+        log("ERROR: template anchors not all found — aborting this file.")
         return False
-    return _write(path, content, dry_run, verbose, "staff_profile.html")
+    return _write(path, content, dry_run, verbose, "leave_management.html")
 
 
 # =====================================================================
-# main
+# Main
 # =====================================================================
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "STAFF_BIOMETRIC_ADMIN_CONTROL_V1 — let the school admin "
-            "enable/disable biometric login per staff member from the "
-            "staff profile page."
+            "LEAVE_BUTTONS_FIX_03 — make the Approve / Reject buttons on "
+            "/portal/<schema>/leave/ reliably work: propagate csrf_exempt "
+            "through every helper decorator, stop emitting raw server "
+            "JSON into <script>, and replace prompt() with an inline "
+            "remarks modal that surfaces every failure."
         )
     )
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Preview changes without writing.")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Verbose output.")
-    parser.add_argument("--target-dir", default=".",
-                        help="Project root (default: current dir).")
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Preview changes without writing.')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Verbose output.')
+    parser.add_argument('--target-dir', default='.',
+                        help='Project root (default: current dir).')
     args = parser.parse_args()
 
     root = Path(args.target_dir).resolve()
-    if not (root / "manage.py").is_file():
+    if not (root / 'manage.py').is_file():
         log(f"ERROR: manage.py not found in {root}. Wrong --target-dir?")
         return 1
 
@@ -795,32 +504,14 @@ def main():
 
     ok = True
 
-    log("--- 1/9: axis_saas/models.py (Staff.biometric_login_enabled) ---")
-    ok &= patch_models(root, args.dry_run, args.verbose)
+    log("--- 1/3: axis_saas/views/helpers.py ---")
+    ok &= patch_helpers(root, args.dry_run, args.verbose)
 
-    log("--- 2/9: migrations/0028_staff_biometric_login_enabled.py ---")
-    ok &= patch_migration(root, args.dry_run, args.verbose)
+    log("--- 2/3: axis_saas/views/leave_management.py ---")
+    ok &= patch_leave_views(root, args.dry_run, args.verbose)
 
-    log("--- 3/9: views/staff_portal.py (login + setup gates) ---")
-    ok &= patch_staff_portal(root, args.dry_run, args.verbose)
-
-    log("--- 4/9: views/staff_biometric.py (prepare_login gate) ---")
-    ok &= patch_staff_biometric(root, args.dry_run, args.verbose)
-
-    log("--- 5/9: middleware/staff_tenant_middleware.py ---")
-    ok &= patch_middleware(root, args.dry_run, args.verbose)
-
-    log("--- 6/9: views/staff.py (toggle view + context) ---")
-    ok &= patch_staff_views(root, args.dry_run, args.verbose)
-
-    log("--- 7/9: views/__init__.py (export) ---")
-    ok &= patch_views_init(root, args.dry_run, args.verbose)
-
-    log("--- 8/9: public_urls.py (route) ---")
-    ok &= patch_urls(root, args.dry_run, args.verbose)
-
-    log("--- 9/9: templates/tenant/staff_profile.html (toggle card) ---")
-    ok &= patch_template(root, args.dry_run, args.verbose)
+    log("--- 3/3: templates/tenant/leave_management.html ---")
+    ok &= patch_leave_template(root, args.dry_run, args.verbose)
 
     if not ok:
         log("One or more steps failed. See messages above.")
@@ -831,14 +522,16 @@ def main():
         log("Re-run without --dry-run to apply.")
     else:
         log("Next steps:")
-        log("  1. python manage.py migrate_schemas --shared")
-        log("  2. python manage.py migrate_schemas          # tenant schemas")
-        log("  3. Restart the dev server.")
-        log("  4. Open  /portal/<schema>/staff/<id>/  as the school admin")
-        log("     — the new 'Staff Portal Biometric Login' card lets you")
-        log("       enable/disable biometric per staff member.")
+        log("  1. Restart your dev server (templates + views changed).")
+        log("  2. Hard-refresh the Leave Management page (Ctrl+Shift+R).")
+        log("  3. Open DevTools → Console BEFORE clicking Approve.")
+        log("     - You should see '[approveLeave] clicked for leave id=…'")
+        log("       immediately, then '[leave-approve] POST …' when you")
+        log("       confirm in the modal.")
+        log("     - If the POST returns a non-JSON page, the modal will")
+        log("       show the exact HTTP status and a snippet of the body.")
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

@@ -206,6 +206,24 @@
     </div>
 </div>
 
+<!-- Approve / Reject remarks modal (LEAVE_BUTTONS_FIX_03) -->
+<div class="lm-modal-backdrop" id="lmRemarksBackdrop">
+    <div class="lm-modal">
+        <button class="close" onclick="closeRemarks()">×</button>
+        <h3 id="lmRemarksTitle">Approve Leave</h3>
+        <p class="page-desc" id="lmRemarksDesc"></p>
+        <div class="row" style="margin-top:1rem;">
+            <label for="lmRemarksText">Remarks (optional)</label>
+            <textarea id="lmRemarksText" rows="3" placeholder="Add a note…"></textarea>
+        </div>
+        <div id="lmRemarksError" style="display:none; color:#ef4444; font-size:0.8rem; margin-top:0.5rem;"></div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+            <button class="btn-secondary" onclick="closeRemarks()">Cancel</button>
+            <button class="btn-primary" id="lmRemarksConfirm">Confirm</button>
+        </div>
+    </div>
+</div>
+
 <!-- Staff usage modal -->
 <div class="lm-modal-backdrop" id="lmStaffBackdrop">
     <div class="lm-modal">
@@ -373,48 +391,105 @@
             });
         });
     }
-    window.approveLeave = function(id) {
-        const remarks = prompt('Optional remarks for approval:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/approve/', { remarks: remarks })
-            .then(function(res) {
+    // LEAVE_BUTTONS_FIX_03: prompt()-free modal flow. The previous
+    // version relied on window.prompt(), which some browsers and mobile
+    // webviews silently suppress — the button then appeared to do
+    // nothing. We now use an inline modal, log everything to the
+    // console, and surface every failure through the modal's own error
+    // slot AND a fallback alert.
+    var _pendingLeaveAction = null;
+
+    function _openRemarksModal(action, id) {
+        _pendingLeaveAction = { action: action, id: id };
+        var isApprove = action === 'approve';
+        document.getElementById('lmRemarksTitle').textContent =
+            isApprove ? 'Approve Leave' : 'Reject Leave';
+        document.getElementById('lmRemarksDesc').textContent = isApprove
+            ? 'Optionally add remarks that will be stored on the leave record.'
+            : 'Add a reason for rejection (shown to the staff member).';
+        document.getElementById('lmRemarksText').value = '';
+        var errBox = document.getElementById('lmRemarksError');
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+        var confirmBtn = document.getElementById('lmRemarksConfirm');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = isApprove ? 'Approve' : 'Reject';
+        confirmBtn.style.background = isApprove ? '#10b981' : '#ef4444';
+        document.getElementById('lmRemarksBackdrop').classList.add('show');
+        setTimeout(function () {
+            var ta = document.getElementById('lmRemarksText');
+            if (ta) ta.focus();
+        }, 40);
+    }
+
+    window.closeRemarks = function () {
+        document.getElementById('lmRemarksBackdrop').classList.remove('show');
+        _pendingLeaveAction = null;
+    };
+
+    window.approveLeave = function (id) {
+        console.log('[approveLeave] clicked for leave id=' + id);
+        _openRemarksModal('approve', id);
+    };
+    window.rejectLeave = function (id) {
+        console.log('[rejectLeave] clicked for leave id=' + id);
+        _openRemarksModal('reject', id);
+    };
+
+    document.getElementById('lmRemarksConfirm').addEventListener('click', function () {
+        if (!_pendingLeaveAction) return;
+        var action = _pendingLeaveAction.action;
+        var id = _pendingLeaveAction.id;
+        var remarks = (document.getElementById('lmRemarksText').value || '');
+        var url = '/portal/' + SCHEMA + '/leave/' + id + '/' + action + '/';
+        var btn = this;
+        var errBox = document.getElementById('lmRemarksError');
+
+        console.log('[leave-' + action + '] POST', url, 'remarks=', remarks);
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        errBox.style.display = 'none';
+
+        postJson(url, { remarks: remarks })
+            .then(function (res) {
+                console.log('[leave-' + action + '] response', res);
                 if (!res.ok || !res.data.ok) {
-                    alert(res.data.error || 'Failed to approve.');
+                    errBox.textContent = (res.data && res.data.error) || 'Failed to ' + action + '.';
+                    errBox.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = (action === 'approve' ? 'Approve' : 'Reject');
                     return;
                 }
                 location.reload();
             })
-            .catch(function(err) {
-                console.error('[approveLeave]', err);
+            .catch(function (err) {
+                console.error('[leave-' + action + '] error', err);
+                btn.disabled = false;
+                btn.textContent = (action === 'approve' ? 'Approve' : 'Reject');
                 if (err && err.__sessionExpired && err.__loginUrl) {
-                    alert('Your session has expired. Redirecting to login…');
-                    window.location.href = err.__loginUrl;
+                    errBox.textContent = 'Your session expired. Redirecting to login…';
+                    errBox.style.display = 'block';
+                    setTimeout(function () { window.location.href = err.__loginUrl; }, 900);
                     return;
                 }
-                alert('Could not approve leave:\n\n' + err.message);
+                errBox.textContent = 'Could not ' + action + ': ' + (err.message || err);
+                errBox.style.display = 'block';
             });
-    };
-    window.rejectLeave = function(id) {
-        const remarks = prompt('Reason for rejection:', '');
-        if (remarks === null) return;
-        postJson('/portal/' + SCHEMA + '/leave/' + id + '/reject/', { remarks: remarks })
-            .then(function(res) {
-                if (!res.ok || !res.data.ok) {
-                    alert(res.data.error || 'Failed to reject.');
-                    return;
-                }
-                location.reload();
-            })
-            .catch(function(err) {
-                console.error('[rejectLeave]', err);
-                if (err && err.__sessionExpired && err.__loginUrl) {
-                    alert('Your session has expired. Redirecting to login…');
-                    window.location.href = err.__loginUrl;
-                    return;
-                }
-                alert('Could not reject leave:\n\n' + err.message);
-            });
-    };
+    });
+
+    // Backdrop click + Escape close the remarks modal too.
+    (function () {
+        var back = document.getElementById('lmRemarksBackdrop');
+        if (back) back.addEventListener('click', function (e) {
+            if (e.target === back) closeRemarks();
+        });
+    })();
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            var back = document.getElementById('lmRemarksBackdrop');
+            if (back && back.classList.contains('show')) closeRemarks();
+        }
+    });
 
     // ----- policy -----
     window.openPolicyModal = function() {
