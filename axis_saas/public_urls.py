@@ -44,6 +44,14 @@ from .views.students import students_by_teacher
 from .pwa_views import manifest, service_worker
 from .views import voucher_status_api, generate_voucher_api, voucher_html_api, global_search_api
 from .views import fee_logs, mobile_fee_logs, global_search_api
+from .views.admin_attendence import (
+    admin_attendance_view,
+    admin_attendance_students_api,
+    admin_attendance_mark_api,
+    admin_attendance_records_api,
+    admin_attendance_summary_api,
+    admin_attendance_student_history_api,
+)
 from .views.leave_management import (
     leave_management, leave_detail_api, leave_approve, leave_reject,
     leave_policy_save, leave_staff_summary_api,
@@ -383,6 +391,13 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/timetable/labels/delete/', portal_wrapper(login_required_for_schema(api_delete_label)), name='api_timetable_labels_delete'),
     # TIMETABLE_FK_REFACTOR_V1: audit/repair endpoints removed.
 
+    # ===== ATTENDANCE_SYSTEM_REBUILD_V1 (admin) =====
+    path('portal/<slug:schema_name>/attendance/', portal_wrapper(login_required_for_schema(admin_attendance_view)), name='admin_attendance'),
+    path('portal/<slug:schema_name>/api/attendance/students/', portal_wrapper(login_required_for_schema(admin_attendance_students_api)), name='admin_attendance_students_api'),
+    path('portal/<slug:schema_name>/api/attendance/mark/', portal_wrapper(login_required_for_schema(admin_attendance_mark_api)), name='admin_attendance_mark_api'),
+    path('portal/<slug:schema_name>/api/attendance/records/', portal_wrapper(login_required_for_schema(admin_attendance_records_api)), name='admin_attendance_records_api'),
+    path('portal/<slug:schema_name>/api/attendance/summary/', portal_wrapper(login_required_for_schema(admin_attendance_summary_api)), name='admin_attendance_summary_api'),
+    path('portal/<slug:schema_name>/api/attendance/student/<int:student_id>/history/', portal_wrapper(login_required_for_schema(admin_attendance_student_history_api)), name='admin_attendance_student_history_api'),
     # ===== LEAVE MANAGEMENT =====
     path('portal/<slug:schema_name>/leave/', portal_wrapper(login_required_for_schema(leave_management)), name='leave_management'),
     path('portal/<slug:schema_name>/leave/<int:leave_id>/detail/', portal_wrapper(login_required_for_schema(leave_detail_api)), name='leave_detail_api'),

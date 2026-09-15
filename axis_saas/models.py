@@ -29,6 +29,7 @@ SCHOOL_FEATURE_CHOICES = [
     ('staff_management', 'Staff Management'),
     ('timetable_management', 'Time‑Table Management'),
     ('leave_management', 'Leave Management'),
+    ('attendance_management', 'Attendance Management'),
 ]
 
 STAFF_PORTAL_FEATURE_CHOICES = [

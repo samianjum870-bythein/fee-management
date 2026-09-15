@@ -1,0 +1,280 @@
+{% extends 'tenant/base.html' %}
+{% load static %}
+{% block title %}Attendance Management{% endblock %}
+
+{% block extra_head %}
+<style>
+    .att-toolbar { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; margin-bottom:1rem; }
+    .att-toolbar .field { display:flex; flex-direction:column; gap:.25rem; min-width:180px; }
+    .att-toolbar label { font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
+    .att-toolbar select, .att-toolbar input[type="date"] { padding:.55rem .75rem; border-radius:.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); }
+    .att-summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-bottom:1.25rem; }
+    .att-summary-card { background:var(--surface); border:1px solid var(--border); border-radius:1rem; padding:1rem; box-shadow:var(--shadow); }
+    .att-summary-card .k { font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
+    .att-summary-card .v { font-size:1.6rem; font-weight:800; color:var(--text); margin-top:.25rem; }
+    .att-rows { display:flex; flex-direction:column; gap:.5rem; }
+    .att-row { display:grid; grid-template-columns:60px 1fr auto; gap:.75rem; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:.85rem; padding:.65rem .85rem; }
+    .att-row .roll { font-weight:700; color:var(--muted); font-size:.8rem; }
+    .att-row .name { font-weight:600; }
+    .att-row .father { font-size:.72rem; color:var(--muted); }
+    .att-status-group { display:flex; gap:.35rem; }
+    .att-status-group input { display:none; }
+    .att-status-group label { display:inline-flex; align-items:center; justify-content:center; min-width:44px; padding:.35rem .55rem; border-radius:.6rem; font-size:.72rem; font-weight:700; cursor:pointer; border:1px solid var(--border); background:var(--surface-alt); color:var(--muted); }
+    .att-status-group input[value="present"]:checked + label { background:#10b981; color:#fff; border-color:#10b981; }
+    .att-status-group input[value="absent"]:checked + label { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .att-status-group input[value="late"]:checked + label { background:#f59e0b; color:#fff; border-color:#f59e0b; }
+    .att-status-group input[value="holiday"]:checked + label { background:#6b7280; color:#fff; border-color:#6b7280; }
+    .att-actions { display:flex; gap:.5rem; margin-top:1rem; }
+    .att-badge { display:inline-block; padding:.15rem .55rem; border-radius:.5rem; font-size:.65rem; font-weight:700; text-transform:uppercase; }
+    .att-badge.present { background:#d1fae5; color:#065f46; }
+    .att-badge.absent  { background:#fee2e2; color:#991b1b; }
+    .att-badge.late    { background:#fef3c7; color:#92400e; }
+    .att-badge.holiday { background:#e5e7eb; color:#374151; }
+    .att-empty { text-align:center; color:var(--muted); padding:2rem 1rem; }
+    .att-tabs { display:flex; gap:.5rem; margin-bottom:1rem; border-bottom:1px solid var(--border); }
+    .att-tabs button { background:none; border:none; padding:.6rem 1rem; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; }
+    .att-tabs button.active { color:var(--primary); border-bottom-color:var(--primary); }
+    .att-hidden { display:none !important; }
+    .att-record-row { display:grid; grid-template-columns:90px 1fr 90px auto; gap:.75rem; align-items:center; padding:.5rem .75rem; border-bottom:1px solid var(--border); font-size:.85rem; }
+    .att-record-row:last-child { border-bottom:none; }
+</style>
+{% endblock %}
+
+{% block body %}
+<h1 class="page-title">Attendance Management</h1>
+<p class="page-desc">Mark and review student attendance for any class. You have full edit access to past records.</p>
+
+<div class="card" style="padding:1rem; margin-top:1.25rem;">
+    <div class="att-tabs">
+        <button id="tabMarkBtn" class="active" onclick="AXIS_ATT.showTab('mark')">Mark / Edit</button>
+        <button id="tabHistoryBtn" onclick="AXIS_ATT.showTab('history')">History</button>
+    </div>
+
+    <div id="tabMark">
+        <div class="att-toolbar">
+            <div class="field">
+                <label>Class</label>
+                <select id="attClassSelect"></select>
+            </div>
+            <div class="field">
+                <label>Date</label>
+                <input type="date" id="attDateInput" value="{{ today }}">
+            </div>
+            <button class="btn-primary" onclick="AXIS_ATT.loadStudents()">Load</button>
+            <button class="btn-secondary" onclick="AXIS_ATT.markAllPresent()">Mark all present</button>
+        </div>
+
+        <div class="att-summary-grid" id="attSummaryGrid"></div>
+
+        <div id="attRows" class="att-rows">
+            <div class="att-empty">Select a class and date, then click Load.</div>
+        </div>
+
+        <div class="att-actions" id="attActions" style="display:none;">
+            <button class="btn-primary" onclick="AXIS_ATT.submit()">Save Attendance</button>
+            <span id="attSaveMsg" style="align-self:center;color:var(--muted);font-size:.85rem;"></span>
+        </div>
+    </div>
+
+    <div id="tabHistory" class="att-hidden">
+        <div class="att-toolbar">
+            <div class="field">
+                <label>Class</label>
+                <select id="histClassSelect"><option value="">All classes</option></select>
+            </div>
+            <div class="field">
+                <label>From</label>
+                <input type="date" id="histFrom">
+            </div>
+            <div class="field">
+                <label>To</label>
+                <input type="date" id="histTo">
+            </div>
+            <div class="field">
+                <label>Status</label>
+                <select id="histStatus">
+                    <option value="">All</option>
+                    <option value="present">Present</option>
+                    <option value="absent">Absent</option>
+                    <option value="late">Late</option>
+                    <option value="holiday">Holiday</option>
+                </select>
+            </div>
+            <button class="btn-primary" onclick="AXIS_ATT.loadHistory()">Filter</button>
+        </div>
+        <div id="histRows" class="card" style="padding:.5rem 0;">
+            <div class="att-empty">No records loaded.</div>
+        </div>
+    </div>
+</div>
+
+<script>
+window.AXIS_ATT = (function() {
+    const SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    const CLASSES = {{ classes_json|safe }};
+    let currentStudents = [];
+    let currentClassId = null;
+    let currentDate = null;
+
+    function q(sel, root) { return (root||document).querySelector(sel); }
+
+    function initSelects() {
+        const mk = q('#attClassSelect');
+        const hist = q('#histClassSelect');
+        CLASSES.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c.id;
+            o.textContent = c.name + '  (' + c.student_count + ' students)';
+            mk.appendChild(o);
+            const o2 = o.cloneNode(true);
+            hist.appendChild(o2);
+        });
+    }
+
+    function showTab(which) {
+        const mark = q('#tabMark'), hist = q('#tabHistory');
+        const mb = q('#tabMarkBtn'), hb = q('#tabHistoryBtn');
+        if (which === 'mark') { mark.classList.remove('att-hidden'); hist.classList.add('att-hidden'); mb.classList.add('active'); hb.classList.remove('active'); }
+        else { hist.classList.remove('att-hidden'); mark.classList.add('att-hidden'); hb.classList.add('active'); mb.classList.remove('active'); }
+    }
+
+    function csrf() {
+        return q('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    }
+
+    function loadStudents() {
+        const cid = q('#attClassSelect').value;
+        const d = q('#attDateInput').value;
+        if (!cid || !d) { alert('Pick a class and date.'); return; }
+        currentClassId = cid; currentDate = d;
+        fetch(`/portal/${SCHEMA}/api/attendance/students/?class_id=${cid}&date=${d}`, {
+            headers: {'X-Requested-With':'XMLHttpRequest'}
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (!j.ok) { alert(j.error || 'Failed'); return; }
+            currentStudents = j.students;
+            renderRows();
+            updateSummary();
+            q('#attActions').style.display = 'flex';
+        })
+        .catch(() => alert('Network error'));
+    }
+
+    function renderRows() {
+        const wrap = q('#attRows');
+        if (!currentStudents.length) {
+            wrap.innerHTML = '<div class="att-empty">No active students in this class.</div>';
+            return;
+        }
+        wrap.innerHTML = currentStudents.map((s, i) => `
+            <div class="att-row">
+                <div class="roll">${s.roll_number || ''}</div>
+                <div>
+                    <div class="name">${escapeHtml(s.name)}</div>
+                    <div class="father">${escapeHtml(s.father_name||'')}</div>
+                </div>
+                <div class="att-status-group">
+                    <input type="radio" name="st_${s.id}" id="p_${s.id}" value="present" ${s.status==='present'?'checked':''} onchange="AXIS_ATT.updateSummary()">
+                    <label for="p_${s.id}">P</label>
+                    <input type="radio" name="st_${s.id}" id="a_${s.id}" value="absent" ${s.status==='absent'?'checked':''} onchange="AXIS_ATT.updateSummary()">
+                    <label for="a_${s.id}">A</label>
+                    <input type="radio" name="st_${s.id}" id="l_${s.id}" value="late" ${s.status==='late'?'checked':''} onchange="AXIS_ATT.updateSummary()">
+                    <label for="l_${s.id}">L</label>
+                    <input type="radio" name="st_${s.id}" id="h_${s.id}" value="holiday" ${s.status==='holiday'?'checked':''} onchange="AXIS_ATT.updateSummary()">
+                    <label for="h_${s.id}">H</label>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(s) { return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    function markAllPresent() {
+        currentStudents.forEach(s => {
+            const el = document.getElementById('p_' + s.id);
+            if (el) el.checked = true;
+        });
+        updateSummary();
+    }
+
+    function updateSummary() {
+        let p=0,a=0,l=0,h=0;
+        currentStudents.forEach(s => {
+            const el = document.querySelector(`input[name="st_${s.id}"]:checked`);
+            const v = el ? el.value : 'present';
+            if (v==='present') p++; else if (v==='absent') a++; else if (v==='late') l++; else h++;
+        });
+        q('#attSummaryGrid').innerHTML = `
+            <div class="att-summary-card"><div class="k">Total</div><div class="v">${currentStudents.length}</div></div>
+            <div class="att-summary-card"><div class="k">Present</div><div class="v">${p}</div></div>
+            <div class="att-summary-card"><div class="k">Absent</div><div class="v">${a}</div></div>
+            <div class="att-summary-card"><div class="k">Late</div><div class="v">${l}</div></div>
+        `;
+    }
+
+    function submit() {
+        if (!currentClassId || !currentDate) return;
+        const records = currentStudents.map(s => {
+            const el = document.querySelector(`input[name="st_${s.id}"]:checked`);
+            return { student_id: s.id, status: el ? el.value : 'present' };
+        });
+        const msg = q('#attSaveMsg');
+        msg.textContent = 'Saving…';
+        fetch(`/portal/${SCHEMA}/api/attendance/mark/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ class_id: currentClassId, date: currentDate, records })
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (!j.ok) { msg.textContent = j.error || 'Save failed'; return; }
+            msg.textContent = 'Saved ' + j.saved + ' records.';
+        })
+        .catch(() => { msg.textContent = 'Network error'; });
+    }
+
+    function loadHistory() {
+        const cid = q('#histClassSelect').value;
+        const from = q('#histFrom').value;
+        const to = q('#histTo').value;
+        const st = q('#histStatus').value;
+        const params = new URLSearchParams();
+        if (cid) params.set('class_id', cid);
+        if (from) params.set('start_date', from);
+        if (to) params.set('end_date', to);
+        if (st) params.set('status', st);
+        params.set('page_size', '100');
+        fetch(`/portal/${SCHEMA}/api/attendance/records/?${params}`, {
+            headers: {'X-Requested-With':'XMLHttpRequest'}
+        })
+        .then(r => r.json())
+        .then(j => {
+            const wrap = q('#histRows');
+            if (!j.ok || !j.records.length) { wrap.innerHTML = '<div class="att-empty">No records found.</div>'; return; }
+            wrap.innerHTML = j.records.map(r => `
+                <div class="att-record-row">
+                    <div>${r.date}</div>
+                    <div><strong>${escapeHtml(r.student_name)}</strong><br><span style="color:var(--muted);font-size:.75rem">${escapeHtml(r.roll_number||'')} · ${escapeHtml(r.class_name)}</span></div>
+                    <div><span class="att-badge ${r.status}">${r.status}</span></div>
+                    <div style="color:var(--muted);font-size:.75rem">${escapeHtml(r.teacher_name||'')}</div>
+                </div>
+            `).join('');
+        })
+        .catch(() => { q('#histRows').innerHTML = '<div class="att-empty">Network error.</div>'; });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initSelects();
+        const today = q('#attDateInput').value;
+        if (today) { q('#histTo').value = today; }
+    });
+
+    return { showTab, loadStudents, markAllPresent, updateSummary, submit, loadHistory };
+})();
+</script>
+{% endblock %}

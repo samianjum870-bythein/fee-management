@@ -1,0 +1,202 @@
+{% extends 'mobile/staff/base.html' %}
+{% block title %}Attendance{% endblock %}
+{% block body %}
+<div class="hero">
+    <h2>Mark Attendance</h2>
+    <div class="sub">{{ staff.full_name }} &middot; Class Teacher</div>
+</div>
+
+{% if not classes_json or classes_json == '[]' %}
+<div class="card">
+    <div class="subtle">You are not assigned as a class teacher. Attendance marking is only available to class teachers.</div>
+</div>
+{% else %}
+<div class="card">
+    <div class="stack">
+        <div>
+            <div class="subtle" style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">Class</div>
+            <select id="attClassSelect" style="width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--border); background:#fff;"></select>
+        </div>
+        <div>
+            <div class="subtle" style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">Date</div>
+            <input type="date" id="attDateInput" value="{{ today }}" style="width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--border); background:#fff;">
+        </div>
+        <div class="row" style="gap:8px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="AXIS_ATT.load()">Load</button>
+            <button class="btn btn-secondary" style="flex:1;" onclick="AXIS_ATT.missed()">Missed days</button>
+        </div>
+        <div id="missedBox" class="subtle" style="font-size:12px; display:none;"></div>
+    </div>
+</div>
+
+<div class="card" id="attSummaryCard" style="display:none;">
+    <div class="row">
+        <div>
+            <div class="subtle" style="font-size:11px;">Present</div>
+            <strong id="cntPresent">0</strong>
+        </div>
+        <div>
+            <div class="subtle" style="font-size:11px;">Absent</div>
+            <strong id="cntAbsent">0</strong>
+        </div>
+        <div>
+            <div class="subtle" style="font-size:11px;">Late</div>
+            <strong id="cntLate">0</strong>
+        </div>
+        <div>
+            <div class="subtle" style="font-size:11px;">Total</div>
+            <strong id="cntTotal">0</strong>
+        </div>
+    </div>
+</div>
+
+<div id="attList" class="stack"></div>
+
+<div class="card" id="attSaveCard" style="display:none;">
+    <button class="btn btn-primary" style="width:100%;" onclick="AXIS_ATT.submit()">Save Attendance</button>
+    <div id="attSaveMsg" class="subtle" style="text-align:center; margin-top:8px; font-size:12px;"></div>
+</div>
+{% endif %}
+
+<script>
+window.AXIS_ATT = (function() {
+    const SCHEMA = '{{ staff_schema_name|default:"" }}';
+    const CLASSES = {{ classes_json|safe }};
+    let students = [];
+    let currentClassId = null;
+    let currentDate = null;
+
+    function q(s){ return document.querySelector(s); }
+
+    function csrf(){
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute('content')) return m.getAttribute('content');
+        // Fallback: read the csrftoken cookie (Django's default).
+        var name = 'csrftoken=';
+        var parts = (document.cookie || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return c.substring(name.length);
+        }
+        return '';
+    }
+    function esc(s){ return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    function init() {
+        const sel = q('#attClassSelect');
+        if (!sel) return;
+        CLASSES.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c.id;
+            o.textContent = c.name + ' (' + c.student_count + ')';
+            sel.appendChild(o);
+        });
+    }
+
+    function load() {
+        const cid = q('#attClassSelect').value;
+        const d = q('#attDateInput').value;
+        if (!cid || !d) { alert('Pick a class and date.'); return; }
+        currentClassId = cid; currentDate = d;
+        fetch(`/portal/staff/api/attendance/students/?class_id=${cid}&date=${d}`, {
+            headers: {'X-Requested-With':'XMLHttpRequest'}
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (!j.ok) { alert(j.error || 'Failed'); return; }
+            students = j.students;
+            render();
+            q('#attSaveCard').style.display = 'block';
+        })
+        .catch(() => alert('Network error'));
+    }
+
+    function render() {
+        const wrap = q('#attList');
+        if (!students.length) { wrap.innerHTML = '<div class="card"><div class="subtle">No students.</div></div>'; return; }
+        wrap.innerHTML = students.map(s => `
+            <div class="card" style="padding:10px 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;">${esc(s.name)}</div>
+                        <div class="subtle" style="font-size:11px;">Roll ${esc(s.roll_number||'-')}</div>
+                    </div>
+                    <select data-sid="${s.id}" style="width:auto; padding:6px 8px; font-size:12px;">
+                        <option value="present" ${s.status==='present'?'selected':''}>Present</option>
+                        <option value="absent" ${s.status==='absent'?'selected':''}>Absent</option>
+                        <option value="late" ${s.status==='late'?'selected':''}>Late</option>
+                        <option value="holiday" ${s.status==='holiday'?'selected':''}>Leave</option>
+                    </select>
+                </div>
+            </div>
+        `).join('');
+        wrap.querySelectorAll('select[data-sid]').forEach(sel => sel.addEventListener('change', updateSummary));
+        updateSummary();
+        q('#attSummaryCard').style.display = 'block';
+    }
+
+    function updateSummary() {
+        let p=0,a=0,l=0;
+        document.querySelectorAll('#attList select[data-sid]').forEach(sel => {
+            if (sel.value==='present') p++;
+            else if (sel.value==='absent') a++;
+            else if (sel.value==='late') l++;
+        });
+        q('#cntPresent').textContent = p;
+        q('#cntAbsent').textContent = a;
+        q('#cntLate').textContent = l;
+        q('#cntTotal').textContent = document.querySelectorAll('#attList select[data-sid]').length;
+    }
+
+    function submit() {
+        if (!currentClassId || !currentDate) return;
+        const records = [];
+        document.querySelectorAll('#attList select[data-sid]').forEach(sel => {
+            records.push({ student_id: parseInt(sel.dataset.sid,10), status: sel.value });
+        });
+        const msg = q('#attSaveMsg');
+        msg.textContent = 'Saving…';
+        fetch(`/portal/staff/api/attendance/mark/`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','X-CSRFToken':csrf(),'X-Requested-With':'XMLHttpRequest'},
+            body: JSON.stringify({ class_id: currentClassId, date: currentDate, records })
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (!j.ok) { msg.textContent = j.error || 'Save failed'; return; }
+            msg.textContent = 'Saved ' + j.saved + ' records.';
+        })
+        .catch(() => { msg.textContent = 'Network error'; });
+    }
+
+    function missed() {
+        const cid = q('#attClassSelect').value;
+        if (!cid) { alert('Pick a class first.'); return; }
+        const box = q('#missedBox');
+        box.style.display = 'block';
+        box.textContent = 'Checking…';
+        fetch(`/portal/staff/api/attendance/missed-days/?class_id=${cid}`, {
+            headers: {'X-Requested-With':'XMLHttpRequest'}
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (!j.ok) { box.textContent = j.error || 'Failed'; return; }
+            if (!j.missed_days.length) { box.textContent = 'No missed days in the last 30 days. '; return; }
+            box.innerHTML = 'Missed days: ' + j.missed_days.slice(0,10).map(d =>
+                `<a href="#" onclick="AXIS_ATT.pickDate('${d}');return false;" style="margin-right:6px;">${d}</a>`
+            ).join('');
+        })
+        .catch(() => { box.textContent = 'Network error'; });
+    }
+
+    function pickDate(d) {
+        const inp = q('#attDateInput');
+        if (inp) inp.value = d;
+        load();
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+    return { load, submit, missed, pickDate };
+})();
+</script>
+{% endblock %}

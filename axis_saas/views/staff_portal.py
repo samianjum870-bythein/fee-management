@@ -325,49 +325,6 @@ def staff_class_students(request, class_id):
 
 
 @require_staff_login
-@require_staff_feature('staff_attendance')
-def staff_attendance_list(request):
-    schema_name = request.session['staff_schema_name']
-    from django_tenants.utils import schema_context
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-        classes = SchoolClass.objects.filter(Q(class_teacher=staff) | Q(class_subjects__teacher=staff)).distinct().order_by('name', 'section')
-    return render(request, 'mobile/staff/attendance.html', {'staff': staff, 'classes': classes})
-
-
-@require_staff_login
-@require_staff_feature('staff_attendance')
-def staff_attendance_mark(request, class_id, attendance_date):
-    schema_name = request.session['staff_schema_name']
-    from django_tenants.utils import schema_context
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-        school_class = get_object_or_404(SchoolClass, pk=class_id)
-        if not (school_class.class_teacher_id == staff.pk or school_class.class_subjects.filter(teacher=staff).exists()):
-            return render(request, 'mobile/staff/403.html', status=403)
-        if request.method == 'POST':
-            students = Student.objects.filter(school_class=school_class).order_by('roll_number')
-            for student in students:
-                choice = request.POST.get(f'status_{student.pk}', 'present')
-                defaults = {'present': 'present', 'absent': 'absent', 'late': 'late'}
-                status = defaults.get(choice, 'present')
-                remarks = request.POST.get(f'remarks_{student.pk}', '')
-                StudentAttendance.objects.update_or_create(
-                    student=student,
-                    date=datetime.strptime(attendance_date, '%Y-%m-%d').date(),
-                    defaults={'school_class': school_class, 'status': status, 'teacher': staff, 'remarks': remarks},
-                )
-            return redirect('staff_attendance_list')
-
-        students = Student.objects.filter(school_class=school_class).order_by('roll_number')
-        attendance_day = datetime.strptime(attendance_date, '%Y-%m-%d').date()
-        marks = dict(StudentAttendance.objects.filter(school_class=school_class, date=attendance_day).values_list('student_id', 'status'))
-        for student in students:
-            student.attendance_status = marks.get(student.pk, 'present')
-    return render(request, 'mobile/staff/attendance_mark.html', {'staff': staff, 'school_class': school_class, 'students': students, 'attendance_date': attendance_date, 'marks': marks})
-
-
-@require_staff_login
 @require_http_methods(['GET'])
 @require_staff_feature('staff_profile')
 def staff_profile(request):
@@ -490,9 +447,15 @@ def staff_more(request):
     with schema_context(schema_name):
         staff = Staff.objects.get(pk=request.session['staff_id'])
         notifications_count = Notification.objects.filter(is_read=False).count()
+        # ATTENDANCE_SYSTEM_REBUILD_V1_FIX: the "Mark Attendance" link in
+        # mobile/staff/more.html is only rendered for class teachers.
+        is_class_teacher = SchoolClass.objects.filter(
+            class_teacher=staff, is_active=True,
+        ).exists()
     return render(request, 'mobile/staff/more.html', {
         'staff': staff,
         'notifications_count': notifications_count,
+        'is_class_teacher': is_class_teacher,
     })
 
 
@@ -536,54 +499,6 @@ def staff_api_classes(request):
             for cls in classes
         ]
     return JsonResponse({'classes': payload})
-
-
-@require_staff_login
-@require_staff_feature('staff_attendance')
-def staff_api_attendance(request, class_id, attendance_date):
-    schema_name = request.session['staff_schema_name']
-    from django_tenants.utils import schema_context
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-        school_class = get_object_or_404(SchoolClass, pk=class_id)
-        allowed = school_class.class_teacher_id == staff.pk or school_class.class_subjects.filter(teacher=staff).exists()
-        if not allowed:
-            return JsonResponse({'error': 'Forbidden'}, status=403)
-        records = list(StudentAttendance.objects.filter(school_class=school_class, date=attendance_date).values('student_id', 'status', 'remarks'))
-    return JsonResponse({'attendance': records})
-
-
-@require_staff_login
-@require_http_methods(['POST'])
-@require_staff_feature('staff_attendance')
-def staff_api_attendance_submit(request, class_id, attendance_date):
-    schema_name = request.session['staff_schema_name']
-    from django_tenants.utils import schema_context
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON payload'}, status=400)
-
-    with schema_context(schema_name):
-        staff = get_object_or_404(Staff, pk=request.session['staff_id'])
-        school_class = get_object_or_404(SchoolClass, pk=class_id)
-        allowed = school_class.class_teacher_id == staff.pk or school_class.class_subjects.filter(teacher=staff).exists()
-        if not allowed:
-            return JsonResponse({'error': 'Forbidden'}, status=403)
-        for record in payload.get('attendance', []):
-            student_id = record.get('student_id')
-            status = record.get('status', 'present')
-            if student_id is None:
-                continue
-            student = Student.objects.filter(pk=student_id, school_class=school_class).first()
-            if student is None:
-                continue
-            StudentAttendance.objects.update_or_create(
-                student=student,
-                date=datetime.strptime(attendance_date, '%Y-%m-%d').date(),
-                defaults={'school_class': school_class, 'status': status, 'teacher': staff, 'remarks': record.get('remarks', '')},
-            )
-    return JsonResponse({'success': True})
 
 
 @require_staff_login
