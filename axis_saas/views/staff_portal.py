@@ -72,7 +72,14 @@ def staff_login(request):
                         schema_name=credential.schema_name,
                         enabled=True,
                     ).exists()
-                if biometric_enabled:
+                # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: only force biometric when
+                # the school admin has left biometric enabled for this
+                # specific staff member. If disabled, allow password login
+                # to succeed exactly as if no biometric credential existed.
+                _staff_biometric_allowed = getattr(
+                    staff, 'biometric_login_enabled', True,
+                )
+                if biometric_enabled and _staff_biometric_allowed:
                     return render(request, 'mobile/staff/login.html', {
                         'error': 'Biometric verification is required for this account. Please use a registered device.',
                         'biometric_available': True,
@@ -191,6 +198,11 @@ def staff_biometric_setup(request):
     schema_name = request.session['staff_schema_name']
     with schema_context(schema_name):
         staff = get_object_or_404(Staff, pk=request.session['staff_id'])
+    # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: if the school admin disabled
+    # biometric for this staff member, do not force the setup page on
+    # them — send them straight to the dashboard.
+    if not getattr(staff, 'biometric_login_enabled', True):
+        return redirect('staff_dashboard')
     return render(request, 'mobile/staff/biometric_setup.html', {'staff': staff})
 
 

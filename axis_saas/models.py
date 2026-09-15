@@ -512,6 +512,21 @@ class Staff(models.Model):
     address = models.TextField(blank=True, null=True)
     photo = models.ImageField(upload_to='staff_photos/', blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
+    # ========== STAFF_BIOMETRIC_ADMIN_CONTROL_V1 ==========
+    # Per-staff switch that only the school admin can flip.
+    # True  -> the staff member must register & use biometric to sign in.
+    # False -> biometric is bypassed; username + password login only.
+    biometric_login_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "If True (default), this staff member must register and use "
+            "biometric (fingerprint / Face ID / passkey) to sign in. "
+            "If False, biometric is bypassed and the staff member signs "
+            "in with username and password only. Managed by the school "
+            "admin from the staff profile page."
+        ),
+    )
+    # =====================================================
     created_on = models.DateTimeField(auto_now_add=True)
     updated_on = models.DateTimeField(auto_now=True)
 

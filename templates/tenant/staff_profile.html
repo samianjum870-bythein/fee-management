@@ -106,6 +106,42 @@
 </div>
 {% endif %}
 
+<!-- ===== STAFF_BIOMETRIC_ADMIN_CONTROL_V1 ===== -->
+<div class="info-card" style="margin-top:1.5rem;" id="biometricControlCard">
+    <h3>Staff Portal Biometric Login</h3>
+    <p style="color:var(--muted); font-size:0.85rem; margin:0.5rem 0 0.75rem 0; line-height:1.5;">
+        When <strong>enabled</strong>, this staff member must register and use
+        biometric (fingerprint / Face ID / passkey) to sign in.<br>
+        When <strong>disabled</strong>, biometric is bypassed and the staff member
+        signs in with username and password only.
+    </p>
+    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+        <span class="status-badge" style="background:{% if biometric_login_enabled %}#22C55E{% else %}#94A3B8{% endif %}; color:white; padding:0.3rem 0.85rem; border-radius:1rem; font-size:0.8rem; font-weight:600; letter-spacing:0.02em;">
+            {% if biometric_login_enabled %}Enabled{% else %}Disabled{% endif %}
+        </span>
+        <span style="color:var(--muted); font-size:0.78rem;">
+            Registered device(s): <strong>{{ biometric_device_count }}</strong>
+        </span>
+        <form method="post"
+              action="{% url 'staff_toggle_biometric' schema_name=tenant.schema_name staff_id=staff.id %}"
+              style="margin-left:auto; display:inline;">
+            {% csrf_token %}
+            <input type="hidden" name="enabled" value="{% if biometric_login_enabled %}false{% else %}true{% endif %}">
+            {% if biometric_login_enabled %}
+                <button type="submit" class="btn-secondary"
+                        onclick="return confirm('Disable biometric login for {{ staff.full_name|escapejs }}? They will be able to sign in with username and password only.');">
+                    Disable Biometric
+                </button>
+            {% else %}
+                <button type="submit" class="btn-primary">
+                    Enable Biometric
+                </button>
+            {% endif %}
+        </form>
+    </div>
+</div>
+<!-- ===== END STAFF_BIOMETRIC_ADMIN_CONTROL_V1 ===== -->
+
 <div class="action-panel" style="margin-top:1.5rem;">
     <div class="info-card">
         <h3>Account Control</h3>

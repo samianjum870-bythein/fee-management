@@ -37,7 +37,7 @@ from .views.assign_teachers import (
     api_delete_substitute,
     api_get_substitute_records,
 )
-from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password
+from .views.staff import staff_list, mobile_staff_list, staff_profile, mobile_staff_profile, staff_add, staff_add_mobile, staff_edit, staff_search_api, staff_toggle_status, staff_force_logout, staff_reset_password, staff_toggle_biometric
 from .views.staff_portal import staff_login, staff_logout
 from .views.classes import class_strength_api, assign_class_teacher
 from .views.students import students_by_teacher
@@ -233,6 +233,8 @@ urlpatterns = [
     path('portal/<slug:schema_name>/staff/<int:staff_id>/toggle-status/', portal_wrapper(login_required_for_schema(staff_toggle_status)), name='staff_toggle_status'),
     path('portal/<slug:schema_name>/staff/<int:staff_id>/force-logout/', portal_wrapper(login_required_for_schema(staff_force_logout)), name='staff_force_logout'),
     path('portal/<slug:schema_name>/staff/<int:staff_id>/reset-password/', portal_wrapper(login_required_for_schema(staff_reset_password)), name='staff_reset_password'),
+    # ===== STAFF_BIOMETRIC_ADMIN_CONTROL_V1 =====
+    path('portal/<slug:schema_name>/staff/<int:staff_id>/toggle-biometric/', portal_wrapper(login_required_for_schema(staff_toggle_biometric)), name='staff_toggle_biometric'),
     path('portal/<slug:schema_name>/staff/<int:staff_id>/', portal_wrapper(login_required_for_schema(staff_profile)), name='staff_profile'),
     path('portal/<slug:schema_name>/staff/<int:staff_id>/mobile/', portal_wrapper(login_required_for_schema(mobile_staff_profile)), name='mobile_staff_profile'),
     path('portal/<slug:schema_name>/api/staff-search/', portal_wrapper(login_required_for_schema(staff_search_api)), name='staff_search_api'),

@@ -21,7 +21,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from ..models import SchoolClient, Staff, StaffCredential, SchoolClass, ClassSubject
+from ..models import (
+    SchoolClient, Staff, StaffCredential, StaffBiometricCredential,
+    SchoolClass, ClassSubject,
+)
 from ..models import SchoolClass
 from ..forms import StaffForm
 from .helpers import (
@@ -139,6 +142,14 @@ def get_staff_profile_context(request, schema_name, staff_id):
         section = request.GET.get('section')
     with schema_context('public'):
         credential = StaffCredential.objects.filter(staff_id=staff.id, schema_name=schema_name).first()
+        # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: count devices so the admin
+        # can see whether any biometric credential is currently
+        # registered for this staff member.
+        biometric_device_count = StaffBiometricCredential.objects.filter(
+            staff_id=staff.id,
+            schema_name=schema_name,
+            enabled=True,
+        ).count()
     if credential is not None:
         is_school_admin_context = bool(request.session.get('school_admin_authenticated')) and request.session.get('school_admin_schema') == schema_name
         if is_school_admin_context:
@@ -174,6 +185,9 @@ def get_staff_profile_context(request, schema_name, staff_id):
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
         'assigned_classes': assigned_classes,
         'class_teacher_classes': class_teacher_classes,
+        # STAFF_BIOMETRIC_ADMIN_CONTROL_V1
+        'biometric_login_enabled': getattr(staff, 'biometric_login_enabled', True),
+        'biometric_device_count': biometric_device_count,
     }
 
 @require_tenant_type(['school'])
@@ -331,3 +345,48 @@ def staff_search_api(request, schema_name):
         )[:10]
         data = [{'id': s.id, 'name': s.full_name, 'staff_id': s.staff_id, 'job_title': s.job_title} for s in staff]
     return JsonResponse(data, safe=False)
+
+
+# =====================================================================
+# STAFF_BIOMETRIC_ADMIN_CONTROL_V1
+# ---------------------------------------------------------------------
+# Admin-only endpoint: flip Staff.biometric_login_enabled for a single
+# staff member from their profile page.
+# =====================================================================
+
+@require_tenant_type(['school'])
+@require_school_feature('staff_management')
+@require_http_methods(['POST'])
+def staff_toggle_biometric(request, schema_name, staff_id):
+    """Enable / disable biometric login for a specific staff member.
+
+    POST param:
+        enabled : "true"/"1"/"yes"/"on"  -> enable
+                  anything else           -> disable
+    """
+    raw = request.POST.get('enabled', '')
+    enabled = str(raw).strip().lower() in ('true', '1', 'yes', 'on')
+
+    with schema_context(schema_name):
+        staff = get_object_or_404(Staff, id=staff_id)
+        staff.biometric_login_enabled = enabled
+        staff.save(update_fields=['biometric_login_enabled'])
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return JsonResponse({
+            'success': True,
+            'enabled': enabled,
+            'message': (
+                'Biometric login enabled for this staff member.'
+                if enabled else
+                'Biometric login disabled — staff can now sign in with '
+                'username and password only.'
+            ),
+        })
+
+    messages.success(
+        request,
+        'Biometric login updated successfully.' if enabled
+        else 'Biometric login disabled for this staff member.'
+    )
+    return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)

@@ -227,6 +227,17 @@ def staff_biometric_prepare_login(request):
     if not staff or staff.status != 'active':
         return JsonResponse({'ok': False, 'error': 'Staff account is inactive or missing.'}, status=403)
 
+    # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: if the school admin disabled
+    # biometric for this staff member, immediately tell the client that
+    # no biometric step is needed and let the normal password login
+    # proceed on the server side.
+    if not getattr(staff, 'biometric_login_enabled', True):
+        return JsonResponse({
+            'ok': True,
+            'biometric_enabled': False,
+            'message': 'Biometric is disabled for this account by the school admin.',
+        })
+
     with schema_context('public'):
         biometrics = list(StaffBiometricCredential.objects.filter(
             staff_id=staff.pk,

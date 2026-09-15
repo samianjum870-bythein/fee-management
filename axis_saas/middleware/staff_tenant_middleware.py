@@ -92,7 +92,29 @@ class StaffTenantMiddleware:
                 schema_name=schema_name,
                 enabled=True,
             ).exists()
-        if not biometric_enabled and request.path_info != '/portal/staff/biometric/setup/':
+
+        # STAFF_BIOMETRIC_ADMIN_CONTROL_V1: read the per-staff admin switch.
+        # When False, biometric is bypassed entirely — do NOT redirect the
+        # staff member to the setup page even if they have never
+        # registered a credential.
+        try:
+            with schema_context(schema_name):
+                _staff_biometric_allowed = (
+                    Staff.objects
+                    .filter(pk=staff_id)
+                    .values_list('biometric_login_enabled', flat=True)
+                    .first()
+                )
+        except Exception:
+            _staff_biometric_allowed = None
+        if _staff_biometric_allowed is None:
+            _staff_biometric_allowed = True
+
+        if (
+            _staff_biometric_allowed
+            and not biometric_enabled
+            and request.path_info != '/portal/staff/biometric/setup/'
+        ):
             return redirect('staff_biometric_setup')
 
         return self.get_response(request)
