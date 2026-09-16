@@ -662,6 +662,27 @@
         white-space: nowrap;
     }
 
+
+    /* ============ ATTENDANCE_MODAL_CLICKABLE_STUDENT_V1 ============
+       Student names inside the attendance modals are now anchors that
+       link to the student's profile page.  The anchor inherits the
+       surrounding text styling so nothing about the row's layout
+       changes; only the cursor + hover colour announce the link. */
+    .att-mrow a.student-name,
+    .cd-att-row a.student-name {
+        color: inherit;
+        text-decoration: none;
+        font-weight: 600;
+        cursor: pointer;
+        transition: color .12s ease;
+    }
+    .att-mrow a.student-name:hover,
+    .cd-att-row a.student-name:hover {
+        color: var(--primary);
+        text-decoration: underline;
+    }
+    /* ============ /ATTENDANCE_MODAL_CLICKABLE_STUDENT_V1 ============ */
+
     /* ============== /ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */
 </style>
 {% endblock %}
@@ -1141,9 +1162,11 @@ window.AXIS_ADMIN_ATT = (function() {
                 ? '<span class="leave-tag">ON LEAVE</span>' : '';
             var auto = s.is_auto
                 ? '<span class="leave-tag" style="background:#1e40af;">AUTO</span>' : '';
+            // ATTENDANCE_MODAL_CLICKABLE_STUDENT_V1: student name links
+            // to the student's profile page.
             html += '<div class="att-mrow">'
                   +   '<div class="roll">' + esc(s.roll_number || '—') + '</div>'
-                  +   '<div><div class="student-name">' + esc(s.name) + '</div>'
+                  +   '<div><a class="student-name" href="/portal/' + SCHEMA + '/students/' + s.id + '/">' + esc(s.name) + '</a>'
                   +        '<div class="student-meta">' + esc(s.father_name || '') + leave + auto + '</div></div>'
                   +   '<div class="att-mstatus">'
                   +     radio(s, 'present',  'P')
