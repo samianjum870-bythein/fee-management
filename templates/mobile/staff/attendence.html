@@ -2,110 +2,337 @@
 {% block title %}Attendance{% endblock %}
 {% block body %}
 <style>
+    /* ============ STAFF_ATTENDANCE_OVERHAUL_V1 (mobile) ============ */
     .att-hero { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; border-radius:18px; padding:1rem 1.1rem; margin-bottom:1rem; }
-    .att-hero h2 { margin:0 0 0.2rem; font-size:1.15rem; }
-    .att-hero .sub { font-size:0.78rem; opacity:0.9; }
-    .att-pill { display:inline-block; padding:0.2rem 0.7rem; border-radius:999px; font-size:0.72rem; font-weight:700; }
-    .att-pill.marked  { background:#d1fae5; color:#065f46; }
-    .att-pill.pending { background:#fef3c7; color:#92400e; }
-    .att-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:0.9rem 1rem; margin-bottom:0.85rem; box-shadow:0 8px 18px rgba(15,23,42,0.04); }
-    .att-row { display:flex; justify-content:space-between; gap:0.75rem; align-items:center; padding:0.55rem 0; border-bottom:1px solid var(--border); }
-    .att-row:last-child { border-bottom:none; }
-    .att-student-name { font-weight:700; }
-    .att-student-meta { font-size:0.74rem; color:var(--muted); }
-    .att-status-group { display:flex; gap:0.25rem; flex-wrap:wrap; }
+    .att-hero-top { display:flex; justify-content:space-between; align-items:flex-start; gap:.5rem; }
+    .att-hero h2 { margin:0 0 .2rem; font-size:1.15rem; }
+    .att-hero .sub { font-size:.78rem; opacity:.9; }
+    .att-today-chip { font-size:.7rem; background:rgba(255,255,255,.2); border-radius:999px; padding:.25rem .65rem; white-space:nowrap; }
+
+    .att-holiday-banner {
+        display:flex; gap:.7rem; align-items:flex-start;
+        background:#fef3c7; color:#92400e;
+        border-radius:14px; padding:.9rem 1rem; margin-bottom:1rem;
+    }
+    .att-holiday-icon { font-size:1.5rem; line-height:1; }
+    .att-holiday-reason { font-size:.75rem; margin-top:.15rem; opacity:.85; }
+    .att-holiday-desc { font-size:.82rem; margin-top:.3rem; }
+
+    .att-section { margin-bottom:1rem; }
+    .att-section-title { font-weight:800; font-size:.9rem; margin-bottom:.5rem; }
+    .att-section-sub { font-weight:600; font-size:.72rem; color:var(--muted); }
+
+    .att-class-card {
+        background:var(--surface); border:1px solid var(--border); border-radius:14px;
+        padding:.85rem 1rem; margin-bottom:.6rem; cursor:pointer;
+        transition:transform .1s ease, box-shadow .1s ease;
+    }
+    .att-class-card:active { transform:scale(.99); }
+    .att-class-card-head { display:flex; justify-content:space-between; gap:.5rem; align-items:center; }
+    .att-class-name { font-weight:800; font-size:.95rem; display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+    .att-class-card-meta { font-size:.75rem; color:var(--muted); margin-top:.25rem; }
+    .att-class-card-perm { font-size:.72rem; color:var(--muted); margin-top:.35rem; border-top:1px dashed var(--border); padding-top:.35rem; }
+
+    .att-status-chip {
+        display:inline-flex; align-items:center; gap:.3rem;
+        padding:.22rem .6rem; border-radius:999px;
+        font-size:.7rem; font-weight:800;
+        text-transform:uppercase; letter-spacing:.05em; white-space:nowrap;
+    }
+    .att-status-chip::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.85; }
+    .att-green { background:#d1fae5; color:#065f46; }
+    .att-amber { background:#fef3c7; color:#92400e; }
+    .att-red   { background:#fee2e2; color:#991b1b; }
+    .att-blue  { background:#dbeafe; color:#1e40af; }
+
+    .att-period-card {
+        display:flex; gap:.75rem; align-items:center;
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:12px; padding:.75rem .9rem; margin-bottom:.5rem;
+        cursor:pointer;
+    }
+    .att-period-card:active { transform:scale(.99); }
+    .att-period-left { font-weight:800; font-size:.85rem; color:var(--accent); min-width:36px; }
+    .att-period-mid { flex:1; }
+    .att-period-class { font-weight:700; font-size:.88rem; }
+    .att-period-subject { font-size:.72rem; color:var(--muted); }
+
+    .att-detail-header {
+        display:flex; gap:.6rem; align-items:center;
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:14px; padding:.75rem .9rem; margin-bottom:.75rem;
+    }
+    .att-back-btn {
+        background:var(--surface-alt); border:1px solid var(--border);
+        border-radius:.6rem; width:36px; height:36px; font-size:1.1rem;
+        cursor:pointer; color:var(--text);
+    }
+    .att-detail-title { font-weight:800; font-size:1rem; }
+    .att-detail-sub { font-size:.72rem; color:var(--muted); }
+
+    .att-tabs {
+        display:flex; gap:0; background:var(--surface-alt);
+        border:1px solid var(--border); border-radius:12px;
+        overflow:hidden; margin-bottom:.75rem;
+    }
+    .att-tab {
+        flex:1; padding:.65rem 1rem; background:transparent; border:none;
+        font-weight:800; font-size:.78rem; color:var(--muted);
+        text-transform:uppercase; letter-spacing:.05em; cursor:pointer;
+    }
+    .att-tab.active { background:var(--surface); color:var(--accent); }
+
+    .att-card {
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:14px; padding:.9rem 1rem; margin-bottom:.85rem;
+    }
+
+    .att-date-row {
+        display:flex; gap:.5rem; align-items:center;
+        margin-bottom:.75rem; flex-wrap:wrap;
+    }
+    .att-date-row label { font-size:.72rem; font-weight:800; color:var(--muted); text-transform:uppercase; }
+    .att-date-row input[type="date"] {
+        flex:1; min-width:130px; padding:.55rem .7rem; border-radius:.6rem;
+        border:1px solid var(--border); background:var(--surface-alt); color:var(--text);
+    }
+    .att-load-btn {
+        padding:.55rem .9rem; border-radius:.6rem; border:1px solid var(--accent);
+        background:var(--accent); color:#fff; font-weight:800; font-size:.78rem; cursor:pointer;
+    }
+
+    .att-banner {
+        display:flex; gap:.5rem; align-items:flex-start;
+        padding:.6rem .8rem; border-radius:.65rem;
+        font-size:.82rem; font-weight:600; margin-bottom:.6rem; line-height:1.35;
+    }
+    .att-banner.holiday { background:#fef3c7; color:#92400e; }
+    .att-banner.locked  { background:#e0e7ff; color:#3730a3; }
+    .att-banner.auto    { background:#dbeafe; color:#1e40af; }
+
+    .att-students-list { margin-bottom:.7rem; }
+    .att-student-row {
+        display:flex; gap:.75rem; align-items:center;
+        padding:.6rem 0; border-bottom:1px solid var(--border);
+    }
+    .att-student-row:last-child { border-bottom:none; }
+    .att-student-info { flex:1; min-width:0; }
+    .att-student-roll { font-size:.7rem; color:var(--muted); font-weight:800; }
+    .att-student-name { font-weight:700; font-size:.9rem; display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+    .att-student-meta { font-size:.7rem; color:var(--muted); margin-top:.1rem; }
+
+    .att-tag {
+        display:inline-block; padding:.08rem .4rem; border-radius:.3rem;
+        font-size:.6rem; font-weight:800; letter-spacing:.05em;
+    }
+    .att-tag.leave { background:#0ea5e9; color:#fff; }
+    .att-tag.auto  { background:#1e40af; color:#fff; }
+
+    .att-status-group { display:flex; gap:.25rem; flex-wrap:wrap; }
     .att-status-group input { display:none; }
-    .att-status-group label { display:inline-flex; padding:0.32rem 0.55rem; border-radius:0.5rem; font-size:0.72rem; font-weight:700; cursor:pointer; border:1px solid var(--border); background:var(--surface-alt); color:var(--muted); }
-    .att-status-group input[value="present"]:checked + label { background:#10b981; color:#fff; border-color:#10b981; }
-    .att-status-group input[value="absent"]:checked + label  { background:#ef4444; color:#fff; border-color:#ef4444; }
-    .att-status-group input[value="late"]:checked + label    { background:#f59e0b; color:#fff; border-color:#f59e0b; }
-    .att-status-group input[value="half_day"]:checked + label{ background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
-    .att-status-group input[value="excused"]:checked + label { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
-    .att-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem; }
-    .att-actions button { padding:0.55rem 1rem; border-radius:0.65rem; border:none; cursor:pointer; font-weight:700; }
-    .att-actions .primary { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; }
-    .att-actions .ghost { background:var(--surface-alt); color:var(--text); border:1px solid var(--border); }
-    .att-period-chip { display:flex; justify-content:space-between; align-items:center; padding:0.55rem 0.7rem; border:1px solid var(--border); border-radius:0.7rem; margin-bottom:0.45rem; cursor:pointer; background:var(--surface-alt); }
-    .att-period-chip.active { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; }
-    .att-empty { text-align:center; color:var(--muted); padding:1.5rem 0.5rem; font-size:0.9rem; }
+    .att-status-group label {
+        display:inline-flex; align-items:center; justify-content:center;
+        min-width:38px; padding:.4rem .5rem; border-radius:.5rem;
+        font-size:.72rem; font-weight:800; cursor:pointer;
+        border:1px solid var(--border); background:var(--surface-alt); color:var(--muted);
+        user-select:none;
+    }
+    .att-status-group input[value="present"]:checked + label  { background:#10b981; color:#fff; border-color:#10b981; }
+    .att-status-group input[value="absent"]:checked + label   { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .att-status-group input[value="late"]:checked + label     { background:#f59e0b; color:#fff; border-color:#f59e0b; }
+    .att-status-group input[value="half_day"]:checked + label { background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
+    .att-status-group input[value="excused"]:checked + label  { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
+    .att-status-group input:disabled + label { opacity:.5; cursor:not-allowed; }
+
+    .att-bulk-actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem; }
+    .att-ghost-btn {
+        padding:.55rem .9rem; border-radius:.6rem;
+        background:var(--surface-alt); color:var(--text);
+        border:1px solid var(--border); font-weight:700; font-size:.78rem; cursor:pointer;
+    }
+    .att-ghost-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .att-save-area { margin-top:.75rem; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .att-quota-info { font-size:.72rem; color:var(--muted); flex:1; }
+    .att-save-btn {
+        padding:.65rem 1.1rem; border-radius:.65rem; border:none;
+        background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%);
+        color:#fff; font-weight:800; font-size:.82rem; cursor:pointer;
+    }
+    .att-save-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .att-save-msg { font-size:.78rem; text-align:center; margin-top:.5rem; color:var(--muted); }
+    .att-save-msg.ok  { color:#10b981; font-weight:700; }
+    .att-save-msg.err { color:#ef4444; font-weight:700; }
+
+    .att-empty { text-align:center; color:var(--muted); padding:1.5rem .5rem; font-size:.88rem; }
+
+    /* History list */
+    .att-history-header {
+        display:grid; grid-template-columns:1fr 1fr auto;
+        gap:.5rem; font-size:.7rem; font-weight:800;
+        color:var(--muted); text-transform:uppercase;
+        letter-spacing:.05em; padding-bottom:.5rem;
+        border-bottom:1px solid var(--border); margin-bottom:.4rem;
+    }
+    .att-history-row {
+        display:grid; grid-template-columns:1fr 1.1fr auto;
+        gap:.5rem; align-items:center;
+        padding:.6rem 0; border-bottom:1px solid var(--border);
+        cursor:pointer;
+    }
+    .att-history-row:last-child { border-bottom:none; }
+    .att-history-date { font-weight:800; font-size:.85rem; }
+    .att-history-day { font-size:.68rem; color:var(--muted); font-weight:700; margin-top:.05rem; }
+    .att-history-status { display:flex; flex-direction:column; gap:.2rem; align-items:flex-start; }
+    .att-history-counts { font-size:.72rem; color:var(--muted); }
+    .att-history-quota  { font-size:.68rem; color:var(--muted); font-weight:700; }
+    .att-history-action { text-align:right; }
+    .att-mini-btn {
+        padding:.35rem .7rem; border-radius:.5rem;
+        background:var(--accent); color:#fff; border:none;
+        font-weight:800; font-size:.72rem; cursor:pointer;
+    }
+    .att-mini-lock { font-size:.7rem; color:var(--muted); font-weight:700; }
+
+    /* Confirm modal */
+    .att-modal { position:fixed; inset:0; background:rgba(15,23,42,.55); display:none; align-items:center; justify-content:center; z-index:9999; padding:1rem; }
+    .att-modal.open { display:flex; }
+    .att-modal-card { background:var(--surface); border-radius:1rem; width:min(420px, 100%); padding:1.1rem 1.15rem; box-shadow:0 20px 40px rgba(0,0,0,.35); }
+    .att-modal-title { font-weight:800; font-size:1rem; margin-bottom:.5rem; }
+    .att-modal-body { font-size:.86rem; color:var(--text); line-height:1.45; margin-bottom:.9rem; }
+    .att-modal-actions { display:flex; gap:.5rem; justify-content:flex-end; }
 </style>
 
 <div class="att-hero">
-    <h2>Attendance</h2>
-    <div class="sub">{{ staff.full_name }} &middot; {{ today }}
-    {% if is_holiday %}<span class="att-pill pending" style="margin-left:0.4rem;">{{ holiday_reason }}</span>{% endif %}
+    <div class="att-hero-top">
+        <h2>Attendance</h2>
+        <span class="att-today-chip">{{ day_name }} · {{ today }}</span>
     </div>
+    <div class="sub">{{ staff.full_name }}</div>
 </div>
 
 {% if is_holiday %}
-    <div class="att-card"><div class="att-empty">
-        <strong>{{ holiday_reason }}</strong><br>
-        Aaj holiday hai — attendance mark karne ki zaroorat nahi.
-    </div></div>
-{% else %}
-
-<!-- Class teacher: full-day sections -->
-<div class="att-card" id="classTeacherCard" style="display:none;">
-    <div style="font-weight:700; margin-bottom:0.5rem;">Class Teacher — Full Day</div>
-    <div id="classTeacherList"></div>
-</div>
-
-<!-- Subject teacher: period grid -->
-<div class="att-card" id="periodCard" style="display:none;">
-    <div style="font-weight:700; margin-bottom:0.5rem;">Your Periods Today</div>
-    <div id="periodList"></div>
-</div>
-
-<!-- Class + period + date selector (hidden default) -->
-<div class="att-card" id="loaderCard">
-    <div style="font-weight:700; margin-bottom:0.6rem;">Mark Attendance</div>
-    <div style="display:grid; gap:0.6rem;">
-        <div>
-            <div class="att-student-meta" style="margin-bottom:0.2rem;">Class</div>
-            <select id="attClassSelect" style="width:100%; padding:0.6rem; border-radius:0.6rem; border:1px solid var(--border); background:#fff;"></select>
-        </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
-            <div>
-                <div class="att-student-meta" style="margin-bottom:0.2rem;">Date</div>
-                <input type="date" id="attDateInput" value="{{ today }}" style="width:100%; padding:0.6rem; border-radius:0.6rem; border:1px solid var(--border); background:#fff;">
-            </div>
-            <div>
-                <div class="att-student-meta" style="margin-bottom:0.2rem;">Period (optional)</div>
-                <input type="number" id="attPeriodInput" min="1" placeholder="e.g., 2" style="width:100%; padding:0.6rem; border-radius:0.6rem; border:1px solid var(--border); background:#fff;">
-            </div>
-        </div>
-        <div class="att-actions">
-            <button class="primary" onclick="AXIS_ATT.load()">Load Students</button>
-            <button class="ghost" onclick="AXIS_ATT.copy('yesterday')">Copy Yesterday</button>
-            <button class="ghost" onclick="AXIS_ATT.copy('last_period')">Copy Last Period</button>
-        </div>
+<div class="att-holiday-banner">
+    <div class="att-holiday-icon">🎉</div>
+    <div>
+        <strong>Today is a holiday</strong>
+        <div class="att-holiday-reason">{{ holiday_reason }}</div>
+        <div class="att-holiday-desc">Aaj holiday hai — attendance mark karne ki zaroorat nahi.</div>
     </div>
-</div>
-
-<div id="attRows" class="att-card" style="display:none;">
-    <div id="attSummary" class="att-student-meta" style="margin-bottom:0.5rem;"></div>
-    <div id="attRowsList"></div>
-    <div class="att-actions">
-        <button class="ghost" onclick="AXIS_ATT.bulk('present')">All Present</button>
-        <button class="ghost" onclick="AXIS_ATT.bulk('absent')">All Absent</button>
-        <button class="primary" onclick="AXIS_ATT.submit()">Save Attendance</button>
-    </div>
-    <div id="attSaveMsg" class="att-student-meta" style="margin-top:0.5rem; text-align:center;"></div>
 </div>
 {% endif %}
 
+<!-- ==================== HOME VIEW ==================== -->
+<div id="attHomeView">
+    <div id="attCTSection" class="att-section" style="display:none;">
+        <div class="att-section-title">My Classes <span class="att-section-sub">(Class Teacher)</span></div>
+        <div id="attCTList"></div>
+    </div>
+
+    <div id="attSubSection" class="att-section" style="display:none;">
+        <div class="att-section-title">My Periods Today <span class="att-section-sub">(Subject Teacher)</span></div>
+        <div id="attSubList"></div>
+    </div>
+
+    <div id="attNoClasses" class="att-card" style="display:none;">
+        <div class="att-empty">
+            You are not currently assigned as a class teacher or subject teacher to any class.<br>
+            Please contact your school admin.
+        </div>
+    </div>
+</div>
+
+<!-- ==================== DETAIL VIEW ==================== -->
+<div id="attDetailView" style="display:none;">
+    <div class="att-detail-header">
+        <button class="att-back-btn" onclick="AXIS_ATT.back()" aria-label="Back">←</button>
+        <div>
+            <div class="att-detail-title" id="attDetailTitle">Class</div>
+            <div class="att-detail-sub" id="attDetailSub"></div>
+        </div>
+    </div>
+
+    <div class="att-tabs">
+        <button class="att-tab active" data-tab="today" onclick="AXIS_ATT.switchTab('today')">Today</button>
+        <button class="att-tab" data-tab="history" onclick="AXIS_ATT.switchTab('history')">History</button>
+    </div>
+
+    <!-- TODAY PANEL -->
+    <div id="attTabToday" class="att-tab-panel">
+        <div class="att-card">
+            <div class="att-date-row">
+                <label>Date</label>
+                <input type="date" id="attDatePicker">
+                <button class="att-load-btn" type="button" onclick="AXIS_ATT.loadDate()">Load</button>
+            </div>
+            <div id="attTodayBanner" class="att-banner" style="display:none;"></div>
+            <div id="attTodayLock" class="att-banner locked" style="display:none;"></div>
+            <div id="attTodayStudents" class="att-students-list">
+                <div class="att-empty">Pick a class to begin.</div>
+            </div>
+            <div class="att-bulk-actions">
+                <button class="att-ghost-btn" id="attBulkPresent" type="button" onclick="AXIS_ATT.bulk('present')">All Present</button>
+                <button class="att-ghost-btn" id="attBulkAbsent"  type="button" onclick="AXIS_ATT.bulk('absent')">All Absent</button>
+            </div>
+            <div class="att-save-area">
+                <div class="att-quota-info" id="attQuotaInfo"></div>
+                <button class="att-save-btn" id="attSaveBtn" type="button" onclick="AXIS_ATT.confirmSave()">Save Attendance</button>
+            </div>
+            <div id="attSaveMsg" class="att-save-msg"></div>
+        </div>
+    </div>
+
+    <!-- HISTORY PANEL -->
+    <div id="attTabHistory" class="att-tab-panel" style="display:none;">
+        <div class="att-card">
+            <div class="att-history-header">
+                <div>Date</div>
+                <div>Status</div>
+                <div></div>
+            </div>
+            <div id="attHistoryList" class="att-history-list">
+                <div class="att-empty">Loading…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== CONFIRM MODAL ==================== -->
+<div id="attConfirmModal" class="att-modal">
+    <div class="att-modal-card">
+        <div class="att-modal-title">Confirm Save</div>
+        <div class="att-modal-body" id="attConfirmBody">
+            Are you sure you want to save this attendance?
+        </div>
+        <div class="att-modal-actions">
+            <button class="att-ghost-btn" type="button" onclick="AXIS_ATT.closeConfirm()">Cancel</button>
+            <button class="att-save-btn"  type="button" onclick="AXIS_ATT.doSave()">Yes, Save</button>
+        </div>
+    </div>
+</div>
+
 <script>
 window.AXIS_ATT = (function() {
-    var SCHEMA = '{{ staff_schema_name|default:"" }}';
-    var PERIODS = {{ periods_json|safe }};
     var CT_CLASSES = {{ class_teacher_classes_json|safe }};
-    var currentStudents = [];
-    var currentClassId = null;
-    var currentDate = null;
-    var currentPeriod = null;
+    var SUBJECT_PERIODS = {{ subject_periods_json|safe }};
+    var TODAY = '{{ today }}';
 
-    function q(s){ return document.querySelector(s); }
-    function csrf(){
+    var currentClass = null;
+    var currentDate = TODAY;
+    var currentPeriod = null;
+    var currentStudents = [];
+    var currentPermission = null;
+    var currentLocked = false;
+
+    function q(s, r) { return (r || document).querySelector(s); }
+    function qa(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+        });
+    }
+    function csrf() {
         var m = document.querySelector('meta[name="csrf-token"]');
         if (m && m.getAttribute('content')) return m.getAttribute('content');
         var name = 'csrftoken=';
@@ -116,160 +343,408 @@ window.AXIS_ATT = (function() {
         }
         return '';
     }
-    function esc(s){ return String(s||'').replace(/[&<>"]/g, function(c){
-        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+    function permLabel(v) {
+        if (v === 'read_write') return 'Read & Write';
+        if (v === 'read') return 'Read only';
+        return 'Today only';
+    }
 
     function init() {
-        // Class teacher card
+        var anyClass = false;
+
         if (CT_CLASSES && CT_CLASSES.length) {
-            var html = '';
+            var h = '';
             CT_CLASSES.forEach(function(c) {
-                html += '<div class="att-row"><div><div class="att-student-name">'+esc(c.name)+'</div>'
-                      + '<div class="att-student-meta">'+c.student_count+' students</div></div>'
-                      + '<span class="att-pill '+(c.marked_today?'marked':'pending')+'">'
-                      + (c.marked_today?'Marked':'Pending')+'</span>'
-                      + '<button type="button" class="ghost" onclick="AXIS_ATT.openClass('+c.id+',null)">Open</button></div>';
+                var statusCls = c.status === 'completed' ? 'green'
+                              : c.status === 'partial' ? 'amber'
+                              : 'red';
+                var statusTxt = c.status === 'completed' ? 'Completed'
+                              : c.status === 'partial' ? 'Partial'
+                              : 'Pending';
+                var autoTag = c.auto_marked
+                    ? '<span class="att-tag auto">AUTO</span>' : '';
+                h += '<div class="att-class-card" onclick="AXIS_ATT.openClass(' + c.id + ')">';
+                h +=   '<div class="att-class-card-head">';
+                h +=     '<div class="att-class-name">' + esc(c.name) + autoTag + '</div>';
+                h +=     '<div class="att-status-chip att-' + statusCls + '">' + statusTxt + '</div>';
+                h +=   '</div>';
+                h +=   '<div class="att-class-card-meta">';
+                h +=     c.student_count + ' students · ' + c.marked_today + ' marked today';
+                h +=   '</div>';
+                h +=   '<div class="att-class-card-perm">';
+                h +=     'Permission: ' + permLabel(c.backdate_access)
+                       + ' · Max ' + c.max_edits_per_date + ' edit(s)/date';
+                h +=   '</div>';
+                h += '</div>';
             });
-            q('#classTeacherList').innerHTML = html;
-            q('#classTeacherCard').style.display = 'block';
+            q('#attCTList').innerHTML = h;
+            q('#attCTSection').style.display = 'block';
+            anyClass = true;
         }
 
-        // Periods card
-        if (PERIODS && PERIODS.length) {
-            var phtml = '';
-            PERIODS.forEach(function(p) {
-                phtml += '<div class="att-period-chip" data-idx="'+p.period_order+'" onclick="AXIS_ATT.openClass('+p.class_id+','+p.period_order+')">'
-                       + '<div><strong>P'+p.period_order+'</strong> '+esc(p.start||'')+'–'+esc(p.end||'')+' '
-                       + '<span class="att-student-meta">'+esc(p.class_name)+' &middot; '+esc(p.subject)+'</span></div>'
-                       + '<span class="att-pill '+(p.marked?'marked':'pending')+'">'
-                       + (p.marked?'Marked':'Pending')+'</span></div>';
+        if (SUBJECT_PERIODS && SUBJECT_PERIODS.length) {
+            var ph = '';
+            SUBJECT_PERIODS.forEach(function(p) {
+                ph += '<div class="att-period-card" onclick="AXIS_ATT.openPeriod(' + p.class_id + ',' + p.period_order + ')">';
+                ph +=   '<div class="att-period-left"><strong>P' + p.period_order + '</strong></div>';
+                ph +=   '<div class="att-period-mid">';
+                ph +=     '<div class="att-period-class">' + esc(p.class_name) + '</div>';
+                ph +=     '<div class="att-period-subject">' + esc(p.subject || '') + '</div>';
+                ph +=   '</div>';
+                ph +=   '<div class="att-status-chip att-' + (p.marked ? 'green' : 'amber') + '">'
+                       + (p.marked ? 'Marked' : 'Pending') + '</div>';
+                ph += '</div>';
             });
-            q('#periodList').innerHTML = phtml;
-            q('#periodCard').style.display = 'block';
+            q('#attSubList').innerHTML = ph;
+            q('#attSubSection').style.display = 'block';
+            anyClass = true;
         }
 
-        // Populate class dropdown from CT classes + period classes
-        var sel = q('#attClassSelect');
-        var seen = {};
-        (CT_CLASSES||[]).forEach(function(c){ if(!seen[c.id]){seen[c.id]=1;var o=document.createElement('option');o.value=c.id;o.textContent=c.name;sel.appendChild(o);} });
-        (PERIODS||[]).forEach(function(p){ if(!seen[p.class_id]){seen[p.class_id]=1;var o=document.createElement('option');o.value=p.class_id;o.textContent=p.class_name;sel.appendChild(o);} });
-        if (!sel.options.length) {
-            var o = document.createElement('option');
-            o.textContent = 'No classes assigned';
-            sel.appendChild(o);
+        if (!anyClass) {
+            q('#attNoClasses').style.display = 'block';
         }
+
+        q('#attDatePicker').value = TODAY;
     }
 
-    function openClass(cid, period) {
-        q('#attClassSelect').value = String(cid);
-        if (period) q('#attPeriodInput').value = period;
-        load();
+    function back() {
+        q('#attHomeView').style.display = 'block';
+        q('#attDetailView').style.display = 'none';
+        currentClass = null;
+        currentPeriod = null;
+        currentStudents = [];
+        currentPermission = null;
+        currentLocked = false;
     }
 
-    function load() {
-        var cid = q('#attClassSelect').value;
-        var d = q('#attDateInput').value;
-        var p = q('#attPeriodInput').value;
-        if (!cid || !d) { alert('Pick class and date.'); return; }
-        currentClassId = cid;
-        currentDate = d;
-        currentPeriod = p ? parseInt(p, 10) : null;
-        var url = '/portal/staff/api/attendance/students/?class_id='+cid+'&date='+d;
-        if (currentPeriod) url += '&period_order='+currentPeriod;
-        fetch(url, { headers: {'X-Requested-With':'XMLHttpRequest','Accept':'application/json'} })
-            .then(function(r){ return r.json(); })
-            .then(function(j){
-                if (!j.ok) { alert(j.error||'Failed'); return; }
-                if (j.is_holiday) { alert('Holiday: '+(j.holiday_reason||'')); return; }
+    function switchTab(which) {
+        qa('.att-tab').forEach(function(t) {
+            t.classList.toggle('active', t.getAttribute('data-tab') === which);
+        });
+        q('#attTabToday').style.display = which === 'today' ? 'block' : 'none';
+        q('#attTabHistory').style.display = which === 'history' ? 'block' : 'none';
+        if (which === 'history' && currentClass) loadHistory();
+    }
+
+    function openClass(classId) {
+        var c = null;
+        for (var i = 0; i < CT_CLASSES.length; i++) {
+            if (CT_CLASSES[i].id === classId) { c = CT_CLASSES[i]; break; }
+        }
+        if (!c) return;
+        currentClass = c;
+        currentPeriod = null;
+        currentDate = TODAY;
+        q('#attDetailTitle').textContent = c.name;
+        q('#attDetailSub').textContent = c.student_count + ' students · Class Teacher';
+        q('#attDatePicker').value = TODAY;
+        q('#attHomeView').style.display = 'none';
+        q('#attDetailView').style.display = 'block';
+        switchTab('today');
+        loadStudents(c.id, null, TODAY);
+    }
+
+    function openPeriod(classId, periodOrder) {
+        currentPeriod = periodOrder;
+        currentClass = { id: classId, name: 'Period ' + periodOrder };
+        currentDate = TODAY;
+        q('#attDetailTitle').textContent = 'Period ' + periodOrder;
+        q('#attDetailSub').textContent = 'Subject period attendance';
+        q('#attDatePicker').value = TODAY;
+        q('#attDatePicker').disabled = true;
+        q('#attHomeView').style.display = 'none';
+        q('#attDetailView').style.display = 'block';
+        switchTab('today');
+        loadStudents(classId, periodOrder, TODAY);
+    }
+
+    function loadDate() {
+        if (!currentClass) return;
+        currentDate = q('#attDatePicker').value || TODAY;
+        loadStudents(currentClass.id, currentPeriod, currentDate);
+    }
+
+    function loadStudents(classId, periodOrder, date) {
+        var url = '/portal/staff/api/attendance/students/?class_id=' + classId
+                + '&date=' + encodeURIComponent(date);
+        if (periodOrder) url += '&period_order=' + periodOrder;
+
+        q('#attTodayStudents').innerHTML = '<div class="att-empty">Loading…</div>';
+        q('#attTodayBanner').style.display = 'none';
+        q('#attTodayLock').style.display = 'none';
+        q('#attSaveMsg').textContent = '';
+        q('#attSaveMsg').className = 'att-save-msg';
+
+        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attTodayStudents').innerHTML =
+                        '<div class="att-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                if (j.is_holiday) {
+                    q('#attTodayBanner').className = 'att-banner holiday';
+                    q('#attTodayBanner').textContent =
+                        '🎉 ' + (j.holiday_reason || 'Holiday');
+                    q('#attTodayBanner').style.display = 'flex';
+                    q('#attTodayStudents').innerHTML =
+                        '<div class="att-empty">No attendance is expected on a holiday.</div>';
+                    q('#attSaveBtn').disabled = true;
+                    q('#attSaveBtn').style.opacity = 0.5;
+                    q('#attBulkPresent').disabled = true;
+                    q('#attBulkAbsent').disabled = true;
+                    return;
+                }
                 currentStudents = j.students || [];
-                render();
-                q('#attRows').style.display = 'block';
+                currentPermission = j.permission || null;
+                currentLocked = !!j.locked;
+
+                if (currentLocked) {
+                    q('#attTodayLock').className = 'att-banner locked';
+                    q('#attTodayLock').textContent =
+                        '🔒 ' + (j.lock_reason || 'This date is locked for you.');
+                    q('#attTodayLock').style.display = 'flex';
+                } else if (j.auto_marked) {
+                    var b = q('#attTodayBanner');
+                    b.className = 'att-banner auto';
+                    b.textContent =
+                        '🤖 This date was auto-marked by the system. You can still edit it.';
+                    b.style.display = 'flex';
+                }
+
+                renderStudents();
+                updateQuota();
+
+                q('#attSaveBtn').disabled = currentLocked;
+                q('#attSaveBtn').style.opacity = currentLocked ? 0.5 : 1;
+                q('#attBulkPresent').disabled = currentLocked;
+                q('#attBulkAbsent').disabled = currentLocked;
             })
-            .catch(function(){ alert('Network error.'); });
+            .catch(function() {
+                q('#attTodayStudents').innerHTML =
+                    '<div class="att-empty">Network error.</div>';
+            });
     }
 
-    function render() {
-        var list = q('#attRowsList');
-        if (!currentStudents.length) { list.innerHTML = '<div class="att-empty">No students in this class.</div>'; return; }
-        var html = '';
-        currentStudents.forEach(function(s){
-            html += '<div class="att-row">'
-                  + '<div><div class="att-student-name">'+esc(s.name)+'</div>'
-                  + '<div class="att-student-meta">Roll '+esc(s.roll_number||'-')+(s.on_leave?' · ON LEAVE':'')+'</div></div>'
-                  + '<div class="att-status-group">'
-                  + '<input type="radio" name="st_'+s.id+'" id="p_'+s.id+'" value="present" '+(s.status==='present'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="p_'+s.id+'">P</label>'
-                  + '<input type="radio" name="st_'+s.id+'" id="a_'+s.id+'" value="absent" '+(s.status==='absent'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="a_'+s.id+'">A</label>'
-                  + '<input type="radio" name="st_'+s.id+'" id="l_'+s.id+'" value="late" '+(s.status==='late'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="l_'+s.id+'">L</label>'
-                  + '<input type="radio" name="st_'+s.id+'" id="h_'+s.id+'" value="half_day" '+(s.status==='half_day'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="h_'+s.id+'">H</label>'
-                  + '<input type="radio" name="st_'+s.id+'" id="e_'+s.id+'" value="excused" '+(s.status==='excused'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="e_'+s.id+'">Lv</label>'
-                  + '</div></div>';
+    function renderStudents() {
+        if (!currentStudents.length) {
+            q('#attTodayStudents').innerHTML =
+                '<div class="att-empty">No active students in this class.</div>';
+            return;
+        }
+        var h = '';
+        currentStudents.forEach(function(s) {
+            var tags = '';
+            if (s.on_leave) tags += '<span class="att-tag leave">ON LEAVE</span>';
+            if (s.is_auto)  tags += '<span class="att-tag auto">AUTO</span>';
+            h += '<div class="att-student-row">';
+            h +=   '<div class="att-student-info">';
+            h +=     '<div class="att-student-roll">' + esc(s.roll_number || '—') + '</div>';
+            h +=     '<div class="att-student-name">' + esc(s.name) + tags + '</div>';
+            h +=     '<div class="att-student-meta">' + esc(s.father_name || '') + '</div>';
+            h +=   '</div>';
+            h +=   '<div class="att-status-group">';
+            ['present', 'absent', 'late', 'half_day', 'excused'].forEach(function(v) {
+                var label = {present:'P', absent:'A', late:'L', half_day:'H', excused:'Lv'}[v];
+                var id = 'att_' + s.id + '_' + v;
+                var checked = (s.status === v) ? 'checked' : '';
+                var dis = currentLocked ? 'disabled' : '';
+                h += '<input type="radio" name="st_' + s.id + '" id="' + id + '" value="' + v + '" ' + checked + ' ' + dis + '>';
+                h += '<label for="' + id + '">' + label + '</label>';
+            });
+            h +=   '</div>';
+            h += '</div>';
         });
-        list.innerHTML = html;
-        updateSummary();
+        q('#attTodayStudents').innerHTML = h;
     }
 
-    function updateSummary() {
-        var p=0,a=0,l=0,h=0,e=0;
-        currentStudents.forEach(function(s){
-            var el = document.querySelector('input[name="st_'+s.id+'"]:checked');
-            var v = el ? el.value : 'present';
-            if (v==='present') p++; else if (v==='absent') a++;
-            else if (v==='late') l++; else if (v==='half_day') h++;
-            else if (v==='excused') e++;
-        });
-        q('#attSummary').innerHTML = 'Total '+currentStudents.length
-            + ' · P '+p+' · A '+a+' · L '+l+' · H '+h+' · Lv '+e;
+    function updateQuota() {
+        var el = q('#attQuotaInfo');
+        if (!currentPermission || !currentPermission.is_class_teacher) {
+            el.textContent = '';
+            return;
+        }
+        if (currentDate === TODAY) {
+            el.textContent = "Marking today's attendance.";
+        } else {
+            el.textContent = 'Edits used: ' + currentPermission.quota_used
+                + ' / ' + currentPermission.quota_max
+                + (currentPermission.quota_remaining > 0
+                    ? ' (' + currentPermission.quota_remaining + ' remaining)'
+                    : '');
+        }
     }
 
     function bulk(status) {
-        currentStudents.forEach(function(s){
-            var el = document.getElementById(
-                (status==='present'?'p_':status==='absent'?'a_':'p_') + s.id);
+        if (currentLocked) return;
+        currentStudents.forEach(function(s) {
+            var el = document.getElementById('att_' + s.id + '_' + status);
             if (el) el.checked = true;
         });
-        updateSummary();
     }
 
-    function submit() {
-        if (!currentClassId || !currentDate) return;
-        var records = currentStudents.map(function(s){
-            var el = document.querySelector('input[name="st_'+s.id+'"]:checked');
+    function confirmSave() {
+        if (currentLocked) return;
+        var isEdit = currentDate !== TODAY;
+        q('#attConfirmBody').textContent = isEdit
+            ? 'Are you sure? This will use 1 of your remaining edits for ' + currentDate + '.'
+            : "Are you sure you want to save today's attendance?";
+        q('#attConfirmModal').classList.add('open');
+    }
+
+    function closeConfirm() {
+        q('#attConfirmModal').classList.remove('open');
+    }
+
+    function doSave() {
+        closeConfirm();
+        if (!currentClass) return;
+
+        var records = currentStudents.map(function(s) {
+            var el = document.querySelector('input[name="st_' + s.id + '"]:checked');
             return { student_id: s.id, status: el ? el.value : 'present' };
         });
-        var payload = { class_id: parseInt(currentClassId,10), date: currentDate, records: records };
+        var payload = {
+            class_id: currentClass.id,
+            date: currentDate,
+            records: records,
+        };
         if (currentPeriod) payload.period_order = currentPeriod;
+
         var msg = q('#attSaveMsg');
         msg.textContent = 'Saving…';
+        msg.className = 'att-save-msg';
+
         fetch('/portal/staff/api/attendance/mark/', {
             method: 'POST',
-            headers: {'Content-Type':'application/json','X-CSRFToken':csrf(),'X-Requested-With':'XMLHttpRequest'},
-            body: JSON.stringify(payload)
-        }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, data:j}; }); })
-          .then(function(res){
-            if (!res.ok || !res.data.ok) { msg.textContent = res.data.error||'Failed'; return; }
-            msg.textContent = 'Saved '+res.data.saved+' records.';
-          })
-          .catch(function(){ msg.textContent = 'Network error.'; });
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    msg.textContent = j.error || 'Save failed.';
+                    msg.className = 'att-save-msg err';
+                    if (j.permission) {
+                        currentPermission = j.permission;
+                        updateQuota();
+                    }
+                    return;
+                }
+                msg.textContent = 'Saved ' + j.saved + ' record(s).';
+                msg.className = 'att-save-msg ok';
+                if (j.permission) {
+                    currentPermission = j.permission;
+                    updateQuota();
+                }
+                setTimeout(function() { window.location.reload(); }, 900);
+            })
+            .catch(function() {
+                msg.textContent = 'Network error.';
+                msg.className = 'att-save-msg err';
+            });
     }
 
-    function copy(source) {
-        if (!currentClassId || !currentDate) { alert('Load a class first.'); return; }
-        var payload = { class_id: parseInt(currentClassId,10), date: currentDate, source: source };
-        if (currentPeriod) payload.period_order = currentPeriod;
-        fetch('/portal/staff/api/attendance/copy/', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json','X-CSRFToken':csrf(),'X-Requested-With':'XMLHttpRequest'},
-            body: JSON.stringify(payload)
-        }).then(function(r){ return r.json(); })
-          .then(function(j){
-            if (!j.ok) { alert(j.error||'Copy failed'); return; }
-            alert('Copied '+j.copied+' records.');
-            load();
-          }).catch(function(){ alert('Network error.'); });
+    function loadHistory() {
+        if (!currentClass) return;
+        q('#attHistoryList').innerHTML = '<div class="att-empty">Loading…</div>';
+        fetch('/portal/staff/api/attendance/dates/?class_id=' + currentClass.id,
+              { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attHistoryList').innerHTML =
+                        '<div class="att-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                var h = '';
+                (j.dates || []).forEach(function(d) {
+                    var badge = '';
+                    if (d.is_holiday) {
+                        badge = '<span class="att-status-chip att-blue">Holiday</span>';
+                    } else if (d.status === 'completed') {
+                        badge = '<span class="att-status-chip att-green">Completed</span>';
+                    } else if (d.status === 'partial') {
+                        badge = '<span class="att-status-chip att-amber">Partial</span>';
+                    } else {
+                        badge = '<span class="att-status-chip att-red">Pending</span>';
+                    }
+
+                    var action = '';
+                    if (d.can_edit) {
+                        action = '<button type="button" class="att-mini-btn" '
+                               + 'onclick="event.stopPropagation(); AXIS_ATT.jumpToDate(\''
+                               + d.date + '\')">Edit</button>';
+                    } else if (!d.can_view) {
+                        action = '<span class="att-mini-lock">Locked</span>';
+                    } else {
+                        action = '<span class="att-mini-lock">View</span>';
+                    }
+
+                    var autoTag = d.auto_marked > 0
+                        ? '<span class="att-tag auto">AUTO ×' + d.auto_marked + '</span>'
+                        : '';
+
+                    h += '<div class="att-history-row" '
+                       + 'onclick="AXIS_ATT.jumpToDate(\'' + d.date + '\')">';
+                    h +=   '<div>';
+                    h +=     '<div class="att-history-date">' + d.date + '</div>';
+                    h +=     '<div class="att-history-day">' + d.day_name
+                           + (d.is_today ? ' · Today' : '') + '</div>';
+                    h +=   '</div>';
+                    h +=   '<div class="att-history-status">';
+                    h +=     badge + autoTag;
+                    h +=     '<div class="att-history-counts">'
+                           + d.marked + '/' + d.total_students + ' marked</div>';
+                    if (d.quota_max > 0 && !d.is_today && !d.is_holiday) {
+                        h += '<div class="att-history-quota">Edits '
+                           + d.quota_used + '/' + d.quota_max + '</div>';
+                    }
+                    h +=   '</div>';
+                    h +=   '<div class="att-history-action">' + action + '</div>';
+                    h += '</div>';
+                });
+                q('#attHistoryList').innerHTML = h
+                    || '<div class="att-empty">No history available.</div>';
+            })
+            .catch(function() {
+                q('#attHistoryList').innerHTML =
+                    '<div class="att-empty">Network error.</div>';
+            });
+    }
+
+    function jumpToDate(date) {
+        if (!currentClass) return;
+        if (currentPeriod) {
+            alert('History navigation is only available for the class-teacher view.');
+            return;
+        }
+        q('#attDatePicker').value = date;
+        currentDate = date;
+        switchTab('today');
+        loadStudents(currentClass.id, null, date);
     }
 
     document.addEventListener('DOMContentLoaded', init);
-    return { load, submit, bulk, copy, openClass, updateSummary };
+
+    return {
+        openClass: openClass,
+        openPeriod: openPeriod,
+        back: back,
+        switchTab: switchTab,
+        loadDate: loadDate,
+        bulk: bulk,
+        confirmSave: confirmSave,
+        closeConfirm: closeConfirm,
+        doSave: doSave,
+        jumpToDate: jumpToDate,
+    };
 })();
 </script>
 {% endblock %}

@@ -1644,3 +1644,124 @@ class AttendancePolicy(models.Model):
         obj, _ = cls.objects.get_or_create(is_singleton=True, defaults={})
         return obj
 
+
+# =====================================================================
+# STAFF_ATTENDANCE_OVERHAUL_V1
+# ---------------------------------------------------------------------
+# Per-class attendance authority for the class teacher, controlled by
+# the school admin from the attendance dashboard, plus a per-(class,
+# date) edit counter that enforces the max-edits-per-date limit.
+# =====================================================================
+
+
+class ClassTeacherAttendancePermission(models.Model):
+    """Per-class attendance authority for the class teacher.
+
+    Only one row per SchoolClass. Created lazily on first access via
+    :meth:`for_class`. Admin edits this row from the admin attendance
+    dashboard.
+    """
+    BACKDATE_ACCESS_CHOICES = [
+        ('none', "None - Only today's attendance"),
+        ('read', 'Read only - View past, cannot edit'),
+        ('read_write', 'Read & Write - View and edit past'),
+    ]
+
+    school_class = models.OneToOneField(
+        'SchoolClass',
+        on_delete=models.CASCADE,
+        related_name='attendance_permission',
+    )
+    backdate_access = models.CharField(
+        max_length=20,
+        choices=BACKDATE_ACCESS_CHOICES,
+        default='none',
+        help_text=(
+            "What the class teacher can do with past attendance. "
+            "'none' = today only; 'read' = view-only history; "
+            "'read_write' = view and edit history."
+        ),
+    )
+    max_edits_per_date = models.PositiveIntegerField(
+        default=1,
+        help_text=(
+            "Maximum number of times the class teacher can edit a "
+            "single date's attendance before it permanently locks "
+            "for the class teacher."
+        ),
+    )
+    view_history_days = models.PositiveIntegerField(
+        default=30,
+        help_text=(
+            "How many days back the class teacher can view the "
+            "attendance records for this class."
+        ),
+    )
+    edit_history_days = models.PositiveIntegerField(
+        default=5,
+        help_text=(
+            "How many days back the class teacher can edit the "
+            "attendance records for this class."
+        ),
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.CharField(max_length=150, blank=True, default='')
+
+    class Meta:
+        verbose_name = 'Class Teacher Attendance Permission'
+        verbose_name_plural = 'Class Teacher Attendance Permissions'
+
+    def __str__(self):
+        return f"Attendance permission for {self.school_class}"
+
+    @classmethod
+    def for_class(cls, school_class):
+        """Return the permission row for this class, creating defaults
+        if it does not exist yet."""
+        if school_class is None:
+            return None
+        obj, _ = cls.objects.get_or_create(school_class=school_class)
+        return obj
+
+
+class ClassTeacherEditQuota(models.Model):
+    """Per-(class, date) counter of how many times the class teacher has
+    edited the attendance. When this counter reaches the value of
+    ClassTeacherAttendancePermission.max_edits_per_date, that specific
+    date is permanently locked for the class teacher. Admin edits do
+    NOT increment this counter and are never locked out.
+    """
+    school_class = models.ForeignKey(
+        'SchoolClass',
+        on_delete=models.CASCADE,
+        related_name='attendance_edit_quotas',
+    )
+    date = models.DateField()
+    teacher_edit_count = models.PositiveIntegerField(default=0)
+    last_teacher_edit_at = models.DateTimeField(null=True, blank=True)
+    last_teacher_edit_by_id = models.PositiveIntegerField(
+        null=True, blank=True,
+    )
+    last_teacher_edit_by_name = models.CharField(
+        max_length=150, blank=True, default='',
+    )
+
+    class Meta:
+        unique_together = [('school_class', 'date')]
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['school_class', 'date']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.school_class} {self.date} "
+            f"(teacher edits: {self.teacher_edit_count})"
+        )
+
+    @classmethod
+    def for_class_date(cls, school_class, on_date):
+        obj, _ = cls.objects.get_or_create(
+            school_class=school_class, date=on_date,
+        )
+        return obj

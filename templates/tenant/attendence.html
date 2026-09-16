@@ -691,6 +691,14 @@
 <h1 class="page-title">Attendance Dashboard</h1>
 <p class="page-desc">Class-wise attendance overview for {{ today }}. Every active class, its completion status, and its cumulative missing-day count.</p>
 
+<div style="display:flex; gap:.6rem; margin-bottom:1rem; flex-wrap:wrap;">
+    <button type="button" class="att-action-btn"
+            onclick="AXIS_ADMIN_ATT_PERMS.openPermissions()">
+        ⚙️ Class Teacher Permissions
+    </button>
+</div>
+
+
 <div class="att-dash">
 
     <!-- ============ KPI cards ============ -->
@@ -1284,7 +1292,10 @@ window.AXIS_ADMIN_ATT = (function() {
                           +     '<span class="stat-pill e">Lv ' + d.excused + '</span>'
                           +     '<span style="margin-left:.4rem;">Total: ' + d.total + '</span>'
                           +   '</div>'
+                          +   '<div style="display:flex; gap:.35rem;">'
                           +   '<button type="button" class="open-btn" onclick="event.stopPropagation(); AXIS_ADMIN_ATT.openAutoDate(\'' + esc(d.date) + '\')">Open</button>'
+                          +   '<button type="button" class="open-btn" style="background:var(--surface-alt); color:var(--text); border-color:var(--border);" onclick="event.stopPropagation(); AXIS_ADMIN_ATT_PERMS.openLogs(' + modalClassId + ', \'' + esc(d.date) + '\')">Logs</button>'
+                          +   '</div>'
                           + '</div>';
                 });
 
@@ -1371,5 +1382,254 @@ window.AXIS_ADMIN_ATT = (function() {
 window.__AXIS_ATT_POLICY__ = {{ policy_json|safe }};
 console.log('[AXIS] Attendance policy loaded:', window.__AXIS_ATT_POLICY__);
 </script>
+
+
+<!-- ============ STAFF_ATTENDANCE_OVERHAUL_V1_FIX — admin extras ============ -->
+<div id="attPermModal" class="att-modal">
+    <div class="att-modal-panel" style="width:min(1100px, 100%);">
+        <div class="att-modal-header">
+            <div>
+                <h3>Class Teacher Attendance Permissions</h3>
+                <div class="sub">Control what each class teacher can view and edit.</div>
+            </div>
+            <button type="button" onclick="AXIS_ADMIN_ATT_PERMS.closePermissions()">×</button>
+        </div>
+        <div class="att-modal-body" id="attPermList" style="padding:1rem 1.2rem;">
+            <div class="att-modal-empty">Loading…</div>
+        </div>
+        <div class="att-modal-footer">
+            <span class="save-msg" id="attPermMsg"></span>
+            <button type="button" onclick="AXIS_ADMIN_ATT_PERMS.closePermissions()">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="attLogsModal" class="att-modal">
+    <div class="att-modal-panel" style="width:min(960px, 100%);">
+        <div class="att-modal-header">
+            <div>
+                <h3 id="attLogsTitle">Daily Logs</h3>
+                <div class="sub" id="attLogsSub"></div>
+            </div>
+            <button type="button" onclick="AXIS_ADMIN_ATT_PERMS.closeLogs()">×</button>
+        </div>
+        <div class="att-modal-body" id="attLogsBody" style="padding:0;">
+            <div class="att-modal-empty">Loading…</div>
+        </div>
+    </div>
+</div>
+
+<script>
+window.AXIS_ADMIN_ATT_PERMS = (function() {
+    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    function q(s, r) { return (r || document).querySelector(s); }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+        });
+    }
+    function csrf() {
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute('content')) return m.getAttribute('content');
+        var name = 'csrftoken=';
+        var parts = (document.cookie || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return c.substring(name.length);
+        }
+        return '';
+    }
+    var permCache = [];
+
+    function openPermissions() {
+        q('#attPermModal').classList.add('open');
+        loadPermissions();
+    }
+    function closePermissions() {
+        q('#attPermModal').classList.remove('open');
+    }
+    function loadPermissions() {
+        q('#attPermList').innerHTML = '<div class="att-modal-empty">Loading…</div>';
+        fetch('/portal/' + SCHEMA + '/api/attendance/class-teacher-permissions/', {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attPermList').innerHTML =
+                        '<div class="att-modal-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                permCache = j.permissions || [];
+                renderPermissions();
+            })
+            .catch(function() {
+                q('#attPermList').innerHTML =
+                    '<div class="att-modal-empty">Network error.</div>';
+            });
+    }
+    function renderPermissions() {
+        if (!permCache.length) {
+            q('#attPermList').innerHTML =
+                '<div class="att-modal-empty">No classes with an assigned class teacher yet.</div>';
+            return;
+        }
+        var selStyle = 'padding:.35rem .5rem; border-radius:.5rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);';
+        var inpStyle = 'width:72px; padding:.35rem .5rem; border-radius:.5rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text);';
+        var h = '<div style="overflow:auto;">';
+        h += '<table style="width:100%; border-collapse:collapse; font-size:.85rem;">';
+        h += '<thead><tr style="text-align:left; border-bottom:1px solid var(--border);">';
+        h += '<th style="padding:.55rem;">Class</th>';
+        h += '<th style="padding:.55rem;">Class Teacher</th>';
+        h += '<th style="padding:.55rem;">Backdate Access</th>';
+        h += '<th style="padding:.55rem;">Max Edits / Date</th>';
+        h += '<th style="padding:.55rem;">View Days</th>';
+        h += '<th style="padding:.55rem;">Edit Days</th>';
+        h += '<th></th></tr></thead><tbody>';
+        permCache.forEach(function(p) {
+            h += '<tr data-class-id="' + p.class_id + '" style="border-bottom:1px solid var(--border);">';
+            h += '<td style="padding:.55rem; font-weight:700;">' + esc(p.class_display) + '</td>';
+            h += '<td style="padding:.55rem;">' + esc(p.class_teacher_name) + '</td>';
+            h += '<td style="padding:.55rem;"><select data-field="backdate_access" style="' + selStyle + '">';
+            h += '<option value="none"' + (p.backdate_access === 'none' ? ' selected' : '') + '>Today only</option>';
+            h += '<option value="read"' + (p.backdate_access === 'read' ? ' selected' : '') + '>Read only</option>';
+            h += '<option value="read_write"' + (p.backdate_access === 'read_write' ? ' selected' : '') + '>Read &amp; Write</option>';
+            h += '</select></td>';
+            h += '<td style="padding:.55rem;"><input type="number" min="0" max="50" value="' + p.max_edits_per_date + '" data-field="max_edits_per_date" style="' + inpStyle + '"></td>';
+            h += '<td style="padding:.55rem;"><input type="number" min="0" max="730" value="' + p.view_history_days + '" data-field="view_history_days" style="' + inpStyle + '"></td>';
+            h += '<td style="padding:.55rem;"><input type="number" min="0" max="730" value="' + p.edit_history_days + '" data-field="edit_history_days" style="' + inpStyle + '"></td>';
+            h += '<td style="padding:.55rem;"><button type="button" class="att-action-btn" onclick="AXIS_ADMIN_ATT_PERMS.savePermission(' + p.class_id + ')">Save</button></td>';
+            h += '</tr>';
+        });
+        h += '</tbody></table></div>';
+        q('#attPermList').innerHTML = h;
+    }
+    function savePermission(classId) {
+        var row = q('#attPermList tr[data-class-id="' + classId + '"]');
+        if (!row) return;
+        function num(field, fallback) {
+            var el = row.querySelector('[data-field="' + field + '"]');
+            var v = parseInt(el.value, 10);
+            return isNaN(v) ? fallback : v;
+        }
+        var payload = {
+            class_id: classId,
+            backdate_access: row.querySelector('[data-field="backdate_access"]').value,
+            max_edits_per_date: num('max_edits_per_date', 0),
+            view_history_days: num('view_history_days', 0),
+            edit_history_days: num('edit_history_days', 0),
+        };
+        var msg = q('#attPermMsg');
+        msg.className = 'save-msg';
+        msg.textContent = 'Saving…';
+        fetch('/portal/' + SCHEMA + '/api/attendance/class-teacher-permissions/save/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    msg.className = 'save-msg err';
+                    msg.textContent = j.error || 'Failed';
+                    return;
+                }
+                msg.className = 'save-msg ok';
+                msg.textContent = 'Saved.';
+                setTimeout(function() {
+                    if (msg) { msg.textContent = ''; msg.className = 'save-msg'; }
+                }, 1500);
+            })
+            .catch(function() {
+                msg.className = 'save-msg err';
+                msg.textContent = 'Network error.';
+            });
+    }
+    function openLogs(classId, dateStr) {
+        if (!classId) { classId = 0; }
+        q('#attLogsModal').classList.add('open');
+        q('#attLogsTitle').textContent = 'Daily Logs — ' + dateStr;
+        q('#attLogsSub').textContent = 'Class ID ' + classId;
+        q('#attLogsBody').innerHTML = '<div class="att-modal-empty">Loading…</div>';
+        var url = '/portal/' + SCHEMA + '/api/attendance/daily-logs/?class_id=' + classId + '&date=' + encodeURIComponent(dateStr);
+        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attLogsBody').innerHTML = '<div class="att-modal-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                var logs = j.logs || [];
+                var names = j.student_names || {};
+                var qq = j.quota || {};
+                var head = '<div style="padding:1rem 1.2rem; border-bottom:1px solid var(--border); background:var(--surface-alt);">';
+                head += '<div style="font-size:.82rem; color:var(--muted);">';
+                head += 'Teacher edits used: <strong>' + (qq.teacher_edit_count || 0) + '</strong> / <strong>' + (qq.max_edits_per_date || 0) + '</strong>';
+                if (qq.last_teacher_edit_by_name) {
+                    head += ' &nbsp;·&nbsp; Last edit by <strong>' + esc(qq.last_teacher_edit_by_name) + '</strong>';
+                }
+                if (qq.last_teacher_edit_at) {
+                    head += ' on <strong>' + esc(qq.last_teacher_edit_at) + '</strong>';
+                }
+                head += '</div></div>';
+                if (!logs.length) {
+                    q('#attLogsBody').innerHTML = head + '<div class="att-modal-empty">No logs recorded for this date yet.</div>';
+                    return;
+                }
+                var h = head + '<div>';
+                logs.forEach(function(l) {
+                    var sname = names[l.student_id] || ('Student #' + (l.student_id || '?'));
+                    var badge = l.action === 'create' ? 'att-status-chip completed'
+                              : l.action === 'update' ? 'att-status-chip partial'
+                              : 'att-status-chip pending';
+                    h += '<div style="display:grid; grid-template-columns:1fr auto; gap:.5rem; padding:.6rem 1.2rem; border-bottom:1px solid var(--border);">';
+                    h += '<div>';
+                    h += '<div style="font-weight:700; font-size:.85rem;">' + esc(sname) + '</div>';
+                    h += '<div style="font-size:.72rem; color:var(--muted); margin-top:.15rem;">';
+                    h += 'Status: ' + esc(l.old_status || '—') + ' → ' + esc(l.new_status || '—');
+                    h += ' · By ' + esc(l.changed_by || 'system');
+                    h += ' · ' + esc(l.changed_at || '');
+                    h += '</div>';
+                    if (l.reason) {
+                        h += '<div style="font-size:.7rem; color:var(--muted); margin-top:.15rem;">Reason: ' + esc(l.reason) + '</div>';
+                    }
+                    h += '</div>';
+                    h += '<div><span class="' + badge + '">' + esc(l.action) + '</span></div>';
+                    h += '</div>';
+                });
+                h += '</div>';
+                q('#attLogsBody').innerHTML = h;
+            })
+            .catch(function() {
+                q('#attLogsBody').innerHTML = '<div class="att-modal-empty">Network error.</div>';
+            });
+    }
+    function closeLogs() {
+        q('#attLogsModal').classList.remove('open');
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        var lm = q('#attLogsModal');
+        if (lm) lm.addEventListener('click', function(e) {
+            if (e.target === lm) closeLogs();
+        });
+        var pm = q('#attPermModal');
+        if (pm) pm.addEventListener('click', function(e) {
+            if (e.target === pm) closePermissions();
+        });
+    });
+    return {
+        openPermissions: openPermissions,
+        closePermissions: closePermissions,
+        savePermission: savePermission,
+        openLogs: openLogs,
+        closeLogs: closeLogs,
+    };
+})();
+</script>
+
 {% endblock %}
 

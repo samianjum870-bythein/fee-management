@@ -60,6 +60,10 @@ from .views.admin_attendence import (
     admin_staff_attendance_list_api,
     admin_staff_attendance_mark_api,
     admin_attendance_auto_marked_dates_api,
+    # STAFF_ATTENDANCE_OVERHAUL_V1
+    admin_attendance_class_teacher_permissions_list_api,
+    admin_attendance_class_teacher_permissions_save_api,
+    admin_attendance_daily_logs_api,
 )
 from .views.leave_management import (
     leave_management, leave_detail_api, leave_approve, leave_reject,
@@ -417,6 +421,10 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/attendance/staff/', portal_wrapper(login_required_for_schema(admin_staff_attendance_list_api)), name='admin_staff_attendance_list_api'),
     path('portal/<slug:schema_name>/api/attendance/staff/mark/', portal_wrapper(login_required_for_schema(admin_staff_attendance_mark_api)), name='admin_staff_attendance_mark_api'),
     path('portal/<slug:schema_name>/api/attendance/auto-marked-dates/', portal_wrapper(login_required_for_schema(admin_attendance_auto_marked_dates_api)), name='admin_attendance_auto_marked_dates_api'),
+    # ===== STAFF_ATTENDANCE_OVERHAUL_V1 =====
+    path('portal/<slug:schema_name>/api/attendance/class-teacher-permissions/', portal_wrapper(login_required_for_schema(admin_attendance_class_teacher_permissions_list_api)), name='admin_attendance_class_teacher_permissions_list_api'),
+    path('portal/<slug:schema_name>/api/attendance/class-teacher-permissions/save/', portal_wrapper(login_required_for_schema(admin_attendance_class_teacher_permissions_save_api)), name='admin_attendance_class_teacher_permissions_save_api'),
+    path('portal/<slug:schema_name>/api/attendance/daily-logs/', portal_wrapper(login_required_for_schema(admin_attendance_daily_logs_api)), name='admin_attendance_daily_logs_api'),
     # ===== LEAVE MANAGEMENT =====
     path('portal/<slug:schema_name>/leave/', portal_wrapper(login_required_for_schema(leave_management)), name='leave_management'),
     path('portal/<slug:schema_name>/leave/<int:leave_id>/detail/', portal_wrapper(login_required_for_schema(leave_detail_api)), name='leave_detail_api'),

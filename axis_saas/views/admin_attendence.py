@@ -1261,3 +1261,245 @@ def admin_staff_attendance_mark_api(request, schema_name):
                 pass
 
     return JsonResponse({'ok': True, 'id': rec.id})
+
+
+# =====================================================================
+# STAFF_ATTENDANCE_OVERHAUL_V1 — class-teacher permission management
+# ---------------------------------------------------------------------
+# The school admin uses these endpoints to control, per class:
+#   * what the class teacher can do with past attendance
+#   * how many times the teacher can edit a given date
+#   * how far back the teacher can view history
+#   * how far back the teacher can edit history
+# =====================================================================
+
+
+@require_http_methods(['GET'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_class_teacher_permissions_list_api(request, schema_name):
+    """List every class that has a class teacher, with its current
+    attendance permission settings."""
+    from ..models import ClassTeacherAttendancePermission
+
+    tenant = get_tenant(request, schema_name)
+    with schema_context(schema_name):
+        classes = list(
+            SchoolClass.objects
+            .filter(is_active=True, class_teacher__isnull=False)
+            .select_related('class_teacher', 'wing_category',
+                            'wing_category__parent')
+            .order_by('name', 'section')
+        )
+
+        existing = {
+            p.school_class_id: p
+            for p in ClassTeacherAttendancePermission.objects.filter(
+                school_class_id__in=[c.id for c in classes],
+            )
+        }
+
+        rows = []
+        for c in classes:
+            p = existing.get(c.id)
+            if p is None:
+                p = ClassTeacherAttendancePermission.for_class(c)
+            try:
+                display_name = get_class_display_name(
+                    c, tenant.tenant_type,
+                )
+            except Exception:
+                display_name = str(c)
+            rows.append({
+                'class_id': c.id,
+                'class_display': display_name,
+                'class_teacher_id': c.class_teacher_id,
+                'class_teacher_name': (
+                    c.class_teacher.full_name if c.class_teacher else ''
+                ),
+                'backdate_access': p.backdate_access,
+                'max_edits_per_date': p.max_edits_per_date,
+                'view_history_days': p.view_history_days,
+                'edit_history_days': p.edit_history_days,
+                'updated_at': (
+                    p.updated_at.isoformat() if p.updated_at else ''
+                ),
+                'updated_by': p.updated_by or '',
+            })
+
+    return JsonResponse({
+        'ok': True,
+        'permissions': rows,
+        'backdate_access_choices': [
+            {'value': 'none', 'label': "None - Only today's attendance"},
+            {'value': 'read', 'label': 'Read only - View past, cannot edit'},
+            {'value': 'read_write', 'label': 'Read & Write - View and edit past'},
+        ],
+    })
+
+
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_class_teacher_permissions_save_api(request, schema_name):
+    """Save the attendance permission row for a single class."""
+    from ..models import ClassTeacherAttendancePermission
+
+    try:
+        body = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+
+    class_id = _parse_int(body.get('class_id'))
+    if not class_id:
+        return JsonResponse(
+            {'ok': False, 'error': 'class_id required'}, status=400,
+        )
+
+    def _int(key, default, lo=0, hi=None):
+        try:
+            v = int(body.get(key, default))
+        except (TypeError, ValueError):
+            v = default
+        v = max(lo, v)
+        if hi is not None:
+            v = min(hi, v)
+        return v
+
+    backdate_access = (body.get('backdate_access') or 'none').strip()
+    if backdate_access not in ('none', 'read', 'read_write'):
+        backdate_access = 'none'
+
+    admin_name = request.session.get('school_admin_username', 'admin')
+
+    with schema_context(schema_name):
+        school_class = SchoolClass.objects.filter(
+            id=class_id, is_active=True,
+        ).first()
+        if not school_class:
+            return JsonResponse(
+                {'ok': False, 'error': 'Class not found'}, status=404,
+            )
+
+        p = ClassTeacherAttendancePermission.for_class(school_class)
+        p.backdate_access = backdate_access
+        p.max_edits_per_date = _int(
+            'max_edits_per_date', p.max_edits_per_date, 0, 50,
+        )
+        p.view_history_days = _int(
+            'view_history_days', p.view_history_days, 0, 730,
+        )
+        p.edit_history_days = _int(
+            'edit_history_days', p.edit_history_days, 0, 730,
+        )
+        p.updated_by = admin_name
+        p.save()
+
+        return JsonResponse({
+            'ok': True,
+            'permission': {
+                'class_id': school_class.id,
+                'backdate_access': p.backdate_access,
+                'max_edits_per_date': p.max_edits_per_date,
+                'view_history_days': p.view_history_days,
+                'edit_history_days': p.edit_history_days,
+                'updated_at': (
+                    p.updated_at.isoformat() if p.updated_at else ''
+                ),
+                'updated_by': p.updated_by or '',
+            },
+        })
+
+
+@require_http_methods(['GET'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_daily_logs_api(request, schema_name):
+    """Return the full audit log for a specific (class, date)."""
+    class_id = _parse_int(request.GET.get('class_id'))
+    on_date = _parse_date(request.GET.get('date'))
+    period_order = _parse_int(request.GET.get('period_order'))
+
+    if not class_id or not on_date:
+        return JsonResponse(
+            {'ok': False, 'error': 'class_id and date required'}, status=400,
+        )
+
+    with schema_context(schema_name):
+        att_qs = StudentAttendance.objects.filter(
+            school_class_id=class_id, date=on_date,
+        )
+        if period_order is None:
+            att_qs = att_qs.filter(period_order__isnull=True)
+        else:
+            att_qs = att_qs.filter(period_order=period_order)
+
+        att_ids = list(att_qs.values_list('id', flat=True))
+
+        logs_qs = (
+            AttendanceAuditLog.objects
+            .filter(attendance_id__in=att_ids)
+            .select_related('changed_by')
+            .order_by('-changed_at')
+        )
+        logs = []
+        for r in logs_qs:
+            logs.append({
+                'id': r.id,
+                'action': r.action,
+                'student_id': r.student_id_snapshot,
+                'date': r.date_snapshot.isoformat() if r.date_snapshot else '',
+                'period_order': r.period_snapshot,
+                'old_status': r.old_status or '',
+                'new_status': r.new_status or '',
+                'changed_by': r.changed_by_name or (
+                    r.changed_by.full_name if r.changed_by else 'system'
+                ),
+                'changed_at': r.changed_at.isoformat() if r.changed_at else '',
+                'reason': r.reason or '',
+            })
+
+        from ..models import (
+            ClassTeacherEditQuota, ClassTeacherAttendancePermission,
+        )
+        try:
+            quota = ClassTeacherEditQuota.objects.filter(
+                school_class_id=class_id, date=on_date,
+            ).first()
+        except Exception:
+            quota = None
+
+        try:
+            perm = ClassTeacherAttendancePermission.objects.filter(
+                school_class_id=class_id,
+            ).first()
+        except Exception:
+            perm = None
+
+        student_ids = {r['student_id'] for r in logs if r['student_id']}
+        student_names = dict(
+            Student.objects
+            .filter(id__in=student_ids)
+            .values_list('id', 'name')
+        )
+
+        return JsonResponse({
+            'ok': True,
+            'logs': logs,
+            'student_names': student_names,
+            'quota': {
+                'teacher_edit_count': (
+                    quota.teacher_edit_count if quota else 0
+                ),
+                'last_teacher_edit_at': (
+                    quota.last_teacher_edit_at.isoformat()
+                    if quota and quota.last_teacher_edit_at else ''
+                ),
+                'last_teacher_edit_by_name': (
+                    quota.last_teacher_edit_by_name if quota else ''
+                ),
+                'max_edits_per_date': (
+                    perm.max_edits_per_date if perm else 0
+                ),
+            },
+        })
