@@ -51,6 +51,15 @@ from .views.admin_attendence import (
     admin_attendance_records_api,
     admin_attendance_summary_api,
     admin_attendance_student_history_api,
+    admin_attendance_bulk_mark_api,
+    admin_attendance_compliance_api,
+    admin_attendance_audit_api,
+    admin_attendance_low_defaulters_api,
+    admin_attendance_policy_get_api,
+    admin_attendance_policy_save_api,
+    admin_staff_attendance_list_api,
+    admin_staff_attendance_mark_api,
+    admin_attendance_auto_marked_dates_api,
 )
 from .views.leave_management import (
     leave_management, leave_detail_api, leave_approve, leave_reject,
@@ -398,6 +407,16 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/attendance/records/', portal_wrapper(login_required_for_schema(admin_attendance_records_api)), name='admin_attendance_records_api'),
     path('portal/<slug:schema_name>/api/attendance/summary/', portal_wrapper(login_required_for_schema(admin_attendance_summary_api)), name='admin_attendance_summary_api'),
     path('portal/<slug:schema_name>/api/attendance/student/<int:student_id>/history/', portal_wrapper(login_required_for_schema(admin_attendance_student_history_api)), name='admin_attendance_student_history_api'),
+    # ===== ATTENDANCE_PRODUCTION_V2 =====
+    path('portal/<slug:schema_name>/api/attendance/bulk-mark/', portal_wrapper(login_required_for_schema(admin_attendance_bulk_mark_api)), name='admin_attendance_bulk_mark_api'),
+    path('portal/<slug:schema_name>/api/attendance/compliance/', portal_wrapper(login_required_for_schema(admin_attendance_compliance_api)), name='admin_attendance_compliance_api'),
+    path('portal/<slug:schema_name>/api/attendance/audit/', portal_wrapper(login_required_for_schema(admin_attendance_audit_api)), name='admin_attendance_audit_api'),
+    path('portal/<slug:schema_name>/api/attendance/low-defaulters/', portal_wrapper(login_required_for_schema(admin_attendance_low_defaulters_api)), name='admin_attendance_low_defaulters_api'),
+    path('portal/<slug:schema_name>/api/attendance/policy/', portal_wrapper(login_required_for_schema(admin_attendance_policy_get_api)), name='admin_attendance_policy_get_api'),
+    path('portal/<slug:schema_name>/api/attendance/policy/save/', portal_wrapper(login_required_for_schema(admin_attendance_policy_save_api)), name='admin_attendance_policy_save_api'),
+    path('portal/<slug:schema_name>/api/attendance/staff/', portal_wrapper(login_required_for_schema(admin_staff_attendance_list_api)), name='admin_staff_attendance_list_api'),
+    path('portal/<slug:schema_name>/api/attendance/staff/mark/', portal_wrapper(login_required_for_schema(admin_staff_attendance_mark_api)), name='admin_staff_attendance_mark_api'),
+    path('portal/<slug:schema_name>/api/attendance/auto-marked-dates/', portal_wrapper(login_required_for_schema(admin_attendance_auto_marked_dates_api)), name='admin_attendance_auto_marked_dates_api'),
     # ===== LEAVE MANAGEMENT =====
     path('portal/<slug:schema_name>/leave/', portal_wrapper(login_required_for_schema(leave_management)), name='leave_management'),
     path('portal/<slug:schema_name>/leave/<int:leave_id>/detail/', portal_wrapper(login_required_for_schema(leave_detail_api)), name='leave_detail_api'),

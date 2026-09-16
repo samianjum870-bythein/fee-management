@@ -206,3 +206,125 @@ def _lmv41_clear_working_days_cache(schema_name):
 def _lmv41_on_weekly_holiday_change(sender, instance, **kwargs):
     _lmv41_clear_working_days_cache(connection.schema_name)
 # ===== END LEAVE_MANAGEMENT_HARDENING_V4_1 ===========================
+
+
+# ===== ATTENDANCE_PRODUCTION_V2 SIGNALS =============================
+# Auto-mark 'excused' attendance for approved StudentLeave rows, and
+# keep StaffAttendance in sync when a staff LeaveRequest is approved.
+# ====================================================================
+
+from axis_saas.models import StudentLeave as _AP2_StudentLeave
+from axis_saas.models import StudentAttendance as _AP2_StudentAttendance
+from axis_saas.models import AttendanceAuditLog as _AP2_AuditLog
+
+
+def _ap2_backfill_student_leave_dates(leave):
+    """For each date covered by an approved StudentLeave, upsert an
+    'excused' full-day StudentAttendance row (period_order=NULL)."""
+    if leave.status != 'approved':
+        return
+    if not leave.student_id or not leave.start_date or not leave.end_date:
+        return
+    try:
+        from datetime import timedelta as _td
+        day = leave.start_date
+        while day <= leave.end_date:
+            # Skip weekly Sunday? Leave that decision to admin — we mark
+            # excused every covered date so teachers don't have to think.
+            exists = _AP2_StudentAttendance.objects.filter(
+                student_id=leave.student_id, date=day, period_order__isnull=True,
+            ).first()
+            if exists:
+                if exists.status != 'excused':
+                    old = exists.status
+                    exists.status = 'excused'
+                    exists.source = 'auto_leave'
+                    exists.remarks = (exists.remarks or '') + ' [auto: student leave]'
+                    exists.save(update_fields=['status', 'source', 'remarks', 'updated_at'])
+                    try:
+                        _AP2_AuditLog.objects.create(
+                            attendance=exists,
+                            student_id_snapshot=exists.student_id,
+                            date_snapshot=exists.date,
+                            action='update',
+                            old_status=old, new_status='excused',
+                            changed_by_name='system:auto_leave',
+                            reason='student leave approved',
+                        )
+                    except Exception:
+                        pass
+            else:
+                try:
+                    _cls = None
+                    from axis_saas.models import Student as _AP2_Student
+                    _s = _AP2_Student.objects.filter(id=leave.student_id).first()
+                    if _s and _s.school_class_id:
+                        _cls = _s.school_class
+                    if _cls is None:
+                        day += _td(days=1); continue
+                    _row = _AP2_StudentAttendance.objects.create(
+                        student_id=leave.student_id,
+                        school_class=_cls,
+                        date=day,
+                        period_order=None,
+                        status='excused',
+                        source='auto_leave',
+                        remarks='auto: student leave',
+                    )
+                    try:
+                        _AP2_AuditLog.objects.create(
+                            attendance=_row,
+                            student_id_snapshot=_row.student_id,
+                            date_snapshot=_row.date,
+                            action='create',
+                            new_status='excused',
+                            changed_by_name='system:auto_leave',
+                            reason='student leave approved',
+                        )
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            day += _td(days=1)
+    except Exception:
+        pass
+
+
+@receiver(post_save, sender=_AP2_StudentLeave)
+def _ap2_on_student_leave_save(sender, instance, **kwargs):
+    _ap2_backfill_student_leave_dates(instance)
+
+
+# Staff LeaveRequest approval -> StaffAttendance on_leave
+from axis_saas.models import LeaveRequest as _AP2_LeaveRequest
+from axis_saas.models import StaffAttendance as _AP2_StaffAttendance
+
+
+def _ap2_sync_staff_attendance_from_leave(leave):
+    if leave.status != 'approved' or not leave.staff_id:
+        return
+    try:
+        from datetime import timedelta as _td
+        day = leave.start_date
+        while day <= leave.end_date:
+            _AP2_StaffAttendance.objects.update_or_create(
+                staff_id=leave.staff_id,
+                date=day,
+                defaults={
+                    'status': 'on_leave',
+                    'source': 'auto_leave',
+                    'remarks': (leave.title or '')[:200],
+                },
+            )
+            day += _td(days=1)
+    except Exception:
+        pass
+
+
+@receiver(post_save, sender=_AP2_LeaveRequest)
+def _ap2_on_leave_request_save(sender, instance, **kwargs):
+    _ap2_sync_staff_attendance_from_leave(instance)
+
+
+# ===== END ATTENDANCE_PRODUCTION_V2 SIGNALS =========================
+

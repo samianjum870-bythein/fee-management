@@ -839,24 +839,84 @@ class StudentAttendance(models.Model):
         ('present', 'Present'),
         ('absent', 'Absent'),
         ('late', 'Late'),
+        ('half_day', 'Half Day'),
+        ('excused', 'Excused/Leave'),
         ('holiday', 'Holiday'),
     ]
-    student = models.ForeignKey('Student', on_delete=models.CASCADE, related_name='attendance_records')
-    school_class = models.ForeignKey('SchoolClass', on_delete=models.CASCADE, related_name='attendance_records')
-    date = models.DateField(default=timezone.localdate)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='present')
-    teacher = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True, blank=True, related_name='marked_attendance')
+    SOURCE_CHOICES = [
+        ('teacher', 'Teacher'),
+        ('admin', 'Admin'),
+        ('biometric', 'Biometric'),
+        ('auto_leave', 'Auto (Leave)'),
+        ('auto_absent', 'Auto (Absent)'),
+        ('auto_system', 'Auto (System Present)'),
+    ]
+
+    student = models.ForeignKey('Student', on_delete=models.CASCADE,
+                                related_name='attendance_records')
+    school_class = models.ForeignKey('SchoolClass', on_delete=models.CASCADE,
+                                     related_name='attendance_records')
+    date = models.DateField(default=timezone.localdate, db_index=True)
+
+    # ATTENDANCE_PRODUCTION_V2: period-aware markers
+    period_order = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="NULL = full-day mark; 1..N = period slot in timetable.",
+    )
+    period_timetable = models.ForeignKey(
+        'PeriodsTimetable', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='attendance_records',
+    )
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
+                              default='present')
+
+    # Original marker (kept for backwards compatibility with v1 code)
+    teacher = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='marked_attendance',
+    )
+    # v2 marker chain
+    marked_by = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attendance_marked_by',
+    )
+    marked_at = models.DateTimeField(null=True, blank=True)
+    modified_by = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attendance_modified_by',
+    )
+    modified_at = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES,
+                              default='teacher')
+
     remarks = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('student', 'date')
         ordering = ['-date', 'student__name']
-        indexes = [models.Index(fields=['school_class', 'date'])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student', 'date', 'period_order'],
+                name='unique_student_date_period',
+            ),
+            models.UniqueConstraint(
+                fields=['student', 'date'],
+                condition=models.Q(period_order__isnull=True),
+                name='unique_student_date_fullday',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['school_class', 'date']),
+            models.Index(fields=['student', 'date']),
+            models.Index(fields=['date', 'status']),
+        ]
 
     def __str__(self):
-        return f"{self.student.name} - {self.date} - {self.get_status_display()}"
+        p = f" P{self.period_order}" if self.period_order else ""
+        return (f"{self.student.name} - {self.date}{p} - "
+                f"{self.get_status_display()}")
 
 
 # ========== CLASS & SUBJECT MANAGEMENT ==========
@@ -1374,3 +1434,213 @@ class SubstituteAssignment(models.Model):
             f"{self.date} P{self.period_order} "
             f"{self.school_class}: {abs_} → {sub}"
         )
+
+
+# =====================================================================
+# ATTENDANCE_PRODUCTION_V2 MODELS
+# ---------------------------------------------------------------------
+# Period-aware student attendance, teacher check-in/out attendance,
+# student leave, admin override audit, and a tenant policy singleton.
+# =====================================================================
+
+
+class StaffAttendance(models.Model):
+    """One row per staff member per calendar day.
+
+    Records check-in / check-out times and the derived status. The
+    biometric login flow writes here automatically (source='biometric');
+    admins can manually correct any row (source='admin'); approved
+    leave auto-fills here (source='auto_leave'); holidays/weekends are
+    stamped by a management command (source='holiday_auto').
+    """
+    STATUS_CHOICES = [
+        ('present', 'Present'),
+        ('absent', 'Absent'),
+        ('late', 'Late'),
+        ('half_day', 'Half Day'),
+        ('on_leave', 'On Leave'),
+        ('holiday', 'Holiday'),
+        ('weekend', 'Weekend'),
+    ]
+    SOURCE_CHOICES = [
+        ('biometric', 'Biometric'),
+        ('manual', 'Manual'),
+        ('auto_leave', 'Auto (Leave)'),
+        ('holiday_auto', 'Holiday Auto'),
+        ('admin', 'Admin'),
+    ]
+
+    staff = models.ForeignKey('Staff', on_delete=models.CASCADE,
+                              related_name='staff_attendance_records')
+    date = models.DateField(default=timezone.localdate, db_index=True)
+    check_in = models.DateTimeField(null=True, blank=True)
+    check_out = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
+                              default='present')
+    late_minutes = models.PositiveIntegerField(default=0)
+    worked_minutes = models.PositiveIntegerField(default=0)
+    marked_by = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='staff_attendance_marked',
+    )
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES,
+                              default='manual')
+    remarks = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('staff', 'date')]
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['staff', 'date']),
+            models.Index(fields=['date', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.staff.full_name} - {self.date} - {self.get_status_display()}"
+
+
+class StudentLeave(models.Model):
+    """Parent / admin / staff applied leave for a student.
+
+    When a StudentLeave is approved, the signal in signals.py auto-marks
+    the student's attendance rows as 'excused' for every covered date so
+    a teacher never has to remember to click "leave" in the register.
+    """
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
+    ]
+    LEAVE_TYPE_CHOICES = [
+        ('sick', 'Sick Leave'),
+        ('casual', 'Casual Leave'),
+        ('family', 'Family Emergency'),
+        ('other', 'Other'),
+    ]
+
+    student = models.ForeignKey('Student', on_delete=models.CASCADE,
+                                related_name='leave_requests')
+    leave_type = models.CharField(max_length=20, choices=LEAVE_TYPE_CHOICES,
+                                  default='casual')
+    title = models.CharField(max_length=200)
+    reason = models.TextField()
+    start_date = models.DateField()
+    end_date = models.DateField()
+    total_days = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
+                              default='pending')
+    applied_by = models.CharField(max_length=150, blank=True)
+    reviewed_by = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_student_leaves',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    admin_remarks = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['student', 'status']),
+            models.Index(fields=['status', 'start_date']),
+        ]
+
+    def __str__(self):
+        return (f"{self.student.name} - {self.start_date} to "
+                f"{self.end_date} ({self.status})")
+
+    def is_active_on(self, on_date):
+        return (self.status == 'approved'
+                and self.start_date <= on_date <= self.end_date)
+
+
+class AttendanceAuditLog(models.Model):
+    """Immutable record of every override to a StudentAttendance row.
+
+    A teacher's first mark creates a 'create' row. Any subsequent edit —
+    whether by the same teacher or an admin — writes an 'update' row
+    with old_status / new_status. Deletes are logged as 'delete'. Bulk
+    class-wide corrections are logged as 'bulk_update'.
+    """
+    ACTION_CHOICES = [
+        ('create', 'Create'),
+        ('update', 'Update'),
+        ('delete', 'Delete'),
+        ('bulk_update', 'Bulk Update'),
+    ]
+
+    attendance = models.ForeignKey(
+        'StudentAttendance', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='audit_logs',
+    )
+    student_id_snapshot = models.PositiveIntegerField(null=True, blank=True)
+    date_snapshot = models.DateField(null=True, blank=True)
+    period_snapshot = models.PositiveIntegerField(null=True, blank=True)
+
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    old_status = models.CharField(max_length=20, blank=True)
+    new_status = models.CharField(max_length=20, blank=True)
+
+    changed_by = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attendance_audit',
+    )
+    changed_by_name = models.CharField(max_length=150, blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+        indexes = [
+            models.Index(fields=['changed_at']),
+            models.Index(fields=['student_id_snapshot', 'date_snapshot']),
+        ]
+
+    def __str__(self):
+        return (f"{self.action} student={self.student_id_snapshot} "
+                f"{self.date_snapshot} @ {self.changed_at}")
+
+
+class AttendancePolicy(models.Model):
+    """Tenant-wide attendance configuration (singleton)."""
+    MODE_CHOICES = [
+        ('daily', 'Daily'),
+        ('period_wise', 'Period-wise'),
+        ('both', 'Both'),
+    ]
+
+    is_singleton = models.BooleanField(default=True, unique=True,
+                                       editable=False)
+    attendance_mode = models.CharField(max_length=20, choices=MODE_CHOICES,
+                                       default='both')
+    late_threshold_minutes = models.PositiveIntegerField(default=10)
+    low_attendance_threshold = models.DecimalField(
+        max_digits=5, decimal_places=2, default=75.00,
+        help_text="Percentage below which a student is a low-attendance defaulter.",
+    )
+    auto_mark_absent_at = models.TimeField(
+        null=True, blank=True,
+        help_text="If set, cron marks unmarked students absent at this time.",
+    )
+    notify_parents_on_absent = models.BooleanField(default=True)
+    notify_after_periods = models.PositiveIntegerField(default=2)
+    allow_teacher_backdate_days = models.PositiveIntegerField(default=1)
+    require_admin_approval = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Attendance Policy'
+        verbose_name_plural = 'Attendance Policies'
+
+    def __str__(self):
+        return "Attendance Policy"
+
+    @classmethod
+    def current(cls):
+        obj, _ = cls.objects.get_or_create(is_singleton=True, defaults={})
+        return obj
+

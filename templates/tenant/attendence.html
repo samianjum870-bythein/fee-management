@@ -1,280 +1,1352 @@
 {% extends 'tenant/base.html' %}
 {% load static %}
-{% block title %}Attendance Management{% endblock %}
+{% block title %}Attendance Dashboard{% endblock %}
 
 {% block extra_head %}
 <style>
-    .att-toolbar { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; margin-bottom:1rem; }
-    .att-toolbar .field { display:flex; flex-direction:column; gap:.25rem; min-width:180px; }
-    .att-toolbar label { font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
-    .att-toolbar select, .att-toolbar input[type="date"] { padding:.55rem .75rem; border-radius:.65rem; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); }
-    .att-summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-bottom:1.25rem; }
-    .att-summary-card { background:var(--surface); border:1px solid var(--border); border-radius:1rem; padding:1rem; box-shadow:var(--shadow); }
-    .att-summary-card .k { font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
-    .att-summary-card .v { font-size:1.6rem; font-weight:800; color:var(--text); margin-top:.25rem; }
-    .att-rows { display:flex; flex-direction:column; gap:.5rem; }
-    .att-row { display:grid; grid-template-columns:60px 1fr auto; gap:.75rem; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:.85rem; padding:.65rem .85rem; }
-    .att-row .roll { font-weight:700; color:var(--muted); font-size:.8rem; }
-    .att-row .name { font-weight:600; }
-    .att-row .father { font-size:.72rem; color:var(--muted); }
-    .att-status-group { display:flex; gap:.35rem; }
-    .att-status-group input { display:none; }
-    .att-status-group label { display:inline-flex; align-items:center; justify-content:center; min-width:44px; padding:.35rem .55rem; border-radius:.6rem; font-size:.72rem; font-weight:700; cursor:pointer; border:1px solid var(--border); background:var(--surface-alt); color:var(--muted); }
-    .att-status-group input[value="present"]:checked + label { background:#10b981; color:#fff; border-color:#10b981; }
-    .att-status-group input[value="absent"]:checked + label { background:#ef4444; color:#fff; border-color:#ef4444; }
-    .att-status-group input[value="late"]:checked + label { background:#f59e0b; color:#fff; border-color:#f59e0b; }
-    .att-status-group input[value="holiday"]:checked + label { background:#6b7280; color:#fff; border-color:#6b7280; }
-    .att-actions { display:flex; gap:.5rem; margin-top:1rem; }
-    .att-badge { display:inline-block; padding:.15rem .55rem; border-radius:.5rem; font-size:.65rem; font-weight:700; text-transform:uppercase; }
-    .att-badge.present { background:#d1fae5; color:#065f46; }
-    .att-badge.absent  { background:#fee2e2; color:#991b1b; }
-    .att-badge.late    { background:#fef3c7; color:#92400e; }
-    .att-badge.holiday { background:#e5e7eb; color:#374151; }
-    .att-empty { text-align:center; color:var(--muted); padding:2rem 1rem; }
-    .att-tabs { display:flex; gap:.5rem; margin-bottom:1rem; border-bottom:1px solid var(--border); }
-    .att-tabs button { background:none; border:none; padding:.6rem 1rem; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; }
-    .att-tabs button.active { color:var(--primary); border-bottom-color:var(--primary); }
-    .att-hidden { display:none !important; }
-    .att-record-row { display:grid; grid-template-columns:90px 1fr 90px auto; gap:.75rem; align-items:center; padding:.5rem .75rem; border-bottom:1px solid var(--border); font-size:.85rem; }
-    .att-record-row:last-child { border-bottom:none; }
+    /* ============== ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */
+    .att-dash { margin-top: 1.25rem; }
+
+    /* ---------- KPI grid ---------- */
+    .att-kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: .85rem;
+        margin-bottom: 1.1rem;
+    }
+    .att-kpi {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: .95rem 1rem;
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+    }
+    .att-kpi::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: var(--primary);
+    }
+    .att-kpi.kpi-warn::after    { background: #f59e0b; }
+    .att-kpi.kpi-danger::after  { background: #ef4444; }
+    .att-kpi.kpi-success::after { background: #10b981; }
+    .att-kpi.kpi-info::after    { background: #0ea5e9; }
+    .att-kpi .k {
+        font-size: .68rem;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        color: var(--muted);
+        font-weight: 700;
+    }
+    .att-kpi .v {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: var(--text);
+        margin-top: .15rem;
+        line-height: 1.1;
+    }
+    .att-kpi .sub {
+        font-size: .72rem;
+        color: var(--muted);
+        margin-top: .15rem;
+    }
+
+    /* ---------- filter bar ---------- */
+    .att-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .6rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding: .85rem 1rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: var(--shadow);
+    }
+    .att-filters .search-wrap {
+        position: relative;
+        flex: 1 1 220px;
+        min-width: 180px;
+    }
+    .att-filters .search-wrap::before {
+        content: '🔍';
+        position: absolute;
+        left: .75rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: .85rem;
+        opacity: .55;
+        pointer-events: none;
+    }
+    .att-filters input[type="text"],
+    .att-filters select {
+        width: 100%;
+        padding: .55rem .75rem;
+        border-radius: .65rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: .85rem;
+    }
+    .att-filters .search-wrap input[type="text"] {
+        padding-left: 2.1rem;
+    }
+    .att-filters .count-pill {
+        font-size: .72rem;
+        color: var(--muted);
+        font-weight: 700;
+        padding: .35rem .7rem;
+        background: var(--surface-alt);
+        border-radius: .55rem;
+        border: 1px solid var(--border);
+    }
+    .att-filters .reset-btn {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: .55rem .85rem;
+        border-radius: .65rem;
+        cursor: pointer;
+        font-size: .8rem;
+        font-weight: 700;
+    }
+    .att-filters .reset-btn:hover { color: var(--text); }
+
+    /* ---------- table ---------- */
+    .att-table-wrap {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+    }
+    .att-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: .875rem;
+    }
+    .att-table thead {
+        background: linear-gradient(180deg, var(--surface-alt) 0%, var(--surface) 100%);
+    }
+    .att-table thead th {
+        text-align: left;
+        padding: .75rem .9rem;
+        font-size: .7rem;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--muted);
+        font-weight: 700;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+        user-select: none;
+    }
+    .att-table thead th.sortable { cursor: pointer; }
+    .att-table thead th.sortable:hover { color: var(--text); }
+    .att-table thead th .arrow {
+        display: inline-block;
+        margin-left: .3rem;
+        opacity: .4;
+        font-size: .7rem;
+    }
+    .att-table thead th.sort-asc .arrow::after  { content: '▲'; opacity: 1; }
+    .att-table thead th.sort-desc .arrow::after { content: '▼'; opacity: 1; }
+
+    .att-table tbody tr {
+        border-bottom: 1px solid var(--border);
+        transition: background .15s ease;
+    }
+    .att-table tbody tr:last-child { border-bottom: none; }
+    .att-table tbody tr:hover { background: var(--surface-alt); }
+    .att-table tbody td {
+        padding: .7rem .9rem;
+        vertical-align: middle;
+        color: var(--text);
+    }
+    .att-table .col-idx {
+        color: var(--muted);
+        font-weight: 600;
+        width: 42px;
+    }
+    .att-table .col-class .class-name {
+        font-weight: 700;
+    }
+    .att-table .col-class .class-meta {
+        font-size: .72rem;
+        color: var(--muted);
+        margin-top: .1rem;
+    }
+    .att-table .col-teacher .teacher-name {
+        font-weight: 600;
+    }
+    .att-table .col-teacher .teacher-meta {
+        font-size: .72rem;
+        color: var(--muted);
+    }
+    .att-table .col-num { text-align: center; font-variant-numeric: tabular-nums; }
+    .att-table .col-num .num-strong {
+        font-weight: 700;
+        font-size: .95rem;
+    }
+    .att-table .col-num .num-total {
+        color: var(--muted);
+        font-size: .72rem;
+    }
+    .att-table .col-num .num-warn { color: #f59e0b; }
+    .att-table .col-num .num-danger { color: #ef4444; }
+    .att-table .col-num .num-success { color: #10b981; }
+
+    /* progress bar inside student cell */
+    .att-progress {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        min-width: 130px;
+    }
+    .att-progress .bar {
+        flex: 1;
+        height: 6px;
+        background: var(--border);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+    .att-progress .bar > span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: #10b981;
+        transition: width .25s ease;
+    }
+    .att-progress.partial .bar > span { background: #f59e0b; }
+    .att-progress.pending .bar > span { background: #ef4444; }
+    .att-progress .pct {
+        font-size: .72rem;
+        color: var(--muted);
+        font-weight: 700;
+        min-width: 38px;
+        text-align: right;
+    }
+
+    /* status chip */
+    .att-status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .3rem .7rem;
+        border-radius: 999px;
+        font-size: .72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        white-space: nowrap;
+    }
+    .att-status-chip::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: .85;
+    }
+    .att-status-chip.completed   { background: #d1fae5; color: #065f46; }
+    .att-status-chip.partial     { background: #fef3c7; color: #92400e; }
+    .att-status-chip.pending     { background: #fee2e2; color: #991b1b; }
+    .att-status-chip.no_students { background: #e5e7eb; color: #374151; }
+
+    /* auto-marked chip (ATTENDANCE_AUTO_MARK_COLUMN_V1)
+       Replaces the old .att-missing styles.  Auto-marked rows are
+       informational (the system did its job), not alarming. */
+    .att-auto {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+    }
+    .att-auto .num { font-size: 1.05rem; }
+    .att-auto.zero     { color: var(--muted); }
+    .att-auto.has-auto { color: #0ea5e9; }
+    .att-auto .hint {
+        font-size: .65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--muted);
+        letter-spacing: .04em;
+        margin-left: .25rem;
+    }
+
+    /* action button */
+    .att-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .45rem .85rem;
+        border-radius: .55rem;
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #fff;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: .78rem;
+        white-space: nowrap;
+    }
+    .att-action-btn:hover { filter: brightness(1.07); }
+    .att-action-btn.secondary {
+        background: var(--surface-alt);
+        color: var(--text);
+        border-color: var(--border);
+    }
+
+    .att-empty-row {
+        text-align: center;
+        color: var(--muted);
+        padding: 2.5rem 1rem;
+        font-size: .9rem;
+    }
+
+    /* ---------- modal ---------- */
+    .att-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, .55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        padding: 1rem;
+    }
+    .att-modal.open { display: flex; }
+    .att-modal-panel {
+        background: var(--surface);
+        border-radius: 1.1rem;
+        width: min(820px, 100%);
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 30px 60px rgba(0,0,0,.35);
+    }
+    .att-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.2rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .att-modal-header h3 {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 800;
+    }
+    .att-modal-header .sub {
+        font-size: .75rem;
+        color: var(--muted);
+        margin-top: .15rem;
+    }
+    .att-modal-header button {
+        background: none;
+        border: none;
+        font-size: 1.4rem;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 0 .35rem;
+        line-height: 1;
+    }
+    .att-modal-header button:hover { color: var(--text); }
+    .att-modal-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        align-items: center;
+        padding: .85rem 1.2rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .att-modal-toolbar label {
+        font-size: .7rem;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 700;
+        letter-spacing: .05em;
+    }
+    .att-modal-toolbar input[type="date"],
+    .att-modal-toolbar input[type="number"],
+    .att-modal-toolbar select {
+        padding: .45rem .65rem;
+        border-radius: .55rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: .82rem;
+    }
+    .att-modal-toolbar button {
+        padding: .45rem .85rem;
+        border-radius: .55rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-weight: 700;
+        font-size: .78rem;
+        cursor: pointer;
+    }
+    .att-modal-toolbar button.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+    }
+    .att-modal-body {
+        padding: 0;
+        overflow-y: auto;
+        /* ATTENDANCE_MODAL_SCROLL_AND_AUTO_PAGER_V1
+           `min-height: 0` is required for a flex child to shrink below
+           its content size — without it the body grew past the panel
+           and the whole modal became unscrollable.  `max-height` is a
+           belt-and-braces ceiling in case the flex container misbehaves
+           on older mobile browsers. */
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: 70vh;
+        -webkit-overflow-scrolling: touch;
+    }
+    .att-modal-empty {
+        text-align: center;
+        color: var(--muted);
+        padding: 2.5rem 1rem;
+        font-size: .9rem;
+    }
+    .att-mrow {
+        display: grid;
+        grid-template-columns: 56px 1fr auto;
+        gap: .75rem;
+        align-items: center;
+        padding: .6rem 1.2rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .att-mrow:last-child { border-bottom: none; }
+    .att-mrow .roll {
+        font-weight: 700;
+        color: var(--muted);
+        font-size: .82rem;
+    }
+    .att-mrow .student-name { font-weight: 600; font-size: .9rem; }
+    .att-mrow .student-meta {
+        font-size: .72rem;
+        color: var(--muted);
+        margin-top: .05rem;
+    }
+    .att-mrow .student-meta .leave-tag {
+        display: inline-block;
+        margin-left: .35rem;
+        padding: .05rem .4rem;
+        background: #0ea5e9;
+        color: #fff;
+        border-radius: .3rem;
+        font-size: .62rem;
+        font-weight: 800;
+        letter-spacing: .05em;
+    }
+    .att-mstatus { display: flex; gap: .3rem; }
+    .att-mstatus input { display: none; }
+    .att-mstatus label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 42px;
+        padding: .4rem .55rem;
+        border-radius: .55rem;
+        font-size: .72rem;
+        font-weight: 800;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--muted);
+        user-select: none;
+    }
+    .att-mstatus input[value="present"]:checked + label  { background:#10b981; color:#fff; border-color:#10b981; }
+    .att-mstatus input[value="absent"]:checked + label   { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .att-mstatus input[value="late"]:checked + label     { background:#f59e0b; color:#fff; border-color:#f59e0b; }
+    .att-mstatus input[value="half_day"]:checked + label { background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
+    .att-mstatus input[value="excused"]:checked + label  { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
+
+    .att-modal-footer {
+        display: flex;
+        gap: .6rem;
+        align-items: center;
+        justify-content: flex-end;
+        padding: .85rem 1.2rem;
+        border-top: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .att-modal-footer button {
+        padding: .55rem 1.1rem;
+        border-radius: .6rem;
+        font-weight: 700;
+        font-size: .82rem;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+    }
+    .att-modal-footer button.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+    }
+    .att-modal-footer .save-msg {
+        margin-right: auto;
+        font-size: .82rem;
+        color: var(--muted);
+    }
+    .att-modal-footer .save-msg.ok   { color: #10b981; font-weight: 700; }
+    .att-modal-footer .save-msg.err  { color: #ef4444; font-weight: 700; }
+
+
+    /* ============== ATTENDANCE_AUTO_MARK_AND_LOCK_V1 ============== */
+
+    /* ---------- modal tabs ---------- */
+    .att-modal-tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .att-modal-tabs button {
+        flex: 1;
+        padding: .75rem 1rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        font-weight: 700;
+        font-size: .78rem;
+        color: var(--muted);
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        transition: all .15s ease;
+    }
+    .att-modal-tabs button.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+        background: var(--surface);
+    }
+    .att-modal-tabs button:hover:not(.active) { color: var(--text); }
+
+    /* ---------- banners ---------- */
+    .att-banner {
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        padding: .8rem 1.2rem;
+        font-size: .85rem;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border);
+        line-height: 1.35;
+    }
+    .att-banner.holiday { background: #fef3c7; color: #92400e; }
+    .att-banner.holiday::before { content: '🎉'; font-size: 1.1rem; flex-shrink: 0; }
+    .att-banner.locked { background: #e0e7ff; color: #3730a3; }
+    .att-banner.locked::before { content: '🔒'; font-size: 1.1rem; flex-shrink: 0; }
+    .att-banner.auto { background: #dbeafe; color: #1e40af; }
+    .att-banner.auto::before { content: '🤖'; font-size: 1.1rem; flex-shrink: 0; }
+    .att-banner button {
+        margin-left: auto;
+        padding: .35rem .8rem;
+        border-radius: .5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        font-weight: 700;
+        font-size: .78rem;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .att-banner button:hover { background: rgba(255,255,255,.4); }
+
+    /* disabled radio labels */
+    .att-mstatus input:disabled + label { opacity: .55; cursor: not-allowed; }
+    .att-mstatus input:disabled:checked + label { opacity: .9; }
+
+    /* ---------- auto-marked dates list ---------- */
+    .att-auto-list { padding: 0; }
+    .att-auto-row {
+        display: grid;
+        grid-template-columns: 130px 1fr auto;
+        gap: .75rem;
+        align-items: center;
+        padding: .75rem 1.2rem;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        transition: background .12s ease;
+    }
+    .att-auto-row:hover { background: var(--surface-alt); }
+    .att-auto-row:last-child { border-bottom: none; }
+    .att-auto-row .date-cell { font-weight: 800; font-size: .9rem; }
+    .att-auto-row .date-cell .day-name {
+        font-size: .68rem;
+        color: var(--muted);
+        font-weight: 700;
+        margin-top: .05rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+    }
+    .att-auto-row .stats { font-size: .78rem; color: var(--muted); }
+    .att-auto-row .stats .stat-pill {
+        display: inline-block;
+        margin-right: .3rem;
+        padding: .15rem .5rem;
+        border-radius: .4rem;
+        font-weight: 800;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+    }
+    .att-auto-row .stats .stat-pill.p { color: #10b981; }
+    .att-auto-row .stats .stat-pill.a { color: #ef4444; }
+    .att-auto-row .stats .stat-pill.l { color: #f59e0b; }
+    .att-auto-row .stats .stat-pill.e { color: #0ea5e9; }
+    .att-auto-row .open-btn {
+        padding: .4rem .8rem;
+        border-radius: .5rem;
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #fff;
+        font-weight: 700;
+        font-size: .75rem;
+        cursor: pointer;
+    }
+    .att-auto-row .open-btn:hover { filter: brightness(1.07); }
+    .att-auto-empty {
+        text-align: center;
+        color: var(--muted);
+        padding: 2.5rem 1rem;
+        font-size: .9rem;
+    }
+
+
+    /* ---------- auto-marked pager (ATTENDANCE_MODAL_SCROLL_AND_AUTO_PAGER_V1) */
+    .att-auto-pager {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: .85rem 1.2rem;
+        border-top: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .att-auto-pager .pager-btn {
+        padding: .45rem .9rem;
+        border-radius: .55rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-weight: 700;
+        font-size: .78rem;
+        cursor: pointer;
+        transition: background .12s ease, color .12s ease;
+    }
+    .att-auto-pager .pager-btn:hover:not(:disabled) {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+    }
+    .att-auto-pager .pager-btn:disabled {
+        opacity: .45;
+        cursor: not-allowed;
+    }
+    .att-auto-pager .pager-info {
+        font-size: .78rem;
+        color: var(--muted);
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    /* ============== /ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */
 </style>
 {% endblock %}
 
 {% block body %}
-<h1 class="page-title">Attendance Management</h1>
-<p class="page-desc">Mark and review student attendance for any class. You have full edit access to past records.</p>
+<h1 class="page-title">Attendance Dashboard</h1>
+<p class="page-desc">Class-wise attendance overview for {{ today }}. Every active class, its completion status, and its cumulative missing-day count.</p>
 
-<div class="card" style="padding:1rem; margin-top:1.25rem;">
-    <div class="att-tabs">
-        <button id="tabMarkBtn" class="active" onclick="AXIS_ATT.showTab('mark')">Mark / Edit</button>
-        <button id="tabHistoryBtn" onclick="AXIS_ATT.showTab('history')">History</button>
+<div class="att-dash">
+
+    <!-- ============ KPI cards ============ -->
+    <div class="att-kpis">
+        <div class="att-kpi kpi-info">
+            <div class="k">Total Classes</div>
+            <div class="v">{{ summary.total_classes }}</div>
+            <div class="sub">{{ summary.total_students }} students enrolled</div>
+        </div>
+        <div class="att-kpi kpi-success">
+            <div class="k">Completed Today</div>
+            <div class="v">{{ summary.classes_completed }}</div>
+            <div class="sub">fully marked</div>
+        </div>
+        <div class="att-kpi kpi-warn">
+            <div class="k">Partial Today</div>
+            <div class="v">{{ summary.classes_partial }}</div>
+            <div class="sub">partially marked</div>
+        </div>
+        <div class="att-kpi kpi-danger">
+            <div class="k">Pending Today</div>
+            <div class="v">{{ summary.classes_pending }}</div>
+            <div class="sub">not started</div>
+        </div>
+        <div class="att-kpi">
+            <div class="k">Today's Attendance</div>
+            <div class="v">{{ summary.attendance_pct_today }}%</div>
+            <div class="sub">{{ summary.total_marked_today }} / {{ summary.total_students }} students</div>
+        </div>
+        <div class="att-kpi kpi-info">
+            <div class="k">Auto-Marked by System</div>
+            <div class="v">{{ summary.total_auto_marked_days }}</div>
+            <div class="sub">days the system filled in for missed attendance</div>
+        </div>
     </div>
 
-    <div id="tabMark">
-        <div class="att-toolbar">
-            <div class="field">
-                <label>Class</label>
-                <select id="attClassSelect"></select>
+    <!-- ============ filters ============ -->
+    <div class="att-filters">
+        <div class="search-wrap">
+            <input type="text" id="attSearch" placeholder="Search by class name, section, or teacher…">
+        </div>
+        <select id="attTeacherFilter" style="flex:0 1 200px;">
+            <option value="">All Teachers</option>
+        </select>
+        <select id="attStatusFilter" style="flex:0 1 170px;">
+            <option value="">All Status</option>
+            <option value="completed">Completed</option>
+            <option value="partial">Partial</option>
+            <option value="pending">Pending</option>
+            <option value="no_students">No Students</option>
+        </select>
+        <button class="reset-btn" type="button" onclick="AXIS_ADMIN_ATT.resetFilters()">Reset</button>
+        <span class="count-pill" id="attVisibleCount">0 / 0</span>
+    </div>
+
+    <!-- ============ table ============ -->
+    <div class="att-table-wrap">
+        <table class="att-table">
+            <thead>
+                <tr>
+                    <th class="col-idx">#</th>
+                    <th class="sortable" data-sort="name">Class <span class="arrow"></span></th>
+                    <th class="sortable" data-sort="teacher">Class Teacher <span class="arrow"></span></th>
+                    <th class="col-num sortable" data-sort="students">Students <span class="arrow"></span></th>
+                    <th class="sortable" data-sort="marked">Today's Progress <span class="arrow"></span></th>
+                    <th class="sortable" data-sort="status">Today's Status <span class="arrow"></span></th>
+                    <th class="col-num sortable" data-sort="auto">Auto-Marked <span class="arrow"></span></th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="attTableBody">
+                <tr><td colspan="8" class="att-empty-row">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ============ mark modal ============ -->
+<div id="attMarkModal" class="att-modal">
+    <div class="att-modal-panel">
+        <div class="att-modal-header">
+            <div>
+                <h3 id="attModalTitle">Mark Attendance</h3>
+                <div class="sub" id="attModalSub"></div>
             </div>
-            <div class="field">
+            <button type="button" onclick="AXIS_ADMIN_ATT.closeModal()">×</button>
+        </div>
+
+        <!-- ============ tabs ============ -->
+        <div class="att-modal-tabs">
+            <button type="button" id="attTabBtnMark" class="active"
+                    onclick="AXIS_ADMIN_ATT.showTab('mark')">Mark Attendance</button>
+            <button type="button" id="attTabBtnAuto"
+                    onclick="AXIS_ADMIN_ATT.showTab('auto')">Auto-Marked by System</button>
+        </div>
+
+        <!-- ============ TAB 1: MARK ============ -->
+        <div id="attTabMark">
+            <div id="attHolidayBanner" class="att-banner holiday" style="display:none;">
+                <span id="attHolidayText"></span>
+            </div>
+            <div id="attLockedBanner" class="att-banner locked" style="display:none;">
+                <span id="attLockedText">Attendance already submitted — locked.</span>
+                <button type="button" onclick="AXIS_ADMIN_ATT.unlockForm()">Edit Attendance</button>
+            </div>
+            <div id="attAutoBanner" class="att-banner auto" style="display:none;">
+                <span>This attendance was auto-marked by the system. Click "Edit Attendance" to adjust it.</span>
+            </div>
+
+            <div class="att-modal-toolbar">
                 <label>Date</label>
-                <input type="date" id="attDateInput" value="{{ today }}">
+                <input type="date" id="attModalDate" value="{{ today }}">
+                <label>Period</label>
+                <input type="number" id="attModalPeriod" min="1"
+                       placeholder="full day" style="width:100px;">
+                <button class="primary" type="button"
+                        onclick="AXIS_ADMIN_ATT.reloadStudents()">Load</button>
+                <button type="button" id="attBulkPresentBtn"
+                        onclick="AXIS_ADMIN_ATT.bulk('present')">All Present</button>
+                <button type="button" id="attBulkAbsentBtn"
+                        onclick="AXIS_ADMIN_ATT.bulk('absent')">All Absent</button>
             </div>
-            <button class="btn-primary" onclick="AXIS_ATT.loadStudents()">Load</button>
-            <button class="btn-secondary" onclick="AXIS_ATT.markAllPresent()">Mark all present</button>
+            <div class="att-modal-body" id="attModalBody">
+                <div class="att-modal-empty">Loading students…</div>
+            </div>
+            <div class="att-modal-footer">
+                <span class="save-msg" id="attSaveMsg"></span>
+                <button type="button" onclick="AXIS_ADMIN_ATT.closeModal()">Cancel</button>
+                <button class="primary" type="button" id="attSaveBtn"
+                        onclick="AXIS_ADMIN_ATT.save()">Save Attendance</button>
+            </div>
         </div>
 
-        <div class="att-summary-grid" id="attSummaryGrid"></div>
-
-        <div id="attRows" class="att-rows">
-            <div class="att-empty">Select a class and date, then click Load.</div>
-        </div>
-
-        <div class="att-actions" id="attActions" style="display:none;">
-            <button class="btn-primary" onclick="AXIS_ATT.submit()">Save Attendance</button>
-            <span id="attSaveMsg" style="align-self:center;color:var(--muted);font-size:.85rem;"></span>
-        </div>
-    </div>
-
-    <div id="tabHistory" class="att-hidden">
-        <div class="att-toolbar">
-            <div class="field">
-                <label>Class</label>
-                <select id="histClassSelect"><option value="">All classes</option></select>
+        <!-- ============ TAB 2: AUTO-MARKED ============ -->
+        <div id="attTabAuto" style="display:none;">
+            <div class="att-modal-body">
+                <div id="attAutoList" class="att-auto-list">
+                    <div class="att-auto-empty">Loading…</div>
+                </div>
             </div>
-            <div class="field">
-                <label>From</label>
-                <input type="date" id="histFrom">
+            <div class="att-modal-footer">
+                <button type="button" onclick="AXIS_ADMIN_ATT.closeModal()">Close</button>
             </div>
-            <div class="field">
-                <label>To</label>
-                <input type="date" id="histTo">
-            </div>
-            <div class="field">
-                <label>Status</label>
-                <select id="histStatus">
-                    <option value="">All</option>
-                    <option value="present">Present</option>
-                    <option value="absent">Absent</option>
-                    <option value="late">Late</option>
-                    <option value="holiday">Holiday</option>
-                </select>
-            </div>
-            <button class="btn-primary" onclick="AXIS_ATT.loadHistory()">Filter</button>
-        </div>
-        <div id="histRows" class="card" style="padding:.5rem 0;">
-            <div class="att-empty">No records loaded.</div>
         </div>
     </div>
 </div>
 
 <script>
-window.AXIS_ATT = (function() {
-    const SCHEMA = '{{ tenant.schema_name|escapejs }}';
-    const CLASSES = {{ classes_json|safe }};
-    let currentStudents = [];
-    let currentClassId = null;
-    let currentDate = null;
+window.AXIS_ADMIN_ATT = (function() {
+    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    var ALL_ROWS = {{ class_rows_json|safe }};
+    var TEACHERS = {{ teachers_json|safe }};
+    var TODAY = '{{ today }}';
 
-    function q(sel, root) { return (root||document).querySelector(sel); }
+    var sortKey = 'status_priority';
+    var sortDir = 'asc';
+    var visibleRows = ALL_ROWS.slice();
 
-    function initSelects() {
-        const mk = q('#attClassSelect');
-        const hist = q('#histClassSelect');
-        CLASSES.forEach(c => {
-            const o = document.createElement('option');
-            o.value = c.id;
-            o.textContent = c.name + '  (' + c.student_count + ' students)';
-            mk.appendChild(o);
-            const o2 = o.cloneNode(true);
-            hist.appendChild(o2);
+    // Modal state
+    var modalClassId = null;
+    var modalStudents = [];
+    var modalPeriod = null;
+    var modalLocked = false;
+    var modalAutoMarked = false;
+    var modalIsHoliday = false;
+
+    function q(s, r) { return (r || document).querySelector(s); }
+    function qa(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
         });
-    }
-
-    function showTab(which) {
-        const mark = q('#tabMark'), hist = q('#tabHistory');
-        const mb = q('#tabMarkBtn'), hb = q('#tabHistoryBtn');
-        if (which === 'mark') { mark.classList.remove('att-hidden'); hist.classList.add('att-hidden'); mb.classList.add('active'); hb.classList.remove('active'); }
-        else { hist.classList.remove('att-hidden'); mark.classList.add('att-hidden'); hb.classList.add('active'); mb.classList.remove('active'); }
     }
 
     function csrf() {
-        return q('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute('content')) return m.getAttribute('content');
+        var name = 'csrftoken=';
+        var parts = (document.cookie || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return c.substring(name.length);
+        }
+        return '';
     }
 
-    function loadStudents() {
-        const cid = q('#attClassSelect').value;
-        const d = q('#attDateInput').value;
-        if (!cid || !d) { alert('Pick a class and date.'); return; }
-        currentClassId = cid; currentDate = d;
-        fetch(`/portal/${SCHEMA}/api/attendance/students/?class_id=${cid}&date=${d}`, {
-            headers: {'X-Requested-With':'XMLHttpRequest'}
-        })
-        .then(r => r.json())
-        .then(j => {
-            if (!j.ok) { alert(j.error || 'Failed'); return; }
-            currentStudents = j.students;
-            renderRows();
-            updateSummary();
-            q('#attActions').style.display = 'flex';
-        })
-        .catch(() => alert('Network error'));
+    // ---------------- main dashboard ----------------
+
+    function statusPriority(s) {
+        if (s === 'pending') return 0;
+        if (s === 'partial') return 1;
+        if (s === 'completed') return 2;
+        return 3;
     }
 
-    function renderRows() {
-        const wrap = q('#attRows');
-        if (!currentStudents.length) {
-            wrap.innerHTML = '<div class="att-empty">No active students in this class.</div>';
+    function applyFilters() {
+        var needle = (q('#attSearch').value || '').trim().toLowerCase();
+        var teacherId = q('#attTeacherFilter').value;
+        var status = q('#attStatusFilter').value;
+
+        visibleRows = ALL_ROWS.filter(function(r) {
+            if (teacherId && String(r.teacher_id) !== String(teacherId)) return false;
+            if (status && r.status !== status) return false;
+            if (needle) {
+                var hay = (r.name + ' ' + r.display_name + ' ' + r.teacher).toLowerCase();
+                if (hay.indexOf(needle) === -1) return false;
+            }
+            return true;
+        });
+        sortRows();
+        render();
+    }
+
+    function sortRows() {
+        var mult = sortDir === 'asc' ? 1 : -1;
+        visibleRows.sort(function(a, b) {
+            var av, bv;
+            switch (sortKey) {
+                case 'name':        av = a.name.toLowerCase(); bv = b.name.toLowerCase(); break;
+                case 'teacher':     av = (a.teacher || '').toLowerCase(); bv = (b.teacher || '').toLowerCase(); break;
+                case 'students':    av = a.student_count; bv = b.student_count; break;
+                case 'marked':      av = a.today_marked; bv = b.today_marked; break;
+                case 'status':      av = statusPriority(a.status); bv = statusPriority(b.status); break;
+                case 'auto':        av = a.auto_marked_days; bv = b.auto_marked_days; break;
+                case 'status_priority':
+                default:            av = statusPriority(a.status); bv = statusPriority(b.status); break;
+            }
+            if (av < bv) return -1 * mult;
+            if (av > bv) return  1 * mult;
+            return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1;
+        });
+    }
+
+    function render() {
+        var tbody = q('#attTableBody');
+        var count = q('#attVisibleCount');
+        count.textContent = visibleRows.length + ' / ' + ALL_ROWS.length;
+
+        if (!visibleRows.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="att-empty-row">No classes match your filters.</td></tr>';
             return;
         }
-        wrap.innerHTML = currentStudents.map((s, i) => `
-            <div class="att-row">
-                <div class="roll">${s.roll_number || ''}</div>
-                <div>
-                    <div class="name">${escapeHtml(s.name)}</div>
-                    <div class="father">${escapeHtml(s.father_name||'')}</div>
-                </div>
-                <div class="att-status-group">
-                    <input type="radio" name="st_${s.id}" id="p_${s.id}" value="present" ${s.status==='present'?'checked':''} onchange="AXIS_ATT.updateSummary()">
-                    <label for="p_${s.id}">P</label>
-                    <input type="radio" name="st_${s.id}" id="a_${s.id}" value="absent" ${s.status==='absent'?'checked':''} onchange="AXIS_ATT.updateSummary()">
-                    <label for="a_${s.id}">A</label>
-                    <input type="radio" name="st_${s.id}" id="l_${s.id}" value="late" ${s.status==='late'?'checked':''} onchange="AXIS_ATT.updateSummary()">
-                    <label for="l_${s.id}">L</label>
-                    <input type="radio" name="st_${s.id}" id="h_${s.id}" value="holiday" ${s.status==='holiday'?'checked':''} onchange="AXIS_ATT.updateSummary()">
-                    <label for="h_${s.id}">H</label>
-                </div>
-            </div>
-        `).join('');
+
+        var html = '';
+        visibleRows.forEach(function(r, i) {
+            var pct = r.student_count ? Math.round((r.today_marked / r.student_count) * 100) : 0;
+            var progressCls = r.status === 'completed' ? '' : (r.status === 'partial' ? ' partial' : ' pending');
+
+            var autoCls = 'zero';
+            if (r.auto_marked_days > 0) autoCls = 'has-auto';
+
+            var teacherName = r.teacher || '<span style="color:var(--muted);">— unassigned —</span>';
+
+            html += '<tr>';
+            html += '<td class="col-idx">' + (i + 1) + '</td>';
+            html += '<td class="col-class"><div class="class-name">' + esc(r.display_name) + '</div>'
+                  + '<div class="class-meta">Since ' + esc(r.created_at) + '</div></td>';
+            html += '<td class="col-teacher"><div class="teacher-name">' + teacherName + '</div></td>';
+            html += '<td class="col-num"><span class="num-strong">' + r.student_count + '</span></td>';
+            html += '<td>'
+                  + '<div class="att-progress' + progressCls + '">'
+                  +   '<div class="bar"><span style="width:' + pct + '%;"></span></div>'
+                  +   '<div class="pct">' + r.today_marked + '/' + r.student_count + '</div>'
+                  + '</div>'
+                  + (r.today_period_marked ? '<div style="font-size:.68rem;color:var(--muted);margin-top:.2rem;">'
+                       + r.today_period_marked + ' period-wise marks</div>' : '')
+                  + '</td>';
+            html += '<td><span class="att-status-chip ' + r.status + '">' + esc(r.status_label) + '</span></td>';
+            html += '<td class="col-num">'
+                  +   '<div class="att-auto ' + autoCls + '">'
+                  +     '<span class="num">' + r.auto_marked_days + '</span>'
+                  +     '<span class="hint">days</span>'
+                  +   '</div>'
+                  + (r.auto_recent && r.auto_recent.length
+                        ? '<div style="font-size:.65rem;color:var(--muted);margin-top:.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;" title="'
+                            + esc(r.auto_recent.join(', ')) + '">last: ' + esc(r.auto_recent[0]) + '</div>'
+                        : '')
+                  + '</td>';
+            html += '<td>'
+                  +   '<button class="att-action-btn" type="button" onclick="AXIS_ADMIN_ATT.openMark(' + r.id + ')">Mark &amp; History</button> '
+                  +   '<button class="att-action-btn secondary" type="button" onclick="AXIS_ADMIN_ATT.openClass(' + r.id + ')">Class</button>'
+                  + '</td>';
+            html += '</tr>';
+        });
+        tbody.innerHTML = html;
     }
 
-    function escapeHtml(s) { return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function bindSortHeaders() {
+        qa('.att-table thead th.sortable').forEach(function(th) {
+            th.addEventListener('click', function() {
+                var key = th.getAttribute('data-sort');
+                if (sortKey === key) {
+                    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortKey = key;
+                    sortDir = 'asc';
+                }
+                qa('.att-table thead th').forEach(function(t) {
+                    t.classList.remove('sort-asc', 'sort-desc');
+                });
+                th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                sortRows();
+                render();
+            });
+        });
+    }
 
-    function markAllPresent() {
-        currentStudents.forEach(s => {
-            const el = document.getElementById('p_' + s.id);
+    function populateTeacherFilter() {
+        var sel = q('#attTeacherFilter');
+        TEACHERS.forEach(function(t) {
+            var o = document.createElement('option');
+            o.value = t.id;
+            o.textContent = t.name + (t.job_title ? ' — ' + t.job_title : '');
+            sel.appendChild(o);
+        });
+    }
+
+    function resetFilters() {
+        q('#attSearch').value = '';
+        q('#attTeacherFilter').value = '';
+        q('#attStatusFilter').value = '';
+        sortKey = 'status_priority';
+        sortDir = 'asc';
+        qa('.att-table thead th').forEach(function(t) {
+            t.classList.remove('sort-asc', 'sort-desc');
+        });
+        applyFilters();
+    }
+
+    // ---------------- tabs ----------------
+
+    function showTab(which) {
+        var mark = q('#attTabMark');
+        var auto = q('#attTabAuto');
+        var bm = q('#attTabBtnMark');
+        var ba = q('#attTabBtnAuto');
+        if (which === 'mark') {
+            mark.style.display = 'block';
+            auto.style.display = 'none';
+            bm.classList.add('active');
+            ba.classList.remove('active');
+        } else {
+            mark.style.display = 'none';
+            auto.style.display = 'block';
+            bm.classList.remove('active');
+            ba.classList.add('active');
+            loadAutoMarkedDates();
+        }
+    }
+
+    // ---------------- modal ----------------
+
+    function openMark(classId) {
+        var row = ALL_ROWS.filter(function(r) { return r.id === classId; })[0];
+        if (!row) return;
+        modalClassId = classId;
+        q('#attModalTitle').textContent = 'Mark Attendance — ' + row.display_name;
+        q('#attModalSub').textContent = 'Teacher: ' + (row.teacher || 'unassigned')
+            + ' · Students: ' + row.student_count;
+        q('#attModalDate').value = TODAY;
+        q('#attModalPeriod').value = '';
+        q('#attSaveMsg').textContent = '';
+        q('#attSaveMsg').className = 'save-msg';
+        q('#attMarkModal').classList.add('open');
+        showTab('mark');
+        reloadStudents();
+    }
+
+    function closeModal() {
+        q('#attMarkModal').classList.remove('open');
+        modalClassId = null;
+        modalStudents = [];
+        modalPeriod = null;
+        modalLocked = false;
+        modalAutoMarked = false;
+        modalIsHoliday = false;
+    }
+
+    function hideBanners() {
+        q('#attHolidayBanner').style.display = 'none';
+        q('#attLockedBanner').style.display = 'none';
+        q('#attAutoBanner').style.display = 'none';
+    }
+
+    function setFormDisabled(disabled) {
+        qa('#attModalBody input[type="radio"]').forEach(function(el) {
+            el.disabled = disabled;
+        });
+        var bulkP = q('#attBulkPresentBtn');
+        var bulkA = q('#attBulkAbsentBtn');
+        if (bulkP) { bulkP.disabled = disabled; bulkP.style.opacity = disabled ? '0.5' : '1'; }
+        if (bulkA) { bulkA.disabled = disabled; bulkA.style.opacity = disabled ? '0.5' : '1'; }
+    }
+
+    function unlockForm() {
+        modalLocked = false;
+        setFormDisabled(false);
+        q('#attLockedBanner').style.display = 'none';
+    }
+
+    function reloadStudents() {
+        if (!modalClassId) return;
+        var d = q('#attModalDate').value;
+        var p = q('#attModalPeriod').value;
+        modalPeriod = p ? parseInt(p, 10) : null;
+        var url = '/portal/' + SCHEMA + '/api/attendance/students/?class_id='
+                + modalClassId + '&date=' + encodeURIComponent(d);
+        if (modalPeriod) url += '&period_order=' + modalPeriod;
+
+        q('#attModalBody').innerHTML = '<div class="att-modal-empty">Loading…</div>';
+        hideBanners();
+
+        var saveBtn = q('#attSaveBtn');
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = '0.5';
+
+        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attModalBody').innerHTML =
+                        '<div class="att-modal-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                if (j.is_holiday) {
+                    modalIsHoliday = true;
+                    modalStudents = [];
+                    modalLocked = true;
+                    q('#attHolidayText').textContent =
+                        'This date is a holiday (' + (j.holiday_reason || 'holiday')
+                        + '). You can still mark a previous non-holiday date.';
+                    q('#attHolidayBanner').style.display = 'flex';
+                    q('#attModalBody').innerHTML =
+                        '<div class="att-modal-empty">No attendance is expected on a holiday.</div>';
+                    setFormDisabled(true);
+                    return;
+                }
+                modalIsHoliday = false;
+                modalStudents = j.students || [];
+                modalLocked = !!j.locked;
+                modalAutoMarked = !!j.auto_marked;
+                renderStudents();
+                setFormDisabled(modalLocked);
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                if (modalAutoMarked) {
+                    q('#attAutoBanner').style.display = 'flex';
+                }
+                if (modalLocked) {
+                    q('#attLockedBanner').style.display = 'flex';
+                }
+            })
+            .catch(function() {
+                q('#attModalBody').innerHTML =
+                    '<div class="att-modal-empty">Network error.</div>';
+            });
+    }
+
+    function renderStudents() {
+        var body = q('#attModalBody');
+        if (!modalStudents.length) {
+            body.innerHTML = '<div class="att-modal-empty">No active students in this class.</div>';
+            return;
+        }
+        var html = '';
+        modalStudents.forEach(function(s) {
+            var leave = s.on_leave
+                ? '<span class="leave-tag">ON LEAVE</span>' : '';
+            var auto = s.is_auto
+                ? '<span class="leave-tag" style="background:#1e40af;">AUTO</span>' : '';
+            html += '<div class="att-mrow">'
+                  +   '<div class="roll">' + esc(s.roll_number || '—') + '</div>'
+                  +   '<div><div class="student-name">' + esc(s.name) + '</div>'
+                  +        '<div class="student-meta">' + esc(s.father_name || '') + leave + auto + '</div></div>'
+                  +   '<div class="att-mstatus">'
+                  +     radio(s, 'present',  'P')
+                  +     radio(s, 'absent',   'A')
+                  +     radio(s, 'late',     'L')
+                  +     radio(s, 'half_day', 'H')
+                  +     radio(s, 'excused',  'Lv')
+                  +   '</div>'
+                  + '</div>';
+        });
+        body.innerHTML = html;
+    }
+
+    function radio(s, status, label) {
+        var id = 'ms_' + s.id + '_' + status;
+        var checked = s.status === status ? 'checked' : '';
+        return '<input type="radio" name="ms_' + s.id + '" id="' + id
+             + '" value="' + status + '" ' + checked + '>'
+             + '<label for="' + id + '">' + label + '</label>';
+    }
+
+    function bulk(status) {
+        if (modalLocked) return;
+        modalStudents.forEach(function(s) {
+            var el = document.getElementById('ms_' + s.id + '_' + status);
             if (el) el.checked = true;
         });
-        updateSummary();
     }
 
-    function updateSummary() {
-        let p=0,a=0,l=0,h=0;
-        currentStudents.forEach(s => {
-            const el = document.querySelector(`input[name="st_${s.id}"]:checked`);
-            const v = el ? el.value : 'present';
-            if (v==='present') p++; else if (v==='absent') a++; else if (v==='late') l++; else h++;
-        });
-        q('#attSummaryGrid').innerHTML = `
-            <div class="att-summary-card"><div class="k">Total</div><div class="v">${currentStudents.length}</div></div>
-            <div class="att-summary-card"><div class="k">Present</div><div class="v">${p}</div></div>
-            <div class="att-summary-card"><div class="k">Absent</div><div class="v">${a}</div></div>
-            <div class="att-summary-card"><div class="k">Late</div><div class="v">${l}</div></div>
-        `;
-    }
-
-    function submit() {
-        if (!currentClassId || !currentDate) return;
-        const records = currentStudents.map(s => {
-            const el = document.querySelector(`input[name="st_${s.id}"]:checked`);
+    function save() {
+        if (!modalClassId) return;
+        if (modalIsHoliday) {
+            var m = q('#attSaveMsg');
+            m.className = 'save-msg err';
+            m.textContent = 'Cannot save on a holiday.';
+            return;
+        }
+        var d = q('#attModalDate').value;
+        var records = modalStudents.map(function(s) {
+            var el = document.querySelector('input[name="ms_' + s.id + '"]:checked');
             return { student_id: s.id, status: el ? el.value : 'present' };
         });
-        const msg = q('#attSaveMsg');
+        var payload = { class_id: modalClassId, date: d, records: records };
+        if (modalPeriod) payload.period_order = modalPeriod;
+
+        var msg = q('#attSaveMsg');
+        msg.className = 'save-msg';
         msg.textContent = 'Saving…';
-        fetch(`/portal/${SCHEMA}/api/attendance/mark/`, {
+
+        fetch('/portal/' + SCHEMA + '/api/attendance/mark/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': csrf(),
-                'X-Requested-With': 'XMLHttpRequest',
+                'X-Requested-With': 'XMLHttpRequest'
             },
-            body: JSON.stringify({ class_id: currentClassId, date: currentDate, records })
+            body: JSON.stringify(payload)
         })
-        .then(r => r.json())
-        .then(j => {
-            if (!j.ok) { msg.textContent = j.error || 'Save failed'; return; }
-            msg.textContent = 'Saved ' + j.saved + ' records.';
+        .then(function(r) { return r.json(); })
+        .then(function(j) {
+            if (!j.ok) {
+                msg.className = 'save-msg err';
+                msg.textContent = j.error || 'Save failed.';
+                return;
+            }
+            msg.className = 'save-msg ok';
+            msg.textContent = 'Saved ' + j.saved + ' record(s). Reloading…';
+            setTimeout(function() { window.location.reload(); }, 700);
         })
-        .catch(() => { msg.textContent = 'Network error'; });
+        .catch(function() {
+            msg.className = 'save-msg err';
+            msg.textContent = 'Network error.';
+        });
     }
 
-    function loadHistory() {
-        const cid = q('#histClassSelect').value;
-        const from = q('#histFrom').value;
-        const to = q('#histTo').value;
-        const st = q('#histStatus').value;
-        const params = new URLSearchParams();
-        if (cid) params.set('class_id', cid);
-        if (from) params.set('start_date', from);
-        if (to) params.set('end_date', to);
-        if (st) params.set('status', st);
-        params.set('page_size', '100');
-        fetch(`/portal/${SCHEMA}/api/attendance/records/?${params}`, {
-            headers: {'X-Requested-With':'XMLHttpRequest'}
-        })
-        .then(r => r.json())
-        .then(j => {
-            const wrap = q('#histRows');
-            if (!j.ok || !j.records.length) { wrap.innerHTML = '<div class="att-empty">No records found.</div>'; return; }
-            wrap.innerHTML = j.records.map(r => `
-                <div class="att-record-row">
-                    <div>${r.date}</div>
-                    <div><strong>${escapeHtml(r.student_name)}</strong><br><span style="color:var(--muted);font-size:.75rem">${escapeHtml(r.roll_number||'')} · ${escapeHtml(r.class_name)}</span></div>
-                    <div><span class="att-badge ${r.status}">${r.status}</span></div>
-                    <div style="color:var(--muted);font-size:.75rem">${escapeHtml(r.teacher_name||'')}</div>
-                </div>
-            `).join('');
-        })
-        .catch(() => { q('#histRows').innerHTML = '<div class="att-empty">Network error.</div>'; });
+    // ---------------- auto-marked tab ----------------
+
+    function loadAutoMarkedDates(page) {
+        if (!modalClassId) return;
+        page = page || 1;
+        var url = '/portal/' + SCHEMA
+            + '/api/attendance/auto-marked-dates/?class_id=' + modalClassId
+            + '&page=' + page;
+        q('#attAutoList').innerHTML = '<div class="att-auto-empty">Loading…</div>';
+        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attAutoList').innerHTML =
+                        '<div class="att-auto-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                var dates = j.dates || [];
+                var pg = j.pagination || {};
+                var cur = pg.page || 1;
+                var totalPages = pg.num_pages || 1;
+                var totalRows = pg.total || 0;
+
+                if (!dates.length && totalRows === 0) {
+                    q('#attAutoList').innerHTML =
+                        '<div class="att-auto-empty">No auto-marked dates yet for this class.</div>';
+                    return;
+                }
+
+                var html = '';
+                dates.forEach(function(d) {
+                    html += '<div class="att-auto-row" onclick="AXIS_ADMIN_ATT.openAutoDate(\'' + esc(d.date) + '\')">'
+                          +   '<div class="date-cell">' + esc(d.date)
+                          +     '<div class="day-name">' + esc(d.day_name) + '</div>'
+                          +   '</div>'
+                          +   '<div class="stats">'
+                          +     '<span class="stat-pill p">P ' + d.present + '</span>'
+                          +     '<span class="stat-pill a">A ' + d.absent + '</span>'
+                          +     '<span class="stat-pill l">L ' + d.late + '</span>'
+                          +     '<span class="stat-pill e">Lv ' + d.excused + '</span>'
+                          +     '<span style="margin-left:.4rem;">Total: ' + d.total + '</span>'
+                          +   '</div>'
+                          +   '<button type="button" class="open-btn" onclick="event.stopPropagation(); AXIS_ADMIN_ATT.openAutoDate(\'' + esc(d.date) + '\')">Open</button>'
+                          + '</div>';
+                });
+
+                // ATTENDANCE_MODAL_SCROLL_AND_AUTO_PAGER_V1 — pager
+                html += '<div class="att-auto-pager">';
+                if (totalPages > 1) {
+                    var prevDisabled = cur <= 1 ? ' disabled' : '';
+                    var nextDisabled = cur >= totalPages ? ' disabled' : '';
+                    html += '<button type="button" class="pager-btn"' + prevDisabled
+                          + ' onclick="AXIS_ADMIN_ATT.loadAutoMarkedDates(' + (cur - 1) + ')">‹ Prev</button>';
+                    html += '<span class="pager-info">Page ' + cur + ' / ' + totalPages
+                          + '  ·  ' + totalRows + ' date' + (totalRows === 1 ? '' : 's') + '</span>';
+                    html += '<button type="button" class="pager-btn"' + nextDisabled
+                          + ' onclick="AXIS_ADMIN_ATT.loadAutoMarkedDates(' + (cur + 1) + ')">Next ›</button>';
+                } else {
+                    html += '<span class="pager-info">' + totalRows + ' date'
+                          + (totalRows === 1 ? '' : 's') + '</span>';
+                }
+                html += '</div>';
+
+                q('#attAutoList').innerHTML = html;
+            })
+            .catch(function() {
+                q('#attAutoList').innerHTML =
+                    '<div class="att-auto-empty">Network error.</div>';
+            });
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-        initSelects();
-        const today = q('#attDateInput').value;
-        if (today) { q('#histTo').value = today; }
+    function openAutoDate(dateStr) {
+        q('#attModalDate').value = dateStr;
+        q('#attModalPeriod').value = '';
+        showTab('mark');
+        reloadStudents();
+    }
+
+    // ---------------- class shortcut ----------------
+    // ATTENDANCE_OPENCLASS_DEFINITION_V1 — previously the exports
+    // block referenced `openClass` but the function was never
+    // defined, which threw a ReferenceError at the IIFE's return
+    // statement and broke every row action button.
+    function openClass(classId) {
+        window.location.href = '/portal/' + SCHEMA
+            + '/my-classes/' + classId + '/';
+    }
+
+    // ---------------- init ----------------
+
+    document.addEventListener('DOMContentLoaded', function() {
+        populateTeacherFilter();
+        bindSortHeaders();
+
+        q('#attSearch').addEventListener('input', applyFilters);
+        q('#attTeacherFilter').addEventListener('change', applyFilters);
+        q('#attStatusFilter').addEventListener('change', applyFilters);
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeModal();
+        });
+        q('#attMarkModal').addEventListener('click', function(e) {
+            if (e.target === q('#attMarkModal')) closeModal();
+        });
+
+        applyFilters();
     });
 
-    return { showTab, loadStudents, markAllPresent, updateSummary, submit, loadHistory };
+    return {
+        resetFilters: resetFilters,
+        openMark: openMark,
+        closeModal: closeModal,
+        reloadStudents: reloadStudents,
+        showTab: showTab,
+        unlockForm: unlockForm,
+        bulk: bulk,
+        save: save,
+        openAutoDate: openAutoDate,
+        loadAutoMarkedDates: loadAutoMarkedDates,
+        openClass: openClass
+    };
 })();
 </script>
+
+<!-- ATTENDANCE_PRODUCTION_V2_POLICY (kept for backward compat) -->
+<script>
+window.__AXIS_ATT_POLICY__ = {{ policy_json|safe }};
+console.log('[AXIS] Attendance policy loaded:', window.__AXIS_ATT_POLICY__);
+</script>
 {% endblock %}
+

@@ -1,77 +1,113 @@
 {% extends 'mobile/staff/base.html' %}
 {% block title %}Attendance{% endblock %}
 {% block body %}
-<div class="hero">
-    <h2>Mark Attendance</h2>
-    <div class="sub">{{ staff.full_name }} &middot; Class Teacher</div>
+<style>
+    .att-hero { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; border-radius:18px; padding:1rem 1.1rem; margin-bottom:1rem; }
+    .att-hero h2 { margin:0 0 0.2rem; font-size:1.15rem; }
+    .att-hero .sub { font-size:0.78rem; opacity:0.9; }
+    .att-pill { display:inline-block; padding:0.2rem 0.7rem; border-radius:999px; font-size:0.72rem; font-weight:700; }
+    .att-pill.marked  { background:#d1fae5; color:#065f46; }
+    .att-pill.pending { background:#fef3c7; color:#92400e; }
+    .att-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:0.9rem 1rem; margin-bottom:0.85rem; box-shadow:0 8px 18px rgba(15,23,42,0.04); }
+    .att-row { display:flex; justify-content:space-between; gap:0.75rem; align-items:center; padding:0.55rem 0; border-bottom:1px solid var(--border); }
+    .att-row:last-child { border-bottom:none; }
+    .att-student-name { font-weight:700; }
+    .att-student-meta { font-size:0.74rem; color:var(--muted); }
+    .att-status-group { display:flex; gap:0.25rem; flex-wrap:wrap; }
+    .att-status-group input { display:none; }
+    .att-status-group label { display:inline-flex; padding:0.32rem 0.55rem; border-radius:0.5rem; font-size:0.72rem; font-weight:700; cursor:pointer; border:1px solid var(--border); background:var(--surface-alt); color:var(--muted); }
+    .att-status-group input[value="present"]:checked + label { background:#10b981; color:#fff; border-color:#10b981; }
+    .att-status-group input[value="absent"]:checked + label  { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .att-status-group input[value="late"]:checked + label    { background:#f59e0b; color:#fff; border-color:#f59e0b; }
+    .att-status-group input[value="half_day"]:checked + label{ background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
+    .att-status-group input[value="excused"]:checked + label { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
+    .att-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem; }
+    .att-actions button { padding:0.55rem 1rem; border-radius:0.65rem; border:none; cursor:pointer; font-weight:700; }
+    .att-actions .primary { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; }
+    .att-actions .ghost { background:var(--surface-alt); color:var(--text); border:1px solid var(--border); }
+    .att-period-chip { display:flex; justify-content:space-between; align-items:center; padding:0.55rem 0.7rem; border:1px solid var(--border); border-radius:0.7rem; margin-bottom:0.45rem; cursor:pointer; background:var(--surface-alt); }
+    .att-period-chip.active { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; }
+    .att-empty { text-align:center; color:var(--muted); padding:1.5rem 0.5rem; font-size:0.9rem; }
+</style>
+
+<div class="att-hero">
+    <h2>Attendance</h2>
+    <div class="sub">{{ staff.full_name }} &middot; {{ today }}
+    {% if is_holiday %}<span class="att-pill pending" style="margin-left:0.4rem;">{{ holiday_reason }}</span>{% endif %}
+    </div>
 </div>
 
-{% if not classes_json or classes_json == '[]' %}
-<div class="card">
-    <div class="subtle">You are not assigned as a class teacher. Attendance marking is only available to class teachers.</div>
-</div>
+{% if is_holiday %}
+    <div class="att-card"><div class="att-empty">
+        <strong>{{ holiday_reason }}</strong><br>
+        Aaj holiday hai — attendance mark karne ki zaroorat nahi.
+    </div></div>
 {% else %}
-<div class="card">
-    <div class="stack">
+
+<!-- Class teacher: full-day sections -->
+<div class="att-card" id="classTeacherCard" style="display:none;">
+    <div style="font-weight:700; margin-bottom:0.5rem;">Class Teacher — Full Day</div>
+    <div id="classTeacherList"></div>
+</div>
+
+<!-- Subject teacher: period grid -->
+<div class="att-card" id="periodCard" style="display:none;">
+    <div style="font-weight:700; margin-bottom:0.5rem;">Your Periods Today</div>
+    <div id="periodList"></div>
+</div>
+
+<!-- Class + period + date selector (hidden default) -->
+<div class="att-card" id="loaderCard">
+    <div style="font-weight:700; margin-bottom:0.6rem;">Mark Attendance</div>
+    <div style="display:grid; gap:0.6rem;">
         <div>
-            <div class="subtle" style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">Class</div>
-            <select id="attClassSelect" style="width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--border); background:#fff;"></select>
+            <div class="att-student-meta" style="margin-bottom:0.2rem;">Class</div>
+            <select id="attClassSelect" style="width:100%; padding:0.6rem; border-radius:0.6rem; border:1px solid var(--border); background:#fff;"></select>
         </div>
-        <div>
-            <div class="subtle" style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">Date</div>
-            <input type="date" id="attDateInput" value="{{ today }}" style="width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--border); background:#fff;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+            <div>
+                <div class="att-student-meta" style="margin-bottom:0.2rem;">Date</div>
+                <input type="date" id="attDateInput" value="{{ today }}" style="width:100%; padding:0.6rem; border-radius:0.6rem; border:1px solid var(--border); background:#fff;">
+            </div>
+            <div>
+                <div class="att-student-meta" style="margin-bottom:0.2rem;">Period (optional)</div>
+                <input type="number" id="attPeriodInput" min="1" placeholder="e.g., 2" style="width:100%; padding:0.6rem; border-radius:0.6rem; border:1px solid var(--border); background:#fff;">
+            </div>
         </div>
-        <div class="row" style="gap:8px;">
-            <button class="btn btn-primary" style="flex:1;" onclick="AXIS_ATT.load()">Load</button>
-            <button class="btn btn-secondary" style="flex:1;" onclick="AXIS_ATT.missed()">Missed days</button>
+        <div class="att-actions">
+            <button class="primary" onclick="AXIS_ATT.load()">Load Students</button>
+            <button class="ghost" onclick="AXIS_ATT.copy('yesterday')">Copy Yesterday</button>
+            <button class="ghost" onclick="AXIS_ATT.copy('last_period')">Copy Last Period</button>
         </div>
-        <div id="missedBox" class="subtle" style="font-size:12px; display:none;"></div>
     </div>
 </div>
 
-<div class="card" id="attSummaryCard" style="display:none;">
-    <div class="row">
-        <div>
-            <div class="subtle" style="font-size:11px;">Present</div>
-            <strong id="cntPresent">0</strong>
-        </div>
-        <div>
-            <div class="subtle" style="font-size:11px;">Absent</div>
-            <strong id="cntAbsent">0</strong>
-        </div>
-        <div>
-            <div class="subtle" style="font-size:11px;">Late</div>
-            <strong id="cntLate">0</strong>
-        </div>
-        <div>
-            <div class="subtle" style="font-size:11px;">Total</div>
-            <strong id="cntTotal">0</strong>
-        </div>
+<div id="attRows" class="att-card" style="display:none;">
+    <div id="attSummary" class="att-student-meta" style="margin-bottom:0.5rem;"></div>
+    <div id="attRowsList"></div>
+    <div class="att-actions">
+        <button class="ghost" onclick="AXIS_ATT.bulk('present')">All Present</button>
+        <button class="ghost" onclick="AXIS_ATT.bulk('absent')">All Absent</button>
+        <button class="primary" onclick="AXIS_ATT.submit()">Save Attendance</button>
     </div>
-</div>
-
-<div id="attList" class="stack"></div>
-
-<div class="card" id="attSaveCard" style="display:none;">
-    <button class="btn btn-primary" style="width:100%;" onclick="AXIS_ATT.submit()">Save Attendance</button>
-    <div id="attSaveMsg" class="subtle" style="text-align:center; margin-top:8px; font-size:12px;"></div>
+    <div id="attSaveMsg" class="att-student-meta" style="margin-top:0.5rem; text-align:center;"></div>
 </div>
 {% endif %}
 
 <script>
 window.AXIS_ATT = (function() {
-    const SCHEMA = '{{ staff_schema_name|default:"" }}';
-    const CLASSES = {{ classes_json|safe }};
-    let students = [];
-    let currentClassId = null;
-    let currentDate = null;
+    var SCHEMA = '{{ staff_schema_name|default:"" }}';
+    var PERIODS = {{ periods_json|safe }};
+    var CT_CLASSES = {{ class_teacher_classes_json|safe }};
+    var currentStudents = [];
+    var currentClassId = null;
+    var currentDate = null;
+    var currentPeriod = null;
 
     function q(s){ return document.querySelector(s); }
-
     function csrf(){
         var m = document.querySelector('meta[name="csrf-token"]');
         if (m && m.getAttribute('content')) return m.getAttribute('content');
-        // Fallback: read the csrftoken cookie (Django's default).
         var name = 'csrftoken=';
         var parts = (document.cookie || '').split(';');
         for (var i = 0; i < parts.length; i++) {
@@ -80,123 +116,160 @@ window.AXIS_ATT = (function() {
         }
         return '';
     }
-    function esc(s){ return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function esc(s){ return String(s||'').replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
     function init() {
-        const sel = q('#attClassSelect');
-        if (!sel) return;
-        CLASSES.forEach(c => {
-            const o = document.createElement('option');
-            o.value = c.id;
-            o.textContent = c.name + ' (' + c.student_count + ')';
+        // Class teacher card
+        if (CT_CLASSES && CT_CLASSES.length) {
+            var html = '';
+            CT_CLASSES.forEach(function(c) {
+                html += '<div class="att-row"><div><div class="att-student-name">'+esc(c.name)+'</div>'
+                      + '<div class="att-student-meta">'+c.student_count+' students</div></div>'
+                      + '<span class="att-pill '+(c.marked_today?'marked':'pending')+'">'
+                      + (c.marked_today?'Marked':'Pending')+'</span>'
+                      + '<button type="button" class="ghost" onclick="AXIS_ATT.openClass('+c.id+',null)">Open</button></div>';
+            });
+            q('#classTeacherList').innerHTML = html;
+            q('#classTeacherCard').style.display = 'block';
+        }
+
+        // Periods card
+        if (PERIODS && PERIODS.length) {
+            var phtml = '';
+            PERIODS.forEach(function(p) {
+                phtml += '<div class="att-period-chip" data-idx="'+p.period_order+'" onclick="AXIS_ATT.openClass('+p.class_id+','+p.period_order+')">'
+                       + '<div><strong>P'+p.period_order+'</strong> '+esc(p.start||'')+'–'+esc(p.end||'')+' '
+                       + '<span class="att-student-meta">'+esc(p.class_name)+' &middot; '+esc(p.subject)+'</span></div>'
+                       + '<span class="att-pill '+(p.marked?'marked':'pending')+'">'
+                       + (p.marked?'Marked':'Pending')+'</span></div>';
+            });
+            q('#periodList').innerHTML = phtml;
+            q('#periodCard').style.display = 'block';
+        }
+
+        // Populate class dropdown from CT classes + period classes
+        var sel = q('#attClassSelect');
+        var seen = {};
+        (CT_CLASSES||[]).forEach(function(c){ if(!seen[c.id]){seen[c.id]=1;var o=document.createElement('option');o.value=c.id;o.textContent=c.name;sel.appendChild(o);} });
+        (PERIODS||[]).forEach(function(p){ if(!seen[p.class_id]){seen[p.class_id]=1;var o=document.createElement('option');o.value=p.class_id;o.textContent=p.class_name;sel.appendChild(o);} });
+        if (!sel.options.length) {
+            var o = document.createElement('option');
+            o.textContent = 'No classes assigned';
             sel.appendChild(o);
-        });
+        }
+    }
+
+    function openClass(cid, period) {
+        q('#attClassSelect').value = String(cid);
+        if (period) q('#attPeriodInput').value = period;
+        load();
     }
 
     function load() {
-        const cid = q('#attClassSelect').value;
-        const d = q('#attDateInput').value;
-        if (!cid || !d) { alert('Pick a class and date.'); return; }
-        currentClassId = cid; currentDate = d;
-        fetch(`/portal/staff/api/attendance/students/?class_id=${cid}&date=${d}`, {
-            headers: {'X-Requested-With':'XMLHttpRequest'}
-        })
-        .then(r => r.json())
-        .then(j => {
-            if (!j.ok) { alert(j.error || 'Failed'); return; }
-            students = j.students;
-            render();
-            q('#attSaveCard').style.display = 'block';
-        })
-        .catch(() => alert('Network error'));
+        var cid = q('#attClassSelect').value;
+        var d = q('#attDateInput').value;
+        var p = q('#attPeriodInput').value;
+        if (!cid || !d) { alert('Pick class and date.'); return; }
+        currentClassId = cid;
+        currentDate = d;
+        currentPeriod = p ? parseInt(p, 10) : null;
+        var url = '/portal/staff/api/attendance/students/?class_id='+cid+'&date='+d;
+        if (currentPeriod) url += '&period_order='+currentPeriod;
+        fetch(url, { headers: {'X-Requested-With':'XMLHttpRequest','Accept':'application/json'} })
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+                if (!j.ok) { alert(j.error||'Failed'); return; }
+                if (j.is_holiday) { alert('Holiday: '+(j.holiday_reason||'')); return; }
+                currentStudents = j.students || [];
+                render();
+                q('#attRows').style.display = 'block';
+            })
+            .catch(function(){ alert('Network error.'); });
     }
 
     function render() {
-        const wrap = q('#attList');
-        if (!students.length) { wrap.innerHTML = '<div class="card"><div class="subtle">No students.</div></div>'; return; }
-        wrap.innerHTML = students.map(s => `
-            <div class="card" style="padding:10px 12px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                    <div style="min-width:0;">
-                        <div style="font-weight:700;">${esc(s.name)}</div>
-                        <div class="subtle" style="font-size:11px;">Roll ${esc(s.roll_number||'-')}</div>
-                    </div>
-                    <select data-sid="${s.id}" style="width:auto; padding:6px 8px; font-size:12px;">
-                        <option value="present" ${s.status==='present'?'selected':''}>Present</option>
-                        <option value="absent" ${s.status==='absent'?'selected':''}>Absent</option>
-                        <option value="late" ${s.status==='late'?'selected':''}>Late</option>
-                        <option value="holiday" ${s.status==='holiday'?'selected':''}>Leave</option>
-                    </select>
-                </div>
-            </div>
-        `).join('');
-        wrap.querySelectorAll('select[data-sid]').forEach(sel => sel.addEventListener('change', updateSummary));
+        var list = q('#attRowsList');
+        if (!currentStudents.length) { list.innerHTML = '<div class="att-empty">No students in this class.</div>'; return; }
+        var html = '';
+        currentStudents.forEach(function(s){
+            html += '<div class="att-row">'
+                  + '<div><div class="att-student-name">'+esc(s.name)+'</div>'
+                  + '<div class="att-student-meta">Roll '+esc(s.roll_number||'-')+(s.on_leave?' · ON LEAVE':'')+'</div></div>'
+                  + '<div class="att-status-group">'
+                  + '<input type="radio" name="st_'+s.id+'" id="p_'+s.id+'" value="present" '+(s.status==='present'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="p_'+s.id+'">P</label>'
+                  + '<input type="radio" name="st_'+s.id+'" id="a_'+s.id+'" value="absent" '+(s.status==='absent'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="a_'+s.id+'">A</label>'
+                  + '<input type="radio" name="st_'+s.id+'" id="l_'+s.id+'" value="late" '+(s.status==='late'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="l_'+s.id+'">L</label>'
+                  + '<input type="radio" name="st_'+s.id+'" id="h_'+s.id+'" value="half_day" '+(s.status==='half_day'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="h_'+s.id+'">H</label>'
+                  + '<input type="radio" name="st_'+s.id+'" id="e_'+s.id+'" value="excused" '+(s.status==='excused'?'checked':'')+' onchange="AXIS_ATT.updateSummary()"><label for="e_'+s.id+'">Lv</label>'
+                  + '</div></div>';
+        });
+        list.innerHTML = html;
         updateSummary();
-        q('#attSummaryCard').style.display = 'block';
     }
 
     function updateSummary() {
-        let p=0,a=0,l=0;
-        document.querySelectorAll('#attList select[data-sid]').forEach(sel => {
-            if (sel.value==='present') p++;
-            else if (sel.value==='absent') a++;
-            else if (sel.value==='late') l++;
+        var p=0,a=0,l=0,h=0,e=0;
+        currentStudents.forEach(function(s){
+            var el = document.querySelector('input[name="st_'+s.id+'"]:checked');
+            var v = el ? el.value : 'present';
+            if (v==='present') p++; else if (v==='absent') a++;
+            else if (v==='late') l++; else if (v==='half_day') h++;
+            else if (v==='excused') e++;
         });
-        q('#cntPresent').textContent = p;
-        q('#cntAbsent').textContent = a;
-        q('#cntLate').textContent = l;
-        q('#cntTotal').textContent = document.querySelectorAll('#attList select[data-sid]').length;
+        q('#attSummary').innerHTML = 'Total '+currentStudents.length
+            + ' · P '+p+' · A '+a+' · L '+l+' · H '+h+' · Lv '+e;
+    }
+
+    function bulk(status) {
+        currentStudents.forEach(function(s){
+            var el = document.getElementById(
+                (status==='present'?'p_':status==='absent'?'a_':'p_') + s.id);
+            if (el) el.checked = true;
+        });
+        updateSummary();
     }
 
     function submit() {
         if (!currentClassId || !currentDate) return;
-        const records = [];
-        document.querySelectorAll('#attList select[data-sid]').forEach(sel => {
-            records.push({ student_id: parseInt(sel.dataset.sid,10), status: sel.value });
+        var records = currentStudents.map(function(s){
+            var el = document.querySelector('input[name="st_'+s.id+'"]:checked');
+            return { student_id: s.id, status: el ? el.value : 'present' };
         });
-        const msg = q('#attSaveMsg');
+        var payload = { class_id: parseInt(currentClassId,10), date: currentDate, records: records };
+        if (currentPeriod) payload.period_order = currentPeriod;
+        var msg = q('#attSaveMsg');
         msg.textContent = 'Saving…';
-        fetch(`/portal/staff/api/attendance/mark/`, {
+        fetch('/portal/staff/api/attendance/mark/', {
             method: 'POST',
             headers: {'Content-Type':'application/json','X-CSRFToken':csrf(),'X-Requested-With':'XMLHttpRequest'},
-            body: JSON.stringify({ class_id: currentClassId, date: currentDate, records })
-        })
-        .then(r => r.json())
-        .then(j => {
-            if (!j.ok) { msg.textContent = j.error || 'Save failed'; return; }
-            msg.textContent = 'Saved ' + j.saved + ' records.';
-        })
-        .catch(() => { msg.textContent = 'Network error'; });
+            body: JSON.stringify(payload)
+        }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, data:j}; }); })
+          .then(function(res){
+            if (!res.ok || !res.data.ok) { msg.textContent = res.data.error||'Failed'; return; }
+            msg.textContent = 'Saved '+res.data.saved+' records.';
+          })
+          .catch(function(){ msg.textContent = 'Network error.'; });
     }
 
-    function missed() {
-        const cid = q('#attClassSelect').value;
-        if (!cid) { alert('Pick a class first.'); return; }
-        const box = q('#missedBox');
-        box.style.display = 'block';
-        box.textContent = 'Checking…';
-        fetch(`/portal/staff/api/attendance/missed-days/?class_id=${cid}`, {
-            headers: {'X-Requested-With':'XMLHttpRequest'}
-        })
-        .then(r => r.json())
-        .then(j => {
-            if (!j.ok) { box.textContent = j.error || 'Failed'; return; }
-            if (!j.missed_days.length) { box.textContent = 'No missed days in the last 30 days. '; return; }
-            box.innerHTML = 'Missed days: ' + j.missed_days.slice(0,10).map(d =>
-                `<a href="#" onclick="AXIS_ATT.pickDate('${d}');return false;" style="margin-right:6px;">${d}</a>`
-            ).join('');
-        })
-        .catch(() => { box.textContent = 'Network error'; });
-    }
-
-    function pickDate(d) {
-        const inp = q('#attDateInput');
-        if (inp) inp.value = d;
-        load();
+    function copy(source) {
+        if (!currentClassId || !currentDate) { alert('Load a class first.'); return; }
+        var payload = { class_id: parseInt(currentClassId,10), date: currentDate, source: source };
+        if (currentPeriod) payload.period_order = currentPeriod;
+        fetch('/portal/staff/api/attendance/copy/', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','X-CSRFToken':csrf(),'X-Requested-With':'XMLHttpRequest'},
+            body: JSON.stringify(payload)
+        }).then(function(r){ return r.json(); })
+          .then(function(j){
+            if (!j.ok) { alert(j.error||'Copy failed'); return; }
+            alert('Copied '+j.copied+' records.');
+            load();
+          }).catch(function(){ alert('Network error.'); });
     }
 
     document.addEventListener('DOMContentLoaded', init);
-    return { load, submit, missed, pickDate };
+    return { load, submit, bulk, copy, openClass, updateSummary };
 })();
 </script>
 {% endblock %}

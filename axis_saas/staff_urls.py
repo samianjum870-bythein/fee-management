@@ -30,6 +30,8 @@ from axis_saas.views.staff_attendence import (
     staff_attendance_mark_api,
     staff_attendance_records_api,
     staff_attendance_missed_days_api,
+    staff_attendance_copy_api,
+    staff_attendance_policy_api,
 )
 
 
@@ -62,4 +64,7 @@ urlpatterns = [
     path('api/attendance/mark/', staff_attendance_mark_api, name='staff_attendance_mark_api'),
     path('api/attendance/records/', staff_attendance_records_api, name='staff_attendance_records_api'),
     path('api/attendance/missed-days/', staff_attendance_missed_days_api, name='staff_attendance_missed_days_api'),
+    path('api/attendance/copy/', staff_attendance_copy_api, name='staff_attendance_copy_api'),
+    path('api/attendance/policy/', staff_attendance_policy_api, name='staff_attendance_policy_api'),
+    # ATTENDANCE_PRODUCTION_V2
 ]
