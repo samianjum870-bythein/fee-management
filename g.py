@@ -1,50 +1,57 @@
 #!/usr/bin/env python3
 """
-axis_patcher.py — STAFF_PWA_V1
-==============================
+axis_patcher.py — STAFF_PWA_V1_HOTFIX
+=====================================
 
-Makes the staff portal installable as a PWA (Progressive Web App),
-without touching the school admin panel's existing PWA plumbing.
-
-Why a separate module?
+Why this hotfix exists
 ----------------------
-The admin panel already has its own PWA endpoints in
-`axis_saas/pwa_views.py` (manifest at /portal/<schema>/manifest.json,
-service worker at /sw.js). We deliberately do NOT modify that module
-or the admin base template. Instead we add:
+The first pass of STAFF_PWA_V1 shipped a manifest that advertised
+**SVG** icons only:
 
-  * A new view module `axis_saas/views/staff_pwa.py` — staff manifest
-    + staff service worker. Both are schema-independent (staff
-    session carries the tenant), so they live at stable URLs.
+    /static/pwa/staff-icon-192.svg
+    /static/pwa/staff-icon-512.svg
 
-  * Two new SVG icons under `static/pwa/` — teal gradient + gold
-    accent, matching the existing AXIS staff brand mark.
+Chrome and Edge **do not consider a PWA installable** unless the
+manifest also contains at least one **PNG** icon at 192x192 and one
+at 512x512. SVG alone is silently ignored for installability. That
+is why the staff "Install App" button falls back to the manual
+instructions modal: `beforeinstallprompt` is never fired, so there
+is no deferred prompt to call `.prompt()` on.
 
-  * New URL routes in `axis_saas/staff_urls.py`:
-        /portal/staff/manifest.json
-        /portal/staff/sw.js
+The admin panel works because it already serves PNGs from
+`/static/pwa/icon-192x192.png` and `/static/pwa/icon-512x512.png`.
 
-  * An install prompt + service-worker registration block in
-    `templates/mobile/staff/base.html`, plus a floating "Install App"
-    button (only shown when a staff session is active, i.e. the same
-    condition that renders the bottom navigation).
+What this hotfix does
+---------------------
+1. Generates two **PNG** staff-portal icons entirely in Python
+   (using only `zlib` + `struct` from the standard library — no
+   Pillow, no external tools):
 
-Files created
--------------
-    axis_saas/views/staff_pwa.py
-    static/pwa/staff-icon-192.svg
-    static/pwa/staff-icon-512.svg
+       static/pwa/staff-icon-192.png
+       static/pwa/staff-icon-512.png
 
-Files modified
---------------
-    axis_saas/staff_urls.py
-    templates/mobile/staff/base.html
+   The artwork is the AXIS Staff brand: teal gradient background,
+   white monogram "A", gold accent bar underneath — rendered
+   pixel-by-pixel with anti-aliased strokes.
+
+2. Rewrites `axis_saas/views/staff_pwa.py` so the manifest and the
+   service-worker pre-cache reference the PNG files. The file is
+   only rewritten if it still carries our own marker string
+   (`STAFF_PWA_V1`) — the patcher refuses to clobber anything it
+   did not write.
+
+3. Leaves `axis_saas/staff_urls.py` and
+   `templates/mobile/staff/base.html` alone. The URL routes and the
+   install-prompt JavaScript written by the first pass are already
+   correct; only the manifest content and the icon assets needed
+   to change.
 
 Idempotency
 -----------
-Every write is guarded by a marker string. Re-running this patcher
-after a successful run is a clean no-op — no anchors will match and
-no files will be rewritten.
+The PNG writes are idempotent (skip when the file already exists).
+The `staff_pwa.py` rewrite is idempotent because the replacement
+content carries the same `STAFF_PWA_V1` marker — re-running this
+patcher after a successful run is a no-op.
 
 Usage
 -----
@@ -56,7 +63,9 @@ Usage
 from __future__ import annotations
 
 import argparse
+import struct
 import sys
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -65,28 +74,24 @@ from pathlib import Path
 # Target paths (relative to project root)
 # ---------------------------------------------------------------------------
 
-STAFF_PWA_VIEW_REL   = Path("axis_saas") / "views" / "staff_pwa.py"
-STAFF_URLS_REL       = Path("axis_saas") / "staff_urls.py"
-STAFF_BASE_TPL_REL   = Path("templates") / "mobile" / "staff" / "base.html"
-ICON_192_REL         = Path("static") / "pwa" / "staff-icon-192.svg"
-ICON_512_REL         = Path("static") / "pwa" / "staff-icon-512.svg"
+STAFF_PWA_VIEW_REL = Path("axis_saas") / "views" / "staff_pwa.py"
+ICON_192_REL       = Path("static") / "pwa" / "staff-icon-192.png"
+ICON_512_REL       = Path("static") / "pwa" / "staff-icon-512.png"
+
+
+# Marker string — every file this patcher owns must contain it so a
+# future run can safely distinguish "our output" from "user's file".
+MARKER = "STAFF_PWA_V1"
 
 
 # ---------------------------------------------------------------------------
-# Marker strings — used for idempotency checks
+# New / updated file: axis_saas/views/staff_pwa.py
 # ---------------------------------------------------------------------------
-
-MARKER_VIEW       = "STAFF_PWA_V1"
-MARKER_URLS_IMPORT = "STAFF_PWA_V1: staff portal PWA manifest"
-MARKER_URLS_ROUTE  = "STAFF_PWA_V1"
-MARKER_TPL_HEAD    = "STAFF_PWA_V1_HEAD"
-MARKER_TPL_BODY    = "STAFF_PWA_V1: floating install button"
-MARKER_ICON        = "AXIS Staff Portal icon"
-
-
-# ---------------------------------------------------------------------------
-# New file: axis_saas/views/staff_pwa.py
-# ---------------------------------------------------------------------------
+#
+# Rewritten to advertise PNG icons in the manifest and to pre-cache
+# the PNG files in the service worker. Everything else — the
+# `start_url`, the `scope`, the network-first navigations, the
+# cache-first static strategy — is unchanged from the first pass.
 
 STAFF_PWA_VIEW_CONTENT = '''"""AXIS Staff Portal PWA — manifest + service worker.
 
@@ -95,6 +100,15 @@ STAFF_PWA_V1
 Adds PWA support to the staff portal, kept deliberately separate from
 the school-admin PWA endpoints in ``axis_saas/pwa_views.py`` so the
 two surfaces never interfere.
+
+STAFF_PWA_V1_HOTFIX
+-------------------
+The first pass advertised SVG icons only. Chrome / Edge refuse to
+fire ``beforeinstallprompt`` unless the manifest contains PNG icons
+at 192x192 and 512x512, so the "Install App" button silently fell
+through to the manual-instructions modal. The manifest now
+advertises PNG icons generated by the patcher; the SVG files remain
+in place as decorative favicons.
 
 Key design notes
 ----------------
@@ -120,34 +134,35 @@ from django.http import HttpResponse, JsonResponse
 def _manifest_icons():
     """Icon set for the staff PWA.
 
-    SVG is used for both sizes — it scales cleanly and keeps the repo
-    light. The 'maskable' variant uses the same artwork because the
-    icon is already designed with a safe-zone-friendly composition
-    (centered mark on a full-bleed background).
+    PNG only. Chrome / Edge require at least one PNG icon of 192x192
+    and one of 512x512 to consider the app installable. Both the
+    "any" and "maskable" purposes point at the same artwork because
+    the design already respects the maskable safe-zone (all content
+    sits inside the center 80% circle).
     """
     return [
         {
-            'src': '/static/pwa/staff-icon-192.svg',
+            'src': '/static/pwa/staff-icon-192.png',
             'sizes': '192x192',
-            'type': 'image/svg+xml',
+            'type': 'image/png',
             'purpose': 'any',
         },
         {
-            'src': '/static/pwa/staff-icon-192.svg',
+            'src': '/static/pwa/staff-icon-192.png',
             'sizes': '192x192',
-            'type': 'image/svg+xml',
+            'type': 'image/png',
             'purpose': 'maskable',
         },
         {
-            'src': '/static/pwa/staff-icon-512.svg',
+            'src': '/static/pwa/staff-icon-512.png',
             'sizes': '512x512',
-            'type': 'image/svg+xml',
+            'type': 'image/png',
             'purpose': 'any',
         },
         {
-            'src': '/static/pwa/staff-icon-512.svg',
+            'src': '/static/pwa/staff-icon-512.png',
             'sizes': '512x512',
-            'type': 'image/svg+xml',
+            'type': 'image/png',
             'purpose': 'maskable',
         },
     ]
@@ -194,8 +209,8 @@ def staff_service_worker(request):
     sw_js = r"""// AXIS Staff Portal Service Worker (STAFF_PWA_V1)
 const CACHE_NAME = 'axis-staff-pwa-v1';
 const PRECACHE_STATIC = [
-    '/static/pwa/staff-icon-192.svg',
-    '/static/pwa/staff-icon-512.svg',
+    '/static/pwa/staff-icon-192.png',
+    '/static/pwa/staff-icon-512.png',
 ];
 
 self.addEventListener('install', function (event) {
@@ -292,267 +307,165 @@ self.addEventListener('fetch', function (event) {
 
 
 # ---------------------------------------------------------------------------
-# New files: SVG icons
+# Minimal pure-Python PNG encoder
 # ---------------------------------------------------------------------------
-# Same artwork at two viewBox sizes so the manifest can advertise
-# explicit 192 and 512 entries without any build step.
+#
+# Chrome's installability check is strict: it wants real PNGs, not
+# SVGs. Rather than adding Pillow as a runtime dependency, we encode
+# the two icon sizes ourselves. The format is small enough to emit
+# with zlib + struct.
 
-_STAFF_ICON_SVG = '''<?xml version="1.0" encoding="UTF-8"?>
-<!-- AXIS Staff Portal icon — STAFF_PWA_V1 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">
-  <defs>
-    <linearGradient id="staffBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#14c2b0"/>
-      <stop offset="55%" stop-color="#0b6e64"/>
-      <stop offset="100%" stop-color="#063a36"/>
-    </linearGradient>
-    <linearGradient id="staffGold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#c9a227"/>
-      <stop offset="100%" stop-color="#f0d876"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Full-bleed teal background -->
-  <rect width="{size}" height="{size}" fill="url(#staffBg)"/>
-
-  <!-- Soft corner highlight -->
-  <circle cx="{hl_x}" cy="{hl_y}" r="{hl_r}" fill="rgba(255,255,255,0.08)"/>
-
-  <!-- Safe-zone ring -->
-  <circle cx="{cx}" cy="{cy}" r="{ring_outer}" fill="none"
-          stroke="rgba(255,255,255,0.16)" stroke-width="2"/>
-
-  <!-- Central monogram "A" -->
-  <text x="{cx}" y="{text_y}" text-anchor="middle"
-        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-        font-size="{font_size}" font-weight="800"
-        fill="#ffffff" letter-spacing="{letter_spacing}">A</text>
-
-  <!-- Gold accent bar under the monogram -->
-  <rect x="{bar_x}" y="{bar_y}" width="{bar_w}" height="{bar_h}"
-        rx="{bar_r}" fill="url(#staffGold)"/>
-</svg>
-'''
-
-
-def _icon_svg(size: int) -> str:
-    """Return the staff icon SVG for the given pixel size (192 or 512).
-
-    All coordinates are expressed as fractions of ``size`` so the
-    192 and 512 variants are pixel-perfect copies of the same design.
-    """
-    s = float(size)
-    return _STAFF_ICON_SVG.format(
-        size=size,
-        cx=int(s * 0.5),                 # 96 / 256
-        cy=int(s * 0.5),
-        hl_x=int(s * 0.78),              # corner highlight
-        hl_y=int(s * 0.18),
-        hl_r=int(s * 0.43),
-        ring_outer=int(s * 0.363),       # ~186/512
-        text_y=int(s * 0.676),           # baseline for monogram
-        font_size=int(s * 0.508),        # ~260/512
-        letter_spacing=int(s * -0.016),  # ~ -8/512
-        bar_x=int(s * 0.383),            # ~196/512
-        bar_y=int(s * 0.758),            # ~388/512
-        bar_w=int(s * 0.234),            # ~120/512
-        bar_h=max(3, int(s * 0.0117)),   # ~6/512
-        bar_r=3 if size <= 192 else 3,
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    """Assemble a single PNG chunk: length | type | data | crc32."""
+    chunk = chunk_type + data
+    return (
+        struct.pack(">I", len(data))
+        + chunk
+        + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
     )
 
 
-# ---------------------------------------------------------------------------
-# Anchors for existing files
-# ---------------------------------------------------------------------------
+def _make_png(width: int, height: int, pixel_fn) -> bytes:
+    """Encode a full RGBA PNG from a per-pixel callback.
 
-# --- axis_saas/staff_urls.py ----------------------------------------------
+    ``pixel_fn(x, y)`` returns an ``(r, g, b, a)`` tuple of ints in
+    the range 0..255. The encoder writes every pixel with filter
+    type 0 (no prediction) which produces large intermediate buffers
+    but compresses perfectly for smooth gradients and flat colours.
+    """
+    row_len = width * 4
+    raw = bytearray((row_len + 1) * height)
+    i = 0
+    for y in range(height):
+        raw[i] = 0  # PNG filter type 0 (None) for this scanline
+        i += 1
+        for x in range(width):
+            r, g, b, a = pixel_fn(x, y)
+            raw[i]     = r & 0xFF
+            raw[i + 1] = g & 0xFF
+            raw[i + 2] = b & 0xFF
+            raw[i + 3] = a & 0xFF
+            i += 4
 
-URLS_IMPORT_ANCHOR = (
-    "    staff_attendance_dates_api,\n"
-    ")\n"
-)
-
-URLS_IMPORT_REPLACEMENT = (
-    "    staff_attendance_dates_api,\n"
-    ")\n"
-    "\n"
-    "# STAFF_PWA_V1: staff portal PWA manifest + service worker.\n"
-    "# These are schema-independent endpoints — the staff session\n"
-    "# carries the tenant, so the URLs are stable across tenants.\n"
-    "from axis_saas.views.staff_pwa import (\n"
-    "    staff_manifest,\n"
-    "    staff_service_worker,\n"
-    ")\n"
-)
-
-URLS_ROUTE_ANCHOR = (
-    "urlpatterns = [\n"
-    "    path('', staff_dashboard, name='staff_dashboard_root'),\n"
-)
-
-URLS_ROUTE_REPLACEMENT = (
-    "urlpatterns = [\n"
-    "    # STAFF_PWA_V1: staff portal PWA endpoints. Served before\n"
-    "    # the dashboard root so the manifest and service worker\n"
-    "    # resolve unambiguously.\n"
-    "    path('manifest.json', staff_manifest, name='staff_manifest'),\n"
-    "    path('sw.js', staff_service_worker, name='staff_service_worker'),\n"
-    "    path('', staff_dashboard, name='staff_dashboard_root'),\n"
-)
+    png = b"\x89PNG\r\n\x1a\n"
+    # IHDR: width, height, bit-depth=8, colour-type=6 (RGBA),
+    # compression=0, filter=0, interlace=0.
+    png += _png_chunk(
+        b"IHDR",
+        struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0),
+    )
+    png += _png_chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+    png += _png_chunk(b"IEND", b"")
+    return png
 
 
-# --- templates/mobile/staff/base.html --------------------------------------
+def _dist_to_segment(px: float, py: float,
+                     x1: float, y1: float,
+                     x2: float, y2: float) -> float:
+    """Euclidean distance from point (px, py) to segment (x1,y1)-(x2,y2)."""
+    dx = x2 - x1
+    dy = y2 - y1
+    denom = dx * dx + dy * dy
+    if denom <= 0.0:
+        return ((px - x1) ** 2 + (py - y1) ** 2) ** 0.5
+    t = ((px - x1) * dx + (py - y1) * dy) / denom
+    if t < 0.0:
+        t = 0.0
+    elif t > 1.0:
+        t = 1.0
+    nx = x1 + t * dx
+    ny = y1 + t * dy
+    return ((px - nx) ** 2 + (py - ny) ** 2) ** 0.5
 
-TPL_HEAD_ANCHOR = (
-    '    <meta name="csrf-token" content="{{ csrf_token }}">\n'
-    '    <meta name="theme-color" content="#0b6e64">\n'
-)
 
-TPL_HEAD_REPLACEMENT = (
-    '    <meta name="csrf-token" content="{{ csrf_token }}">\n'
-    '    <meta name="theme-color" content="#0b6e64">\n'
-    '    {# STAFF_PWA_V1_HEAD — staff-portal PWA metadata #}\n'
-    '    <link rel="manifest" href="/portal/staff/manifest.json">\n'
-    '    <link rel="icon" type="image/svg+xml" href="/static/pwa/staff-icon-192.svg">\n'
-    '    <link rel="apple-touch-icon" href="/static/pwa/staff-icon-192.svg">\n'
-    '    <meta name="apple-mobile-web-app-capable" content="yes">\n'
-    '    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n'
-    '    <meta name="apple-mobile-web-app-title" content="AXIS Staff">\n'
-    '    <meta name="mobile-web-app-capable" content="yes">\n'
-)
+def _staff_icon_pixel_fn(size: int):
+    """Return a pixel callback rendering the AXIS Staff icon.
 
-TPL_BODY_ANCHOR = (
-    "</body>\n"
-    "</html>\n"
-)
+    The design:
+      * Full-bleed teal gradient background (135° diagonal).
+      * A bold white "A" monogram built from three anti-aliased
+        strokes (two legs meeting at an apex, plus a crossbar).
+      * A gold gradient accent bar sitting underneath the monogram.
 
-TPL_BODY_REPLACEMENT = (
-    "{% if request.session.staff_id and request.session.staff_schema_name %}\n"
-    "<!-- STAFF_PWA_V1: floating install button -->\n"
-    "<div id=\"staffPwaInstallContainer\" style=\"display:none; position:fixed; bottom:calc(120px + var(--bottom-safe, env(safe-area-inset-bottom, 0px))); right:16px; z-index:9998;\">\n"
-    "    <button id=\"staffPwaInstallBtn\" type=\"button\" aria-label=\"Install AXIS Staff app\"\n"
-    "            style=\"display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%); color:#ffffff; border:none; border-radius:99px; padding:12px 18px; font-family:inherit; font-weight:800; font-size:0.85rem; letter-spacing:0.02em; cursor:pointer; box-shadow:0 14px 28px rgba(11, 110, 100, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.28); transition: transform 0.15s ease, box-shadow 0.2s ease;\">\n"
-    "        <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\n"
-    "            <path d=\"M12 3v12\"/>\n"
-    "            <path d=\"m7 10 5 5 5-5\"/>\n"
-    "            <path d=\"M5 21h14\"/>\n"
-    "        </svg>\n"
-    "        <span>Install App</span>\n"
-    "    </button>\n"
-    "</div>\n"
-    "\n"
-    "<!-- STAFF_PWA_V1: fallback instructions modal -->\n"
-    "<div id=\"staffPwaFallback\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"staffPwaFallbackTitle\"\n"
-    "     style=\"display:none; position:fixed; inset:0; background:rgba(13, 31, 28, 0.6); z-index:10000; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);\">\n"
-    "    <div style=\"background:#ffffff; border-radius:22px; padding:22px 20px; max-width:400px; width:100%; box-shadow:0 26px 48px rgba(11, 110, 100, 0.32); border:1px solid #e2ebe8;\">\n"
-    "        <div style=\"display:flex; align-items:center; gap:12px; margin-bottom:14px;\">\n"
-    "            <div style=\"width:44px; height:44px; border-radius:14px; background:linear-gradient(140deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%); display:flex; align-items:center; justify-content:center; color:#ffffff; font-weight:800; font-size:1.1rem; box-shadow:0 10px 20px rgba(11, 110, 100, 0.28);\">A</div>\n"
-    "            <div>\n"
-    "                <h3 id=\"staffPwaFallbackTitle\" style=\"margin:0; font-size:1.05rem; color:#0d1f1c;\">Install AXIS Staff</h3>\n"
-    "                <p style=\"margin:2px 0 0; font-size:0.78rem; color:#6b807a;\">Add the staff portal to your home screen</p>\n"
-    "            </div>\n"
-    "        </div>\n"
-    "        <p style=\"margin:0 0 10px; font-size:0.85rem; color:#0d1f1c; line-height:1.5;\">To install manually, use your browser menu:</p>\n"
-    "        <ul style=\"margin:0 0 16px; padding-left:20px; font-size:0.82rem; color:#0d1f1c; line-height:1.7;\">\n"
-    "            <li><strong>Chrome / Edge:</strong> &#8942; menu &rarr; <em>Install app</em> or <em>Add to Home screen</em>.</li>\n"
-    "            <li><strong>Firefox:</strong> menu &rarr; <em>Install</em>.</li>\n"
-    "            <li><strong>Safari (iOS):</strong> Share &rarr; <em>Add to Home Screen</em>.</li>\n"
-    "        </ul>\n"
-    "        <button id=\"staffPwaFallbackClose\" type=\"button\"\n"
-    "                style=\"width:100%; background:linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%); color:#ffffff; border:none; border-radius:14px; padding:12px 16px; font-family:inherit; font-weight:800; font-size:0.9rem; cursor:pointer; box-shadow:0 12px 22px rgba(11, 110, 100, 0.24);\">Got it</button>\n"
-    "    </div>\n"
-    "</div>\n"
-    "\n"
-    "<script>\n"
-    "(function () {\n"
-    "    // STAFF_PWA_V1: install prompt + service worker registration.\n"
-    "    // Kept self-contained so it never touches the admin panel PWA.\n"
-    "    var HIDE_KEY = 'staff_pwa_install_hidden_v1';\n"
-    "    var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)\n"
-    "        || window.navigator.standalone === true;\n"
-    "\n"
-    "    var container = document.getElementById('staffPwaInstallContainer');\n"
-    "    var installBtn = document.getElementById('staffPwaInstallBtn');\n"
-    "    var fallback = document.getElementById('staffPwaFallback');\n"
-    "    var fallbackClose = document.getElementById('staffPwaFallbackClose');\n"
-    "\n"
-    "    if (standalone) {\n"
-    "        if (container) container.style.display = 'none';\n"
-    "    } else if (container && localStorage.getItem(HIDE_KEY) !== 'true') {\n"
-    "        container.style.display = 'block';\n"
-    "    }\n"
-    "\n"
-    "    var deferredPrompt = null;\n"
-    "\n"
-    "    window.addEventListener('beforeinstallprompt', function (e) {\n"
-    "        e.preventDefault();\n"
-    "        deferredPrompt = e;\n"
-    "        if (container && !standalone) container.style.display = 'block';\n"
-    "    });\n"
-    "\n"
-    "    window.addEventListener('appinstalled', function () {\n"
-    "        if (container) container.style.display = 'none';\n"
-    "        deferredPrompt = null;\n"
-    "        try { localStorage.setItem(HIDE_KEY, 'true'); } catch (err) {}\n"
-    "    });\n"
-    "\n"
-    "    function showFallback() {\n"
-    "        if (fallback) fallback.style.display = 'flex';\n"
-    "    }\n"
-    "    function hideFallback() {\n"
-    "        if (fallback) fallback.style.display = 'none';\n"
-    "    }\n"
-    "\n"
-    "    if (installBtn) {\n"
-    "        installBtn.addEventListener('click', function (e) {\n"
-    "            e.preventDefault();\n"
-    "            if (deferredPrompt) {\n"
-    "                deferredPrompt.prompt();\n"
-    "                deferredPrompt.userChoice.then(function (choice) {\n"
-    "                    if (choice && choice.outcome === 'accepted') {\n"
-    "                        if (container) container.style.display = 'none';\n"
-    "                        try { localStorage.setItem(HIDE_KEY, 'true'); } catch (err) {}\n"
-    "                    } else {\n"
-    "                        showFallback();\n"
-    "                    }\n"
-    "                    deferredPrompt = null;\n"
-    "                }).catch(function () {\n"
-    "                    showFallback();\n"
-    "                    deferredPrompt = null;\n"
-    "                });\n"
-    "            } else {\n"
-    "                // No install prompt available (e.g. iOS Safari, or\n"
-    "                // browser already dismissed it) — show manual steps.\n"
-    "                showFallback();\n"
-    "            }\n"
-    "        });\n"
-    "    }\n"
-    "\n"
-    "    if (fallbackClose) {\n"
-    "        fallbackClose.addEventListener('click', hideFallback);\n"
-    "    }\n"
-    "    if (fallback) {\n"
-    "        fallback.addEventListener('click', function (e) {\n"
-    "            if (e.target === fallback) hideFallback();\n"
-    "        });\n"
-    "    }\n"
-    "\n"
-    "    if ('serviceWorker' in navigator) {\n"
-    "        window.addEventListener('load', function () {\n"
-    "            navigator.serviceWorker\n"
-    "                .register('/portal/staff/sw.js', { scope: '/portal/staff/' })\n"
-    "                .catch(function (err) {\n"
-    "                    console.warn('[AXIS Staff PWA] SW registration failed:', err);\n"
-    "                });\n"
-    "        });\n"
-    "    }\n"
-    "})();\n"
-    "</script>\n"
-    "{% endif %}\n"
-    "\n"
-    "</body>\n"
-    "</html>\n"
-)
+    All proportions are expressed as fractions of ``size`` so the
+    192 and 512 variants are visually identical.
+    """
+    s = float(size)
+
+    # A monogram geometry (fractions of size)
+    a_apex_x, a_apex_y = 0.500, 0.240
+    a_left_x, a_left_y = 0.320, 0.720
+    a_right_x, a_right_y = 0.680, 0.720
+    cb_y = 0.560
+    cb_x0, cb_x1 = 0.380, 0.620
+    stroke_half = 0.040 * s          # half-thickness of the strokes
+
+    # Gold accent bar (fractions of size)
+    bar_x0 = 0.360
+    bar_x1 = 0.640
+    bar_y0 = 0.790
+    bar_y1 = 0.825
+
+    # Pre-resolve pixel coordinates for the segment endpoints
+    ax_l, ay_l = a_left_x * s,  a_left_y * s
+    ax_r, ay_r = a_right_x * s, a_right_y * s
+    ax_a, ay_a = a_apex_x * s,  a_apex_y * s
+    cbx0, cbx1 = cb_x0 * s, cb_x1 * s
+    cby        = cb_y * s
+    barx0 = int(bar_x0 * s)
+    barx1 = int(bar_x1 * s)
+    bary0 = int(bar_y0 * s)
+    bary1 = int(bar_y1 * s)
+
+    def pixel(x, y):
+        nx = x / s
+        ny = y / s
+
+        # ---- teal gradient background (135° diagonal) ----
+        t = (nx + ny) * 0.5
+        if t < 0.55:
+            u = t / 0.55
+            r = int(0x14 + (0x0b - 0x14) * u + 0.5)
+            g = int(0xc2 + (0x6e - 0xc2) * u + 0.5)
+            b = int(0xb0 + (0x64 - 0xb0) * u + 0.5)
+        else:
+            u = (t - 0.55) / 0.45
+            r = int(0x0b + (0x06 - 0x0b) * u + 0.5)
+            g = int(0x6e + (0x3a - 0x6e) * u + 0.5)
+            b = int(0x64 + (0x36 - 0x64) * u + 0.5)
+
+        # ---- white "A" monogram (anti-aliased) ----
+        d_left = _dist_to_segment(x, y, ax_l, ay_l, ax_a, ay_a)
+        d_right = _dist_to_segment(x, y, ax_r, ay_r, ax_a, ay_a)
+        d_cross = _dist_to_segment(x, y, cbx0, cby, cbx1, cby)
+        d_min = min(d_left, d_right, d_cross)
+
+        if d_min < stroke_half:
+            edge = stroke_half - d_min
+            if edge >= 1.5:
+                r, g, b = 255, 255, 255
+            else:
+                a_blend = edge / 1.5
+                r = int(r * (1.0 - a_blend) + 255 * a_blend + 0.5)
+                g = int(g * (1.0 - a_blend) + 255 * a_blend + 0.5)
+                b = int(b * (1.0 - a_blend) + 255 * a_blend + 0.5)
+
+        # ---- gold accent bar (draw last so it sits on top) ----
+        if bary0 <= y < bary1 and barx0 <= x < barx1:
+            span = barx1 - barx0
+            u = (x - barx0) / span if span > 0 else 0.0
+            r = int(0xc9 + (0xf0 - 0xc9) * u + 0.5)
+            g = int(0xa2 + (0xd8 - 0xa2) * u + 0.5)
+            b = int(0x27 + (0x76 - 0x27) * u + 0.5)
+
+        return (r, g, b, 255)
+
+    return pixel
+
+
+def _staff_icon_png(size: int) -> bytes:
+    """Render the AXIS Staff icon at ``size`` x ``size`` and return PNG bytes."""
+    return _make_png(size, size, _staff_icon_pixel_fn(size))
 
 
 # ---------------------------------------------------------------------------
@@ -582,17 +495,53 @@ class Log:
 # File-operation helpers
 # ---------------------------------------------------------------------------
 
-def write_new_file(
+def write_binary_file(
+    target: Path,
+    content: bytes,
+    log: Log,
+    dry_run: bool,
+) -> int:
+    """Create a new binary file. Idempotent: skip if it already exists."""
+    if target.exists():
+        log.info(f"{target.name}: already present (idempotent no-op)")
+        return 0
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.error(f"could not create parent dir for {target}: {exc}")
+        return 1
+
+    if dry_run:
+        log.info(f"{target}: would create ({len(content)} bytes)")
+        return 0
+
+    try:
+        target.write_bytes(content)
+    except OSError as exc:
+        log.error(f"failed to write {target}: {exc}")
+        return 1
+
+    log.info(f"{target}: created ({len(content)} bytes)")
+    return 0
+
+
+def rewrite_if_mine(
     target: Path,
     content: str,
     marker: str,
     log: Log,
     dry_run: bool,
 ) -> int:
-    """Create a new file. Idempotent:
-      * If the file does not exist  → create it.
-      * If it exists and has the marker  → skip (already written).
-      * If it exists WITHOUT the marker  → refuse (do not clobber).
+    """Create-or-replace a file that this patcher owns.
+
+    The contract:
+      * Target does not exist           → create it.
+      * Target exists, contains marker  → replace it (this is our file,
+                                          a previous pass wrote it, and
+                                          this hotfix is updating it).
+      * Target exists, no marker        → refuse (do not clobber a file
+                                          the user or another tool wrote).
     """
     if target.exists():
         try:
@@ -602,12 +551,31 @@ def write_new_file(
             return 1
 
         if marker in existing:
-            log.info(f"{target.name}: already present (idempotent no-op)")
+            if existing == content:
+                log.info(
+                    f"{target.name}: content already up to date "
+                    f"(idempotent no-op)"
+                )
+                return 0
+            log.info(
+                f"{target.name}: ours, replacing with updated content "
+                f"({len(existing)} -> {len(content)} bytes)"
+            )
+            if dry_run:
+                log.detail(f"would overwrite: {target}")
+                return 0
+            try:
+                target.write_text(content, encoding="utf-8")
+            except OSError as exc:
+                log.error(f"failed to write {target}: {exc}")
+                return 1
+            log.info(f"{target.name}: rewritten")
             return 0
 
         log.error(
-            f"{target} already exists but does not contain the "
-            f"expected marker {marker!r}. Refusing to overwrite."
+            f"{target} exists but does not contain the expected marker "
+            f"{marker!r}. Refusing to overwrite — this file appears to "
+            f"be user-owned or produced by a different tool."
         )
         return 1
 
@@ -631,74 +599,6 @@ def write_new_file(
     return 0
 
 
-def patch_literal(
-    target: Path,
-    anchor: str,
-    replacement: str,
-    success_marker: str,
-    log: Log,
-    dry_run: bool,
-) -> int:
-    """Replace one exact anchor string with a replacement.
-
-    Refuses to patch if the anchor matches more than once (ambiguous)
-    or if the file has already been patched (idempotent no-op).
-    """
-    if not target.exists():
-        log.error(f"target file does not exist: {target}")
-        return 1
-    if target.is_dir():
-        log.error(f"target path is a directory, not a file: {target}")
-        return 1
-
-    try:
-        src = target.read_text(encoding="utf-8")
-    except OSError as exc:
-        log.error(f"could not read {target}: {exc}")
-        return 1
-
-    # Idempotency: already patched.
-    if success_marker in src and anchor not in src:
-        log.info(f"{target.name}: already patched (idempotent no-op)")
-        return 0
-
-    n = src.count(anchor)
-    log.info(f"{target.name}: anchor matches = {n}")
-
-    if n == 0:
-        log.error(
-            f"{target.name}: anchor not found — file may have drifted. "
-            f"Nothing changed in this file."
-        )
-        return 1
-    if n > 1:
-        log.error(
-            f"{target.name}: {n} anchor matches — refusing to guess. "
-            f"Nothing changed in this file."
-        )
-        return 1
-
-    patched = src.replace(anchor, replacement, 1)
-    if patched == src:
-        log.info(f"{target.name}: no change produced — nothing to do")
-        return 0
-
-    log.info(f"{target.name}: replacement prepared")
-
-    if dry_run:
-        log.detail(f"would write: {target}")
-        return 0
-
-    try:
-        target.write_text(patched, encoding="utf-8")
-    except OSError as exc:
-        log.error(f"failed to write {target}: {exc}")
-        return 1
-
-    log.info(f"{target.name}: written")
-    return 0
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -706,8 +606,9 @@ def patch_literal(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "STAFF_PWA_V1 — make the staff portal installable as a PWA "
-            "without touching the admin-panel PWA."
+            "STAFF_PWA_V1_HOTFIX — fix the staff-portal PWA manifest so "
+            "Chrome/Edge fire `beforeinstallprompt` (requires PNG icons, "
+            "not SVG)."
         ),
     )
     parser.add_argument(
@@ -739,7 +640,7 @@ def main(argv=None) -> int:
     log.info(f"target root : {root}")
     if args.dry_run:
         log.info("mode        : DRY RUN (no files will be written)")
-    log.info("patcher     : STAFF_PWA_V1")
+    log.info("patcher     : STAFF_PWA_V1_HOTFIX")
     log.info("")
 
     if not root.exists() or not root.is_dir():
@@ -750,79 +651,43 @@ def main(argv=None) -> int:
 
     rc = 0
 
-    # --- new view module -------------------------------------------------
-    log.info(f"--- {STAFF_PWA_VIEW_REL} ---")
-    rc |= write_new_file(
-        root / STAFF_PWA_VIEW_REL,
-        STAFF_PWA_VIEW_CONTENT,
-        marker=MARKER_VIEW,
-        log=log,
-        dry_run=args.dry_run,
-    )
-
-    # --- icons -----------------------------------------------------------
+    # --- PNG icons --------------------------------------------------------
+    # Rendered at runtime; the encoder is pure stdlib.
     log.info("")
     log.info(f"--- {ICON_192_REL} ---")
-    rc |= write_new_file(
+    try:
+        icon_192_bytes = _staff_icon_png(192)
+    except Exception as exc:
+        log.error(f"could not render 192px staff icon: {exc}")
+        return 1
+    rc |= write_binary_file(
         root / ICON_192_REL,
-        _icon_svg(192),
-        marker=MARKER_ICON,
+        icon_192_bytes,
         log=log,
         dry_run=args.dry_run,
     )
 
     log.info("")
     log.info(f"--- {ICON_512_REL} ---")
-    rc |= write_new_file(
+    try:
+        icon_512_bytes = _staff_icon_png(512)
+    except Exception as exc:
+        log.error(f"could not render 512px staff icon: {exc}")
+        return 1
+    rc |= write_binary_file(
         root / ICON_512_REL,
-        _icon_svg(512),
-        marker=MARKER_ICON,
+        icon_512_bytes,
         log=log,
         dry_run=args.dry_run,
     )
 
-    # --- staff_urls.py: imports + routes ---------------------------------
+    # --- staff_pwa.py: manifest + SW now point at the PNGs ----------------
     log.info("")
-    log.info(f"--- {STAFF_URLS_REL} (imports) ---")
-    rc |= patch_literal(
-        root / STAFF_URLS_REL,
-        URLS_IMPORT_ANCHOR,
-        URLS_IMPORT_REPLACEMENT,
-        success_marker=MARKER_URLS_IMPORT,
-        log=log,
-        dry_run=args.dry_run,
-    )
-
-    log.info("")
-    log.info(f"--- {STAFF_URLS_REL} (routes) ---")
-    rc |= patch_literal(
-        root / STAFF_URLS_REL,
-        URLS_ROUTE_ANCHOR,
-        URLS_ROUTE_REPLACEMENT,
-        success_marker="staff_manifest",
-        log=log,
-        dry_run=args.dry_run,
-    )
-
-    # --- staff base.html: head + body ------------------------------------
-    log.info("")
-    log.info(f"--- {STAFF_BASE_TPL_REL} (head) ---")
-    rc |= patch_literal(
-        root / STAFF_BASE_TPL_REL,
-        TPL_HEAD_ANCHOR,
-        TPL_HEAD_REPLACEMENT,
-        success_marker=MARKER_TPL_HEAD,
-        log=log,
-        dry_run=args.dry_run,
-    )
-
-    log.info("")
-    log.info(f"--- {STAFF_BASE_TPL_REL} (install button + SW) ---")
-    rc |= patch_literal(
-        root / STAFF_BASE_TPL_REL,
-        TPL_BODY_ANCHOR,
-        TPL_BODY_REPLACEMENT,
-        success_marker=MARKER_TPL_BODY,
+    log.info(f"--- {STAFF_PWA_VIEW_REL} ---")
+    rc |= rewrite_if_mine(
+        root / STAFF_PWA_VIEW_REL,
+        STAFF_PWA_VIEW_CONTENT,
+        marker=MARKER,
         log=log,
         dry_run=args.dry_run,
     )
