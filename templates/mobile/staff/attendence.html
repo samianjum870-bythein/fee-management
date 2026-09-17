@@ -2,221 +2,1196 @@
 {% block title %}Attendance{% endblock %}
 {% block body %}
 <style>
-    /* ============ STAFF_ATTENDANCE_OVERHAUL_V1 (mobile) ============ */
-    .att-hero { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; border-radius:18px; padding:1rem 1.1rem; margin-bottom:1rem; }
-    .att-hero-top { display:flex; justify-content:space-between; align-items:flex-start; gap:.5rem; }
-    .att-hero h2 { margin:0 0 .2rem; font-size:1.15rem; }
-    .att-hero .sub { font-size:.78rem; opacity:.9; }
-    .att-today-chip { font-size:.7rem; background:rgba(255,255,255,.2); border-radius:999px; padding:.25rem .65rem; white-space:nowrap; }
+    /* ============================================================
+       STAFF ATTENDANCE — PROFESSIONAL UI
+       Scoped with .att- prefix. Uses only the CSS variables that
+       templates/mobile/staff/base.html already defines.
+       No emojis. All iconography is inline SVG.
+       ============================================================ */
 
+    /* ---------------- HERO ---------------- */
+    .att-hero {
+        position: relative;
+        border-radius: 20px;
+        padding: 18px 18px 16px;
+        color: #ffffff;
+        background:
+            radial-gradient(520px 200px at 108% -30%, rgba(255, 255, 255, 0.16), transparent 62%),
+            linear-gradient(135deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%);
+        box-shadow: 0 18px 34px rgba(11, 110, 100, 0.22);
+        margin-bottom: 16px;
+    }
+
+    .att-hero-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .att-hero h2 {
+        margin: 0;
+        font-size: 1.32rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1.15;
+    }
+
+    .att-hero .sub {
+        margin-top: 4px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.82);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .att-hero .sub svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.85;
+    }
+
+    .att-today-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: #fff8e1;
+        white-space: nowrap;
+    }
+
+    .att-today-chip::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--gold);
+    }
+
+    /* ---------------- HOLIDAY BANNER ---------------- */
     .att-holiday-banner {
-        display:flex; gap:.7rem; align-items:flex-start;
-        background:#fef3c7; color:#92400e;
-        border-radius:14px; padding:.9rem 1rem; margin-bottom:1rem;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        background: #fffbeb;
+        border: 1px solid rgba(245, 158, 11, 0.32);
+        border-left: 4px solid var(--warning);
+        color: #78350f;
+        border-radius: 14px;
+        padding: 13px 14px;
+        margin-bottom: 14px;
     }
-    .att-holiday-icon { font-size:1.5rem; line-height:1; }
-    .att-holiday-reason { font-size:.75rem; margin-top:.15rem; opacity:.85; }
-    .att-holiday-desc { font-size:.82rem; margin-top:.3rem; }
 
-    .att-section { margin-bottom:1rem; }
-    .att-section-title { font-weight:800; font-size:.9rem; margin-bottom:.5rem; }
-    .att-section-sub { font-weight:600; font-size:.72rem; color:var(--muted); }
+    .att-holiday-icon {
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fef3c7;
+        color: #b45309;
+    }
 
+    .att-holiday-icon svg {
+        width: 17px;
+        height: 17px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-holiday-title {
+        font-size: 0.88rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+    }
+
+    .att-holiday-reason {
+        margin-top: 3px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #92400e;
+    }
+
+    .att-holiday-desc {
+        margin-top: 4px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #78350f;
+        opacity: 0.9;
+        line-height: 1.45;
+    }
+
+    /* ---------------- HOME ANALYTICS STRIP ---------------- */
+    .att-analytics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 18px;
+    }
+
+    .att-stat {
+        position: relative;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 13px 12px 12px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
+    }
+
+    .att-stat::after {
+        content: "";
+        position: absolute;
+        top: -22px;
+        right: -22px;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        pointer-events: none;
+    }
+
+    .att-stat-icon {
+        position: relative;
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        margin-bottom: 8px;
+    }
+
+    .att-stat-icon svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-stat-value {
+        position: relative;
+        font-size: 1.32rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--accent-deep);
+        line-height: 1.05;
+    }
+
+    .att-stat-label {
+        position: relative;
+        margin-top: 4px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-progress-track {
+        position: relative;
+        margin-top: 8px;
+        height: 4px;
+        border-radius: 99px;
+        background: var(--accent-soft);
+        overflow: hidden;
+    }
+
+    .att-progress-bar {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0%;
+        border-radius: 99px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+        transition: width 0.4s ease;
+    }
+
+    /* ---------------- SECTION HEADERS ---------------- */
+    .att-section { margin-bottom: 18px; }
+
+    .att-section-title {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin: 0 4px 10px;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-section-title::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(201, 162, 39, 0.45), transparent);
+    }
+
+    .att-title-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 7px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+    }
+
+    .att-title-icon svg {
+        width: 12px;
+        height: 12px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-section-sub {
+        font-weight: 700;
+        font-size: 0.7rem;
+        letter-spacing: 0.02em;
+        color: var(--gold);
+        text-transform: none;
+    }
+
+    /* ---------------- CLASS CARDS ---------------- */
     .att-class-card {
-        background:var(--surface); border:1px solid var(--border); border-radius:14px;
-        padding:.85rem 1rem; margin-bottom:.6rem; cursor:pointer;
-        transition:transform .1s ease, box-shadow .1s ease;
+        position: relative;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 13px 15px 12px 17px;
+        margin-bottom: 10px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.18s ease, border-color 0.18s ease;
     }
-    .att-class-card:active { transform:scale(.99); }
-    .att-class-card-head { display:flex; justify-content:space-between; gap:.5rem; align-items:center; }
-    .att-class-name { font-weight:800; font-size:.95rem; display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
-    .att-class-card-meta { font-size:.75rem; color:var(--muted); margin-top:.25rem; }
-    .att-class-card-perm { font-size:.72rem; color:var(--muted); margin-top:.35rem; border-top:1px dashed var(--border); padding-top:.35rem; }
 
+    .att-class-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 3px;
+        background: var(--muted);
+    }
+
+    .att-class-card.status-green::before { background: var(--success); }
+    .att-class-card.status-amber::before { background: var(--warning); }
+    .att-class-card.status-red::before   { background: var(--danger); }
+
+    .att-class-card:hover {
+        border-color: rgba(15, 157, 143, 0.35);
+        box-shadow: 0 12px 26px rgba(11, 110, 100, 0.10);
+    }
+
+    .att-class-card:active { transform: scale(0.995); }
+
+    .att-class-card-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .att-class-head-left {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        min-width: 0;
+    }
+
+    .att-class-icon {
+        flex: 0 0 38px;
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(140deg, #e8f6f3 0%, #cdeee8 100%);
+        color: var(--accent-deep);
+        border: 1px solid rgba(15, 157, 143, 0.18);
+    }
+
+    .att-class-icon svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-class-name {
+        font-weight: 800;
+        font-size: 0.96rem;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        color: var(--text);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .att-class-card-meta {
+        font-size: 0.77rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-top: 8px;
+        padding-left: 49px;
+    }
+
+    .att-class-card-perm {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--muted);
+        margin-top: 9px;
+        padding-top: 9px;
+        padding-left: 49px;
+        border-top: 1px dashed var(--border);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .att-class-card-perm::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--gold);
+    }
+
+    /* ---------------- STATUS CHIPS ---------------- */
     .att-status-chip {
-        display:inline-flex; align-items:center; gap:.3rem;
-        padding:.22rem .6rem; border-radius:999px;
-        font-size:.7rem; font-weight:800;
-        text-transform:uppercase; letter-spacing:.05em; white-space:nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 9px;
+        border-radius: 8px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        flex: 0 0 auto;
     }
-    .att-status-chip::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.85; }
-    .att-green { background:#d1fae5; color:#065f46; }
-    .att-amber { background:#fef3c7; color:#92400e; }
-    .att-red   { background:#fee2e2; color:#991b1b; }
-    .att-blue  { background:#dbeafe; color:#1e40af; }
 
+    .att-status-chip::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.85;
+    }
+
+    .att-green { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .att-amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .att-red   { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .att-blue  { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+
+    /* ---------------- PERIOD CARDS ---------------- */
     .att-period-card {
-        display:flex; gap:.75rem; align-items:center;
-        background:var(--surface); border:1px solid var(--border);
-        border-radius:12px; padding:.75rem .9rem; margin-bottom:.5rem;
-        cursor:pointer;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        box-shadow: 0 6px 16px rgba(11, 110, 100, 0.04);
+        cursor: pointer;
+        transition: transform 0.12s ease, border-color 0.18s ease, box-shadow 0.18s ease;
     }
-    .att-period-card:active { transform:scale(.99); }
-    .att-period-left { font-weight:800; font-size:.85rem; color:var(--accent); min-width:36px; }
-    .att-period-mid { flex:1; }
-    .att-period-class { font-weight:700; font-size:.88rem; }
-    .att-period-subject { font-size:.72rem; color:var(--muted); }
 
+    .att-period-card:hover {
+        border-color: rgba(15, 157, 143, 0.35);
+        box-shadow: 0 10px 22px rgba(11, 110, 100, 0.08);
+    }
+
+    .att-period-card:active { transform: scale(0.995); }
+
+    .att-period-left {
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+        color: #ffffff;
+        background: linear-gradient(140deg, #12b3a2 0%, #0b6e64 100%);
+    }
+
+    .att-period-mid { flex: 1; min-width: 0; }
+
+    .att-period-class {
+        font-weight: 800;
+        font-size: 0.9rem;
+        line-height: 1.2;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .att-period-subject {
+        margin-top: 3px;
+        font-size: 0.73rem;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    /* ---------------- EMPTY STATE ---------------- */
+    .att-empty {
+        text-align: center;
+        color: var(--muted);
+        padding: 26px 16px;
+        font-size: 0.84rem;
+        font-weight: 600;
+        line-height: 1.5;
+    }
+
+    .att-empty svg {
+        display: block;
+        width: 34px;
+        height: 34px;
+        margin: 0 auto 10px;
+        stroke: var(--accent);
+        fill: none;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.55;
+    }
+
+    /* ---------------- DETAIL HEADER ---------------- */
     .att-detail-header {
-        display:flex; gap:.6rem; align-items:center;
-        background:var(--surface); border:1px solid var(--border);
-        border-radius:14px; padding:.75rem .9rem; margin-bottom:.75rem;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
     }
+
     .att-back-btn {
-        background:var(--surface-alt); border:1px solid var(--border);
-        border-radius:.6rem; width:36px; height:36px; font-size:1.1rem;
-        cursor:pointer; color:var(--text);
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        color: var(--accent-deep);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s ease, border-color 0.15s ease;
     }
-    .att-detail-title { font-weight:800; font-size:1rem; }
-    .att-detail-sub { font-size:.72rem; color:var(--muted); }
 
+    .att-back-btn svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-back-btn:hover {
+        background: var(--accent-soft);
+        border-color: rgba(15, 157, 143, 0.35);
+    }
+
+    .att-detail-header > div { min-width: 0; flex: 1; }
+
+    .att-detail-title {
+        font-weight: 800;
+        font-size: 1rem;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .att-detail-sub {
+        font-size: 0.74rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-top: 3px;
+    }
+
+    /* ---------------- TABS ---------------- */
     .att-tabs {
-        display:flex; gap:0; background:var(--surface-alt);
-        border:1px solid var(--border); border-radius:12px;
-        overflow:hidden; margin-bottom:.75rem;
+        display: flex;
+        padding: 4px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 14px;
+        gap: 4px;
     }
+
     .att-tab {
-        flex:1; padding:.65rem 1rem; background:transparent; border:none;
-        font-weight:800; font-size:.78rem; color:var(--muted);
-        text-transform:uppercase; letter-spacing:.05em; cursor:pointer;
+        flex: 1;
+        padding: 9px 12px;
+        background: transparent;
+        border: none;
+        border-radius: 9px;
+        font-weight: 800;
+        font-size: 0.72rem;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+        cursor: pointer;
+        transition: background 0.18s ease, color 0.18s ease;
     }
-    .att-tab.active { background:var(--surface); color:var(--accent); }
 
+    .att-tab.active {
+        background: #ffffff;
+        color: var(--accent-deep);
+        box-shadow: 0 4px 12px rgba(11, 110, 100, 0.08);
+    }
+
+    /* ---------------- CONTENT CARD ---------------- */
     .att-card {
-        background:var(--surface); border:1px solid var(--border);
-        border-radius:14px; padding:.9rem 1rem; margin-bottom:.85rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 15px;
+        margin-bottom: 12px;
+        box-shadow: 0 10px 24px rgba(11, 110, 100, 0.06);
     }
 
+    /* ---------------- DATE ROW ---------------- */
     .att-date-row {
-        display:flex; gap:.5rem; align-items:center;
-        margin-bottom:.75rem; flex-wrap:wrap;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
     }
-    .att-date-row label { font-size:.72rem; font-weight:800; color:var(--muted); text-transform:uppercase; }
+
+    .att-date-row label {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0;
+    }
+
     .att-date-row input[type="date"] {
-        flex:1; min-width:130px; padding:.55rem .7rem; border-radius:.6rem;
-        border:1px solid var(--border); background:var(--surface-alt); color:var(--text);
+        flex: 1;
+        min-width: 140px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-weight: 700;
+        font-size: 0.85rem;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
     }
+
+    .att-date-row input[type="date"]:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .att-date-row input[type="date"]:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
     .att-load-btn {
-        padding:.55rem .9rem; border-radius:.6rem; border:1px solid var(--accent);
-        background:var(--accent); color:#fff; font-weight:800; font-size:.78rem; cursor:pointer;
+        padding: 9px 16px;
+        border-radius: 10px;
+        border: none;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        box-shadow: 0 8px 16px rgba(11, 110, 100, 0.16);
+        transition: transform 0.12s ease, filter 0.15s ease;
     }
 
+    .att-load-btn:active { transform: scale(0.97); }
+
+    /* ---------------- DATE ANALYTICS (detail view) ---------------- */
+    .att-date-analytics {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 11px 12px 10px;
+        margin-bottom: 12px;
+    }
+
+    .att-da-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 9px;
+    }
+
+    .att-da-title {
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-da-date {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        color: var(--accent-deep);
+        background: var(--accent-soft);
+        padding: 2px 8px;
+        border-radius: 6px;
+    }
+
+    .att-da-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 5px;
+        margin-bottom: 9px;
+    }
+
+    .att-da-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+        padding: 6px 3px 5px;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid var(--border);
+    }
+
+    .att-da-num {
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        color: var(--text);
+    }
+
+    .att-da-lbl {
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-da-item.present  .att-da-num { color: #16a34a; }
+    .att-da-item.absent   .att-da-num { color: #dc2626; }
+    .att-da-item.late     .att-da-num { color: #d97706; }
+    .att-da-item.half_day .att-da-num { color: #7c3aed; }
+    .att-da-item.excused  .att-da-num { color: #0284c7; }
+
+    .att-da-bar {
+        position: relative;
+        height: 5px;
+        border-radius: 99px;
+        background: rgba(15, 157, 143, 0.10);
+        overflow: hidden;
+        display: flex;
+    }
+
+    .att-da-seg {
+        height: 100%;
+        transition: width 0.35s ease;
+    }
+    .att-da-seg.present  { background: #16a34a; }
+    .att-da-seg.absent   { background: #dc2626; }
+    .att-da-seg.late     { background: #d97706; }
+    .att-da-seg.half_day { background: #7c3aed; }
+    .att-da-seg.excused  { background: #0284c7; }
+
+    .att-da-summary {
+        margin-top: 7px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .att-da-summary b {
+        color: var(--text);
+        font-weight: 800;
+    }
+
+    /* ---------------- INFO BANNERS ---------------- */
     .att-banner {
-        display:flex; gap:.5rem; align-items:flex-start;
-        padding:.6rem .8rem; border-radius:.65rem;
-        font-size:.82rem; font-weight:600; margin-bottom:.6rem; line-height:1.35;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 11px 13px;
+        border-radius: 12px;
+        font-size: 0.81rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 12px;
     }
-    .att-banner.holiday { background:#fef3c7; color:#92400e; }
-    .att-banner.locked  { background:#e0e7ff; color:#3730a3; }
-    .att-banner.auto    { background:#dbeafe; color:#1e40af; }
 
-    .att-students-list { margin-bottom:.7rem; }
+    .att-banner svg {
+        flex: 0 0 18px;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-banner.holiday {
+        background: #fffbeb;
+        border: 1px solid rgba(245, 158, 11, 0.32);
+        border-left: 4px solid var(--warning);
+        color: #78350f;
+    }
+
+    .att-banner.locked {
+        background: #eef2ff;
+        border: 1px solid rgba(99, 102, 241, 0.28);
+        border-left: 4px solid #6366f1;
+        color: #3730a3;
+    }
+
+    .att-banner.auto {
+        background: #eff6ff;
+        border: 1px solid rgba(30, 64, 175, 0.22);
+        border-left: 4px solid #1e40af;
+        color: #1e40af;
+    }
+
+    /* ---------------- STUDENT LIST ---------------- */
+    .att-students-list { margin-bottom: 8px; }
+
     .att-student-row {
-        display:flex; gap:.75rem; align-items:center;
-        padding:.6rem 0; border-bottom:1px solid var(--border);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--border);
     }
-    .att-student-row:last-child { border-bottom:none; }
-    .att-student-info { flex:1; min-width:0; }
-    .att-student-roll { font-size:.7rem; color:var(--muted); font-weight:800; }
-    .att-student-name { font-weight:700; font-size:.9rem; display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
-    .att-student-meta { font-size:.7rem; color:var(--muted); margin-top:.1rem; }
 
+    .att-student-row:last-child { border-bottom: none; }
+
+    .att-student-info { flex: 1; min-width: 0; }
+
+    .att-student-roll {
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-student-name {
+        margin-top: 3px;
+        font-weight: 800;
+        font-size: 0.88rem;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        line-height: 1.25;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .att-student-meta {
+        margin-top: 2px;
+        font-size: 0.71rem;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    /* ---------------- TAGS ---------------- */
     .att-tag {
-        display:inline-block; padding:.08rem .4rem; border-radius:.3rem;
-        font-size:.6rem; font-weight:800; letter-spacing:.05em;
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 5px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
     }
-    .att-tag.leave { background:#0ea5e9; color:#fff; }
-    .att-tag.auto  { background:#1e40af; color:#fff; }
 
-    .att-status-group { display:flex; gap:.25rem; flex-wrap:wrap; }
-    .att-status-group input { display:none; }
+    .att-tag.leave { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
+    .att-tag.auto  { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+
+    /* ---------------- STATUS RADIO GROUP ---------------- */
+    .att-status-group {
+        display: flex;
+        gap: 3px;
+        flex-wrap: nowrap;
+        flex: 0 0 auto;
+    }
+
+    .att-status-group input { display: none; }
+
     .att-status-group label {
-        display:inline-flex; align-items:center; justify-content:center;
-        min-width:38px; padding:.4rem .5rem; border-radius:.5rem;
-        font-size:.72rem; font-weight:800; cursor:pointer;
-        border:1px solid var(--border); background:var(--surface-alt); color:var(--muted);
-        user-select:none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 30px;
+        height: 30px;
+        padding: 0 7px;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--muted);
+        user-select: none;
+        margin: 0;
+        transition: background 0.14s ease, color 0.14s ease,
+                    border-color 0.14s ease, transform 0.10s ease;
     }
-    .att-status-group input[value="present"]:checked + label  { background:#10b981; color:#fff; border-color:#10b981; }
-    .att-status-group input[value="absent"]:checked + label   { background:#ef4444; color:#fff; border-color:#ef4444; }
-    .att-status-group input[value="late"]:checked + label     { background:#f59e0b; color:#fff; border-color:#f59e0b; }
-    .att-status-group input[value="half_day"]:checked + label { background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
-    .att-status-group input[value="excused"]:checked + label  { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
-    .att-status-group input:disabled + label { opacity:.5; cursor:not-allowed; }
 
-    .att-bulk-actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem; }
+    .att-status-group label:hover {
+        border-color: var(--accent);
+        color: var(--accent-deep);
+    }
+
+    .att-status-group input[value="present"]:checked  + label { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .att-status-group input[value="absent"]:checked   + label { background: #dc2626; color: #fff; border-color: #dc2626; }
+    .att-status-group input[value="late"]:checked     + label { background: #d97706; color: #fff; border-color: #d97706; }
+    .att-status-group input[value="half_day"]:checked + label { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+    .att-status-group input[value="excused"]:checked  + label { background: #0284c7; color: #fff; border-color: #0284c7; }
+
+    .att-status-group input:disabled + label { opacity: 0.45; cursor: not-allowed; }
+
+    /* ---------------- BULK ACTIONS ---------------- */
+    .att-bulk-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        padding-top: 12px;
+        border-top: 1px dashed var(--border);
+    }
+
     .att-ghost-btn {
-        padding:.55rem .9rem; border-radius:.6rem;
-        background:var(--surface-alt); color:var(--text);
-        border:1px solid var(--border); font-weight:700; font-size:.78rem; cursor:pointer;
+        padding: 9px 14px;
+        border-radius: 10px;
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        border: 1px solid var(--border);
+        font-weight: 800;
+        font-size: 0.74rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
     }
-    .att-ghost-btn:disabled { opacity:.5; cursor:not-allowed; }
 
-    .att-save-area { margin-top:.75rem; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
-    .att-quota-info { font-size:.72rem; color:var(--muted); flex:1; }
+    .att-ghost-btn:hover { background: var(--accent-soft); border-color: rgba(15, 157, 143, 0.35); }
+    .att-ghost-btn:active { transform: scale(0.97); }
+    .att-ghost-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    /* ---------------- SAVE BAR ---------------- */
+    .att-save-area {
+        margin-top: 14px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .att-quota-info {
+        flex: 1;
+        min-width: 120px;
+        font-size: 0.73rem;
+        font-weight: 700;
+        color: var(--muted);
+        line-height: 1.35;
+    }
+
     .att-save-btn {
-        padding:.65rem 1.1rem; border-radius:.65rem; border:none;
-        background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%);
-        color:#fff; font-weight:800; font-size:.82rem; cursor:pointer;
+        padding: 11px 20px;
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        font-weight: 800;
+        font-size: 0.82rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        box-shadow: 0 10px 20px rgba(11, 110, 100, 0.20);
+        transition: transform 0.12s ease, filter 0.15s ease;
     }
-    .att-save-btn:disabled { opacity:.5; cursor:not-allowed; }
 
-    .att-save-msg { font-size:.78rem; text-align:center; margin-top:.5rem; color:var(--muted); }
-    .att-save-msg.ok  { color:#10b981; font-weight:700; }
-    .att-save-msg.err { color:#ef4444; font-weight:700; }
+    .att-save-btn:hover { filter: brightness(1.05); }
+    .att-save-btn:active { transform: scale(0.98); }
+    .att-save-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-    .att-empty { text-align:center; color:var(--muted); padding:1.5rem .5rem; font-size:.88rem; }
+    .att-save-msg {
+        font-size: 0.77rem;
+        font-weight: 700;
+        text-align: center;
+        margin-top: 10px;
+        color: var(--muted);
+        min-height: 1em;
+    }
 
-    /* History list */
+    .att-save-msg.ok  { color: var(--success); }
+    .att-save-msg.err { color: var(--danger); }
+
+    /* ---------------- HISTORY ---------------- */
     .att-history-header {
-        display:grid; grid-template-columns:1fr 1fr auto;
-        gap:.5rem; font-size:.7rem; font-weight:800;
-        color:var(--muted); text-transform:uppercase;
-        letter-spacing:.05em; padding-bottom:.5rem;
-        border-bottom:1px solid var(--border); margin-bottom:.4rem;
+        display: grid;
+        grid-template-columns: 1fr 1.1fr auto;
+        gap: 10px;
+        padding: 0 4px 10px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 4px;
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
     }
-    .att-history-row {
-        display:grid; grid-template-columns:1fr 1.1fr auto;
-        gap:.5rem; align-items:center;
-        padding:.6rem 0; border-bottom:1px solid var(--border);
-        cursor:pointer;
-    }
-    .att-history-row:last-child { border-bottom:none; }
-    .att-history-date { font-weight:800; font-size:.85rem; }
-    .att-history-day { font-size:.68rem; color:var(--muted); font-weight:700; margin-top:.05rem; }
-    .att-history-status { display:flex; flex-direction:column; gap:.2rem; align-items:flex-start; }
-    .att-history-counts { font-size:.72rem; color:var(--muted); }
-    .att-history-quota  { font-size:.68rem; color:var(--muted); font-weight:700; }
-    .att-history-action { text-align:right; }
-    .att-mini-btn {
-        padding:.35rem .7rem; border-radius:.5rem;
-        background:var(--accent); color:#fff; border:none;
-        font-weight:800; font-size:.72rem; cursor:pointer;
-    }
-    .att-mini-lock { font-size:.7rem; color:var(--muted); font-weight:700; }
 
-    /* Confirm modal */
-    .att-modal { position:fixed; inset:0; background:rgba(15,23,42,.55); display:none; align-items:center; justify-content:center; z-index:9999; padding:1rem; }
-    .att-modal.open { display:flex; }
-    .att-modal-card { background:var(--surface); border-radius:1rem; width:min(420px, 100%); padding:1.1rem 1.15rem; box-shadow:0 20px 40px rgba(0,0,0,.35); }
-    .att-modal-title { font-weight:800; font-size:1rem; margin-bottom:.5rem; }
-    .att-modal-body { font-size:.86rem; color:var(--text); line-height:1.45; margin-bottom:.9rem; }
-    .att-modal-actions { display:flex; gap:.5rem; justify-content:flex-end; }
+    .att-history-row {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 12px 4px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 0.15s ease;
+        border-radius: 8px;
+    }
+
+    .att-history-row:hover { background: var(--accent-soft); }
+    .att-history-row:last-child { border-bottom: none; }
+
+    .att-history-date {
+        font-weight: 800;
+        font-size: 0.84rem;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .att-history-day {
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: var(--muted);
+        margin-top: 3px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .att-history-status {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-start;
+    }
+
+    .att-history-counts {
+        font-size: 0.71rem;
+        font-weight: 700;
+        color: var(--muted);
+    }
+
+    .att-history-quota {
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: var(--gold);
+        letter-spacing: 0.03em;
+    }
+
+    .att-history-action { text-align: right; }
+
+    .att-mini-btn {
+        padding: 6px 12px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        border: none;
+        font-weight: 800;
+        font-size: 0.68rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        cursor: pointer;
+        box-shadow: 0 6px 12px rgba(11, 110, 100, 0.16);
+    }
+
+    .att-mini-lock {
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    /* ---------------- MODAL ---------------- */
+    .att-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 45, 41, 0.52);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        padding: 20px;
+    }
+
+    .att-modal.open { display: flex; }
+
+    .att-modal-card {
+        position: relative;
+        background: var(--surface);
+        border-radius: 18px;
+        width: min(400px, 100%);
+        padding: 20px 20px 18px;
+        box-shadow: 0 24px 48px rgba(6, 45, 41, 0.32);
+        border: 1px solid var(--border);
+        overflow: hidden;
+    }
+
+    .att-modal-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+    }
+
+    .att-modal-title {
+        margin: 0 0 8px;
+        font-size: 1rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .att-modal-body {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 18px;
+    }
+
+    .att-modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    /* ---------------- RESPONSIVE ---------------- */
+    @media (max-width: 400px) {
+        .att-hero h2 { font-size: 1.2rem; }
+        .att-status-group label { min-width: 28px; height: 28px; font-size: 0.66rem; padding: 0 5px; }
+        .att-save-btn { width: 100%; }
+        .att-load-btn { width: 100%; }
+        .att-stat-value { font-size: 1.15rem; }
+        .att-da-num { font-size: 0.84rem; }
+        .att-da-lbl { font-size: 8px; letter-spacing: 0.06em; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+    }
 </style>
 
-<div class="att-hero">
+<!-- ==================== HERO (hidden in detail view) ==================== -->
+<div class="att-hero" id="attHero">
     <div class="att-hero-top">
-        <h2>Attendance</h2>
+        <div>
+            <h2>Attendance</h2>
+            <div class="sub">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="8.5" r="3.8"/>
+                    <path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>
+                </svg>
+                {{ staff.full_name }}
+            </div>
+        </div>
         <span class="att-today-chip">{{ day_name }} · {{ today }}</span>
     </div>
-    <div class="sub">{{ staff.full_name }}</div>
 </div>
 
 {% if is_holiday %}
-<div class="att-holiday-banner">
-    <div class="att-holiday-icon">🎉</div>
+<div class="att-holiday-banner" id="attPageHolidayBanner">
+    <div class="att-holiday-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+            <rect x="3" y="4.5" width="18" height="16" rx="3"/>
+            <path d="M8 3v3M16 3v3M3 10h18"/>
+        </svg>
+    </div>
     <div>
-        <strong>Today is a holiday</strong>
+        <div class="att-holiday-title">Today is a holiday</div>
         <div class="att-holiday-reason">{{ holiday_reason }}</div>
         <div class="att-holiday-desc">Aaj holiday hai — attendance mark karne ki zaroorat nahi.</div>
     </div>
@@ -225,18 +1200,62 @@
 
 <!-- ==================== HOME VIEW ==================== -->
 <div id="attHomeView">
+
+    <div class="att-analytics" id="attAnalytics" style="display:none;">
+        <div class="att-stat">
+            <div class="att-stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3z"/><path d="M4 6v9l8 4 8-4V6"/></svg>
+            </div>
+            <div class="att-stat-value" id="attStatClasses">—</div>
+            <div class="att-stat-label">Classes</div>
+        </div>
+        <div class="att-stat">
+            <div class="att-stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="8.5" r="2.5"/><path d="M14.5 20a5.5 5.5 0 0 1 8-4.9"/></svg>
+            </div>
+            <div class="att-stat-value" id="attStatStudents">—</div>
+            <div class="att-stat-label">Students</div>
+        </div>
+        <div class="att-stat">
+            <div class="att-stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 19h16"/><path d="M6 16V9M11 16V5M16 16v-4M21 16V7"/></svg>
+            </div>
+            <div class="att-stat-value" id="attStatProgress">—</div>
+            <div class="att-stat-label">Progress</div>
+            <div class="att-progress-track" aria-hidden="true">
+                <span class="att-progress-bar" id="attProgressBar"></span>
+            </div>
+        </div>
+    </div>
+
     <div id="attCTSection" class="att-section" style="display:none;">
-        <div class="att-section-title">My Classes <span class="att-section-sub">(Class Teacher)</span></div>
+        <div class="att-section-title">
+            <span class="att-title-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3z"/><path d="M4 6v9l8 4 8-4V6"/></svg>
+            </span>
+            My Classes
+            <span class="att-section-sub">(Class Teacher)</span>
+        </div>
         <div id="attCTList"></div>
     </div>
 
     <div id="attSubSection" class="att-section" style="display:none;">
-        <div class="att-section-title">My Periods Today <span class="att-section-sub">(Subject Teacher)</span></div>
+        <div class="att-section-title">
+            <span class="att-title-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            </span>
+            My Periods Today
+            <span class="att-section-sub">(Subject Teacher)</span>
+        </div>
         <div id="attSubList"></div>
     </div>
 
     <div id="attNoClasses" class="att-card" style="display:none;">
         <div class="att-empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 8v5M12 16h.01"/>
+            </svg>
             You are not currently assigned as a class teacher or subject teacher to any class.<br>
             Please contact your school admin.
         </div>
@@ -246,7 +1265,9 @@
 <!-- ==================== DETAIL VIEW ==================== -->
 <div id="attDetailView" style="display:none;">
     <div class="att-detail-header">
-        <button class="att-back-btn" onclick="AXIS_ATT.back()" aria-label="Back">←</button>
+        <button class="att-back-btn" onclick="AXIS_ATT.back()" aria-label="Back">
+            <svg viewBox="0 0 24 24"><path d="M15 6 9 12l6 6"/></svg>
+        </button>
         <div>
             <div class="att-detail-title" id="attDetailTitle">Class</div>
             <div class="att-detail-sub" id="attDetailSub"></div>
@@ -262,10 +1283,52 @@
     <div id="attTabToday" class="att-tab-panel">
         <div class="att-card">
             <div class="att-date-row">
-                <label>Date</label>
+                <label for="attDatePicker">Date</label>
                 <input type="date" id="attDatePicker">
                 <button class="att-load-btn" type="button" onclick="AXIS_ATT.loadDate()">Load</button>
             </div>
+
+            <!-- Date-specific analytics (populated by JS) -->
+            <div class="att-date-analytics" id="attDateAnalytics" style="display:none;">
+                <div class="att-da-head">
+                    <span class="att-da-title">Date Snapshot</span>
+                    <span class="att-da-date" id="attDaDate">—</span>
+                </div>
+                <div class="att-da-grid">
+                    <div class="att-da-item present">
+                        <span class="att-da-num" id="attDaPresent">0</span>
+                        <span class="att-da-lbl">Present</span>
+                    </div>
+                    <div class="att-da-item absent">
+                        <span class="att-da-num" id="attDaAbsent">0</span>
+                        <span class="att-da-lbl">Absent</span>
+                    </div>
+                    <div class="att-da-item late">
+                        <span class="att-da-num" id="attDaLate">0</span>
+                        <span class="att-da-lbl">Late</span>
+                    </div>
+                    <div class="att-da-item half_day">
+                        <span class="att-da-num" id="attDaHalf">0</span>
+                        <span class="att-da-lbl">Half</span>
+                    </div>
+                    <div class="att-da-item excused">
+                        <span class="att-da-num" id="attDaExcused">0</span>
+                        <span class="att-da-lbl">Leave</span>
+                    </div>
+                </div>
+                <div class="att-da-bar" aria-hidden="true">
+                    <span class="att-da-seg present" id="attDaSegPresent" style="width:0%"></span>
+                    <span class="att-da-seg absent"  id="attDaSegAbsent"  style="width:0%"></span>
+                    <span class="att-da-seg late"    id="attDaSegLate"    style="width:0%"></span>
+                    <span class="att-da-seg half_day" id="attDaSegHalf"   style="width:0%"></span>
+                    <span class="att-da-seg excused" id="attDaSegExcused" style="width:0%"></span>
+                </div>
+                <div class="att-da-summary">
+                    <span id="attDaSummaryTotal">Total <b>0</b></span>
+                    <span id="attDaSummaryPresent">Present <b>0%</b></span>
+                </div>
+            </div>
+
             <div id="attTodayBanner" class="att-banner" style="display:none;"></div>
             <div id="attTodayLock" class="att-banner locked" style="display:none;"></div>
             <div id="attTodayStudents" class="att-students-list">
@@ -299,9 +1362,9 @@
 </div>
 
 <!-- ==================== CONFIRM MODAL ==================== -->
-<div id="attConfirmModal" class="att-modal">
+<div id="attConfirmModal" class="att-modal" role="dialog" aria-modal="true" aria-labelledby="attConfirmTitle">
     <div class="att-modal-card">
-        <div class="att-modal-title">Confirm Save</div>
+        <div class="att-modal-title" id="attConfirmTitle">Confirm Save</div>
         <div class="att-modal-body" id="attConfirmBody">
             Are you sure you want to save this attendance?
         </div>
@@ -314,6 +1377,16 @@
 
 <script>
 window.AXIS_ATT = (function() {
+    /* =========================================================
+       STAFF ATTENDANCE — logic preserved 1:1.
+       Additions:
+         • renderAnalytics()      — home view stat strip
+         • renderDateAnalytics()  — detail view, updates per date
+         • toggleHero()           — hide/show hero on detail enter/exit
+         • Class card leading SVG badge
+       No existing behaviour removed.
+       ========================================================= */
+
     var CT_CLASSES = {{ class_teacher_classes_json|safe }};
     var SUBJECT_PERIODS = {{ subject_periods_json|safe }};
     var TODAY = '{{ today }}';
@@ -324,6 +1397,36 @@ window.AXIS_ATT = (function() {
     var currentStudents = [];
     var currentPermission = null;
     var currentLocked = false;
+
+    /* --- inline SVG helpers (no emojis anywhere in the DOM) --- */
+    function svgHoliday() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="3" y="4.5" width="18" height="16" rx="3"/>'
+             + '<path d="M8 3v3M16 3v3M3 10h18"/>'
+             + '</svg>';
+    }
+    function svgLock() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/>'
+             + '<path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>'
+             + '</svg>';
+    }
+    function svgBot() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="4" y="7" width="16" height="12" rx="3"/>'
+             + '<path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/>'
+             + '<circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/>'
+             + '<path d="M10 16.5h4"/>'
+             + '</svg>';
+    }
+    /* Leading badge icon for class cards (graduated book). */
+    function svgClassIcon() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<path d="M4 19.5V7.5A2.5 2.5 0 0 1 6.5 5H20v14.5"/>'
+             + '<path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/>'
+             + '<path d="M8 9h8M8 13h8"/>'
+             + '</svg>';
+    }
 
     function q(s, r) { return (r || document).querySelector(s); }
     function qa(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
@@ -350,24 +1453,121 @@ window.AXIS_ATT = (function() {
         return 'Today only';
     }
 
+    function statusClass(s) {
+        if (s === 'completed') return 'green';
+        if (s === 'partial')   return 'amber';
+        return 'red';
+    }
+
+    function statusText(s) {
+        if (s === 'completed') return 'Completed';
+        if (s === 'partial')   return 'Partial';
+        return 'Pending';
+    }
+
+    /* ---- Hero / page banner toggle ---- */
+    function toggleHero(show) {
+        var hero = q('#attHero');
+        if (hero) hero.style.display = show ? 'block' : 'none';
+        var pg = q('#attPageHolidayBanner');
+        if (pg) pg.style.display = show ? 'flex' : 'none';
+    }
+
+    /* ---- Home view analytics strip ---- */
+    function renderAnalytics() {
+        var box = q('#attAnalytics');
+        if (!box) return;
+
+        var ctCount = (CT_CLASSES && CT_CLASSES.length) ? CT_CLASSES.length : 0;
+        var spCount = (SUBJECT_PERIODS && SUBJECT_PERIODS.length) ? SUBJECT_PERIODS.length : 0;
+        var totalClasses = ctCount + spCount;
+
+        var totalStudents = 0;
+        var totalMarked = 0;
+        (CT_CLASSES || []).forEach(function(c) {
+            totalStudents += (c.student_count || 0);
+            totalMarked   += (c.marked_today  || 0);
+        });
+
+        var pct = totalStudents > 0
+            ? Math.min(100, Math.round(totalMarked * 100 / totalStudents))
+            : 0;
+
+        var classesEl  = q('#attStatClasses');
+        var studentsEl = q('#attStatStudents');
+        var progressEl = q('#attStatProgress');
+        var barEl      = q('#attProgressBar');
+
+        if (classesEl)  classesEl.textContent  = String(totalClasses);
+        if (studentsEl) studentsEl.textContent = String(totalStudents);
+        if (progressEl) progressEl.textContent = (totalStudents > 0 ? pct + '%' : '—');
+        if (barEl)      barEl.style.width      = pct + '%';
+
+        box.style.display = totalClasses > 0 ? 'grid' : 'none';
+    }
+
+    /* ---- Detail view analytics strip (per date) ---- */
+    function renderDateAnalytics() {
+        var box = q('#attDateAnalytics');
+        if (!box) return;
+
+        var total = currentStudents.length;
+        if (!total) {
+            box.style.display = 'none';
+            return;
+        }
+
+        var c = { present: 0, absent: 0, late: 0, half_day: 0, excused: 0 };
+        currentStudents.forEach(function(s) {
+            var k = s.status || 'present';
+            if (c[k] === undefined) c[k] = 0;
+            c[k] += 1;
+        });
+
+        function setTxt(id, v) { var el = q(id); if (el) el.textContent = String(v); }
+        setTxt('#attDaPresent', c.present);
+        setTxt('#attDaAbsent',  c.absent);
+        setTxt('#attDaLate',    c.late);
+        setTxt('#attDaHalf',    c.half_day);
+        setTxt('#attDaExcused', c.excused);
+
+        function pctOf(n) { return total ? (n * 100 / total) : 0; }
+        function setW(id, v) { var el = q(id); if (el) el.style.width = v.toFixed(2) + '%'; }
+        setW('#attDaSegPresent', pctOf(c.present));
+        setW('#attDaSegAbsent',  pctOf(c.absent));
+        setW('#attDaSegLate',    pctOf(c.late));
+        setW('#attDaSegHalf',    pctOf(c.half_day));
+        setW('#attDaSegExcused', pctOf(c.excused));
+
+        var presentPct = total ? Math.round(c.present * 100 / total) : 0;
+
+        var dateEl = q('#attDaDate');
+        if (dateEl) dateEl.textContent = currentDate || TODAY;
+        var sumTot = q('#attDaSummaryTotal');
+        if (sumTot) sumTot.innerHTML = 'Total <b>' + total + '</b>';
+        var sumPre = q('#attDaSummaryPresent');
+        if (sumPre) sumPre.innerHTML = 'Present <b>' + presentPct + '%</b>';
+
+        box.style.display = 'block';
+    }
+
     function init() {
         var anyClass = false;
 
         if (CT_CLASSES && CT_CLASSES.length) {
             var h = '';
             CT_CLASSES.forEach(function(c) {
-                var statusCls = c.status === 'completed' ? 'green'
-                              : c.status === 'partial' ? 'amber'
-                              : 'red';
-                var statusTxt = c.status === 'completed' ? 'Completed'
-                              : c.status === 'partial' ? 'Partial'
-                              : 'Pending';
+                var sc = statusClass(c.status);
+                var st = statusText(c.status);
                 var autoTag = c.auto_marked
                     ? '<span class="att-tag auto">AUTO</span>' : '';
-                h += '<div class="att-class-card" onclick="AXIS_ATT.openClass(' + c.id + ')">';
+                h += '<div class="att-class-card status-' + sc + '" onclick="AXIS_ATT.openClass(' + c.id + ')">';
                 h +=   '<div class="att-class-card-head">';
-                h +=     '<div class="att-class-name">' + esc(c.name) + autoTag + '</div>';
-                h +=     '<div class="att-status-chip att-' + statusCls + '">' + statusTxt + '</div>';
+                h +=     '<div class="att-class-head-left">';
+                h +=       '<span class="att-class-icon" aria-hidden="true">' + svgClassIcon() + '</span>';
+                h +=       '<div class="att-class-name">' + esc(c.name) + autoTag + '</div>';
+                h +=     '</div>';
+                h +=     '<div class="att-status-chip att-' + sc + '">' + st + '</div>';
                 h +=   '</div>';
                 h +=   '<div class="att-class-card-meta">';
                 h +=     c.student_count + ' students · ' + c.marked_today + ' marked today';
@@ -386,14 +1586,15 @@ window.AXIS_ATT = (function() {
         if (SUBJECT_PERIODS && SUBJECT_PERIODS.length) {
             var ph = '';
             SUBJECT_PERIODS.forEach(function(p) {
+                var sc = p.marked ? 'green' : 'amber';
+                var st = p.marked ? 'Marked' : 'Pending';
                 ph += '<div class="att-period-card" onclick="AXIS_ATT.openPeriod(' + p.class_id + ',' + p.period_order + ')">';
                 ph +=   '<div class="att-period-left"><strong>P' + p.period_order + '</strong></div>';
                 ph +=   '<div class="att-period-mid">';
                 ph +=     '<div class="att-period-class">' + esc(p.class_name) + '</div>';
                 ph +=     '<div class="att-period-subject">' + esc(p.subject || '') + '</div>';
                 ph +=   '</div>';
-                ph +=   '<div class="att-status-chip att-' + (p.marked ? 'green' : 'amber') + '">'
-                       + (p.marked ? 'Marked' : 'Pending') + '</div>';
+                ph +=   '<div class="att-status-chip att-' + sc + '">' + st + '</div>';
                 ph += '</div>';
             });
             q('#attSubList').innerHTML = ph;
@@ -406,20 +1607,26 @@ window.AXIS_ATT = (function() {
         }
 
         q('#attDatePicker').value = TODAY;
+
+        renderAnalytics();
     }
 
     function back() {
         q('#attHomeView').style.display = 'block';
         q('#attDetailView').style.display = 'none';
-        // ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-5): re-enable the date
-        // picker; it is disabled while viewing a single subject
-        // period, but the next view may be a class-teacher view.
         q('#attDatePicker').disabled = false;
         currentClass = null;
         currentPeriod = null;
         currentStudents = [];
         currentPermission = null;
         currentLocked = false;
+
+        /* Restore hero + page holiday banner on the home view */
+        toggleHero(true);
+
+        /* Detail analytics are no longer relevant here */
+        var da = q('#attDateAnalytics');
+        if (da) da.style.display = 'none';
     }
 
     function switchTab(which) {
@@ -443,13 +1650,14 @@ window.AXIS_ATT = (function() {
         q('#attDetailTitle').textContent = c.name;
         q('#attDetailSub').textContent = c.student_count + ' students · Class Teacher';
         q('#attDatePicker').value = TODAY;
-        // ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-5): subject-period
-        // view disables this input; class-teacher view needs it
-        // enabled again.
         q('#attDatePicker').disabled = false;
         q('#attHomeView').style.display = 'none';
         q('#attDetailView').style.display = 'block';
         switchTab('today');
+
+        /* Hide hero + page banner while marking attendance */
+        toggleHero(false);
+
         loadStudents(c.id, null, TODAY);
     }
 
@@ -464,6 +1672,9 @@ window.AXIS_ATT = (function() {
         q('#attHomeView').style.display = 'none';
         q('#attDetailView').style.display = 'block';
         switchTab('today');
+
+        toggleHero(false);
+
         loadStudents(classId, periodOrder, TODAY);
     }
 
@@ -484,6 +1695,10 @@ window.AXIS_ATT = (function() {
         q('#attSaveMsg').textContent = '';
         q('#attSaveMsg').className = 'att-save-msg';
 
+        /* Hide stale date analytics until new data lands. */
+        var da = q('#attDateAnalytics');
+        if (da) da.style.display = 'none';
+
         fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
             .then(function(r) { return r.json(); })
             .then(function(j) {
@@ -493,10 +1708,11 @@ window.AXIS_ATT = (function() {
                     return;
                 }
                 if (j.is_holiday) {
-                    q('#attTodayBanner').className = 'att-banner holiday';
-                    q('#attTodayBanner').textContent =
-                        '🎉 ' + (j.holiday_reason || 'Holiday');
-                    q('#attTodayBanner').style.display = 'flex';
+                    var b = q('#attTodayBanner');
+                    b.className = 'att-banner holiday';
+                    b.innerHTML = svgHoliday()
+                        + '<span>' + esc(j.holiday_reason || 'Holiday') + '</span>';
+                    b.style.display = 'flex';
                     q('#attTodayStudents').innerHTML =
                         '<div class="att-empty">No attendance is expected on a holiday.</div>';
                     q('#attSaveBtn').disabled = true;
@@ -510,19 +1726,21 @@ window.AXIS_ATT = (function() {
                 currentLocked = !!j.locked;
 
                 if (currentLocked) {
-                    q('#attTodayLock').className = 'att-banner locked';
-                    q('#attTodayLock').textContent =
-                        '🔒 ' + (j.lock_reason || 'This date is locked for you.');
-                    q('#attTodayLock').style.display = 'flex';
+                    var lk = q('#attTodayLock');
+                    lk.className = 'att-banner locked';
+                    lk.innerHTML = svgLock()
+                        + '<span>' + esc(j.lock_reason || 'This date is locked for you.') + '</span>';
+                    lk.style.display = 'flex';
                 } else if (j.auto_marked) {
-                    var b = q('#attTodayBanner');
-                    b.className = 'att-banner auto';
-                    b.textContent =
-                        '🤖 This date was auto-marked by the system. You can still edit it.';
-                    b.style.display = 'flex';
+                    var b2 = q('#attTodayBanner');
+                    b2.className = 'att-banner auto';
+                    b2.innerHTML = svgBot()
+                        + '<span>This date was auto-marked by the system. You can still edit it.</span>';
+                    b2.style.display = 'flex';
                 }
 
                 renderStudents();
+                renderDateAnalytics();
                 updateQuota();
 
                 q('#attSaveBtn').disabled = currentLocked;
@@ -590,7 +1808,10 @@ window.AXIS_ATT = (function() {
         currentStudents.forEach(function(s) {
             var el = document.getElementById('att_' + s.id + '_' + status);
             if (el) el.checked = true;
+            /* keep local model in sync so analytics reflect bulk change */
+            s.status = status;
         });
+        renderDateAnalytics();
     }
 
     function confirmSave() {

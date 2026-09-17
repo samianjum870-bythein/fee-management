@@ -1,31 +1,445 @@
 {% extends 'mobile/staff/base.html' %}
 {% load static %}
 {% block title %}Staff Login{% endblock %}
-{% block body %}
-<div class="card" style="max-width: 420px; margin: 42px auto 0;">
-    <h2 style="margin: 0 0 8px;">AXIS Staff Portal</h2>
-    <p class="subtle" style="margin-bottom: 18px;">Sign in with your school staff username and password.</p>
-    {% if error %}
-        <div class="alert" style="color: #991b1b; background: rgba(220,38,38,.08);">{{ error }}</div>
-    {% endif %}
-    <div id="staffLoginBiometricError" class="alert" hidden style="color: #991b1b; background: rgba(220,38,38,.08);"></div>
-    <form id="staffLoginForm" method="post" style="display: grid; gap: 12px;">
-        {% csrf_token %}
-        <div>
-            <label for="username" style="display:block; margin-bottom:6px; font-weight:600;">Username</label>
-            <input id="username" name="username" type="text" autocomplete="username" required style="width:100%; padding: 0.8rem 0.9rem; border:1px solid var(--border); border-radius:0.75rem; background: var(--surface); color: var(--text);">
-        </div>
-        <div>
-            <label for="password" style="display:block; margin-bottom:6px; font-weight:600;">Password</label>
-            <input id="password" name="password" type="password" autocomplete="current-password" required style="width:100%; padding: 0.8rem 0.9rem; border:1px solid var(--border); border-radius:0.75rem; background: var(--surface); color: var(--text);">
-        </div>
-        <button type="submit" class="btn-primary" style="width:100%; padding: 0.8rem 1rem; border-radius: 0.8rem; font-weight: 600;">Login</button>
-    </form>
-</div>
-{% endblock %}
 
 {% block extra_head %}
+<style>
+    /* ---- Login-only premium styling (scoped, does not affect other pages) ---- */
+    .login-shell {
+        max-width: 400px;
+        margin: 34px auto 0;
+        padding: 0 2px;
+    }
+
+    .login-card {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        box-shadow: var(--shadow-lg);
+        padding: 24px 22px 22px;
+    }
+
+    .login-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+    }
+
+    .login-card::after {
+        content: "";
+        position: absolute;
+        top: -70px; right: -70px;
+        width: 180px; height: 180px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(15, 157, 143, 0.16), transparent 70%);
+        pointer-events: none;
+    }
+
+    .login-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 11px;
+        border-radius: 99px;
+        background: var(--gold-soft);
+        color: #7a5f10;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-bottom: 14px;
+    }
+    .login-badge::before {
+        content: "";
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: var(--gold);
+        box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.20);
+    }
+
+    .login-title {
+        margin: 0 0 6px;
+        font-size: 1.32rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--text);
+    }
+
+    .login-sub {
+        margin: 0 0 18px;
+        font-size: 0.82rem;
+        line-height: 1.5;
+        color: var(--muted);
+    }
+
+    /* ---- Custom alert (replaces default browser look) ---- */
+    .login-alert {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 11px 13px 11px 12px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, #fff5f5 0%, #fff1f2 100%);
+        border: 1px solid rgba(225, 29, 72, 0.20);
+        border-left: 4px solid var(--danger);
+        color: #7f1d1d;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 18px rgba(225, 29, 72, 0.08);
+        animation: loginShake 0.32s ease;
+    }
+
+    .login-alert[hidden] { display: none !important; }
+
+    .login-alert .al-icon {
+        flex: 0 0 20px;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        background: var(--danger);
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 12px;
+        line-height: 1;
+        margin-top: 1px;
+    }
+
+    .login-alert .al-body { flex: 1; min-width: 0; }
+
+    @keyframes loginShake {
+        0%   { transform: translateX(0); }
+        25%  { transform: translateX(-4px); }
+        50%  { transform: translateX(4px); }
+        75%  { transform: translateX(-2px); }
+        100% { transform: translateX(0); }
+    }
+
+    /* ---- Fields ---- */
+    .field { display: block; }
+
+    .field + .field { margin-top: 12px; }
+
+    .field-label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .field-input {
+        position: relative;
+    }
+
+    .field-input input {
+        width: 100%;
+        padding: 12px 14px;
+        font-size: 0.94rem;
+        font-weight: 600;
+        color: var(--text);
+        background: var(--surface-alt);
+        border: 1.5px solid var(--border);
+        border-radius: 14px;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+
+    .field-input input::placeholder {
+        color: #9fb0ab;
+        font-weight: 500;
+    }
+
+    .field-input input:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+
+    .field.has-error .field-input input {
+        border-color: var(--danger);
+        background: #fff7f8;
+        box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.10);
+    }
+
+    .field-error {
+        display: none;
+        margin-top: 6px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        color: var(--danger);
+        letter-spacing: 0.01em;
+    }
+
+    .field.has-error .field-error { display: block; }
+
+    /* password toggle */
+    .pw-wrap {
+        display: flex;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .pw-wrap input { flex: 1; }
+
+    .toggle-eye {
+        flex: 0 0 auto;
+        min-width: 62px;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        border-radius: 14px;
+        padding: 0 12px;
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+    }
+
+    .toggle-eye:hover {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+    }
+
+    /* ---- Submit ---- */
+    .login-submit {
+        width: 100%;
+        margin-top: 6px;
+        padding: 13px 16px;
+        border-radius: 14px;
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        color: #ffffff;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%);
+        box-shadow: 0 16px 26px rgba(11, 110, 100, 0.26);
+        border: none;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    }
+
+    .login-submit:hover { filter: brightness(1.05); }
+
+    .login-submit:active {
+        transform: scale(0.98);
+        box-shadow: 0 10px 18px rgba(11, 110, 100, 0.22);
+    }
+
+    .login-submit[disabled] {
+        opacity: 0.75;
+        cursor: wait;
+        transform: none;
+    }
+
+    /* ---- Footer ---- */
+    .login-foot {
+        margin-top: 16px;
+        text-align: center;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+    }
+
+    .login-foot .lock-dot {
+        display: inline-block;
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+        margin-right: 6px;
+        vertical-align: middle;
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16);
+    }
+
+    /* ---- Biometric error box (kept hidden by default) ---- */
+    #staffLoginBiometricError[hidden] { display: none !important; }
+
+    @media (max-width: 420px) {
+        .login-shell { margin-top: 22px; }
+        .login-card { padding: 22px 18px 20px; border-radius: 22px; }
+        .login-title { font-size: 1.22rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .login-alert { animation: none; }
+    }
+</style>
+
+{# Biometric script loader — must live inside the SINGLE extra_head block. #}
 {% if biometric_available %}
 <script src="{% static 'js/staff_biometric.js' %}" defer></script>
 {% endif %}
+{% endblock %}
+
+{% block body %}
+<div class="login-shell">
+    <div class="login-card">
+
+        <span class="login-badge">Secure Access</span>
+
+        <h1 class="login-title">Welcome back</h1>
+        <p class="login-sub">Sign in with your school staff username and password to continue.</p>
+
+        {# Server-side error — custom rendered, never browser default #}
+        {% if error %}
+            <div class="login-alert" role="alert" aria-live="polite">
+                <span class="al-icon" aria-hidden="true">!</span>
+                <span class="al-body">{{ error }}</span>
+            </div>
+        {% endif %}
+
+        {# Biometric error slot — kept hidden; staff_biometric.js toggles this #}
+        <div id="staffLoginBiometricError" class="login-alert" role="alert" aria-live="polite" hidden>
+            <span class="al-icon" aria-hidden="true">!</span>
+            <span class="al-body"></span>
+        </div>
+
+        <form id="staffLoginForm" method="post" novalidate autocomplete="on">
+            {% csrf_token %}
+
+            <div class="field" id="field-username">
+                <label class="field-label" for="username">Username</label>
+                <div class="field-input">
+                    <input
+                        id="username"
+                        name="username"
+                        type="text"
+                        inputmode="text"
+                        autocomplete="username"
+                        autocapitalize="none"
+                        spellcheck="false"
+                        placeholder="e.g. sami.khan"
+                        required>
+                </div>
+                <div class="field-error" data-error-for="username">Please enter your username.</div>
+            </div>
+
+            <div class="field" id="field-password">
+                <label class="field-label" for="password">Password</label>
+                <div class="field-input pw-wrap">
+                    <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        placeholder="Enter your password"
+                        required>
+                    <button type="button" class="toggle-eye" id="pwToggle" aria-label="Show password" aria-pressed="false">SHOW</button>
+                </div>
+                <div class="field-error" data-error-for="password">Please enter your password.</div>
+            </div>
+
+            <button type="submit" class="login-submit" id="loginSubmit">Sign in</button>
+        </form>
+
+        <div class="login-foot">
+            <span class="lock-dot" aria-hidden="true"></span>
+            Encrypted session · AXIS Staff Portal
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    var form     = document.getElementById("staffLoginForm");
+    if (!form) return;
+
+    var userEl   = document.getElementById("username");
+    var passEl   = document.getElementById("password");
+    var toggle   = document.getElementById("pwToggle");
+    var submit   = document.getElementById("loginSubmit");
+    var bioErr   = document.getElementById("staffLoginBiometricError");
+
+    /* ---------- Password show / hide ---------- */
+    if (toggle && passEl) {
+        toggle.addEventListener("click", function () {
+            var showing = passEl.type === "text";
+            passEl.type = showing ? "password" : "text";
+            toggle.textContent = showing ? "SHOW" : "HIDE";
+            toggle.setAttribute("aria-pressed", String(!showing));
+            toggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+        });
+    }
+
+    /* ---------- Custom inline validation (no native tooltips) ---------- */
+    function setFieldError(input, hasError) {
+        if (!input) return;
+        var wrap = input.closest(".field");
+        if (!wrap) return;
+        wrap.classList.toggle("has-error", !!hasError);
+    }
+
+    function clearBioError() {
+        if (!bioErr) return;
+        bioErr.hidden = true;
+        var body = bioErr.querySelector(".al-body");
+        if (body) body.textContent = "";
+    }
+
+    if (userEl) {
+        userEl.addEventListener("input", function () {
+            if (userEl.value.trim() !== "") setFieldError(userEl, false);
+        });
+    }
+    if (passEl) {
+        passEl.addEventListener("input", function () {
+            if (passEl.value !== "") setFieldError(passEl, false);
+        });
+    }
+
+    form.addEventListener("submit", function (event) {
+        var ok = true;
+
+        if (!userEl || userEl.value.trim() === "") {
+            setFieldError(userEl, true);
+            ok = false;
+        } else {
+            setFieldError(userEl, false);
+        }
+
+        if (!passEl || passEl.value === "") {
+            setFieldError(passEl, true);
+            ok = false;
+        } else {
+            setFieldError(passEl, false);
+        }
+
+        if (!ok) {
+            event.preventDefault();
+            var firstBad = form.querySelector(".field.has-error input");
+            if (firstBad) firstBad.focus();
+            return;
+        }
+
+        clearBioError();
+
+        /* Lightweight loading state — no native spinner, no default styling */
+        if (submit) {
+            submit.disabled = true;
+            submit.dataset.originalLabel = submit.dataset.originalLabel || submit.textContent;
+            submit.textContent = "Signing in…";
+        }
+    });
+
+    /* If a server-side error already exists, focus the username field so the
+       user can immediately correct it (custom, non-native behaviour). */
+    var existingAlert = document.querySelector(".login-card .login-alert:not([hidden])");
+    if (existingAlert && userEl) {
+        userEl.focus();
+    }
+})();
+</script>
 {% endblock %}

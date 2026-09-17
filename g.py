@@ -1,1057 +1,2174 @@
 #!/usr/bin/env python3
 """
-axis_patcher.py — ATTENDANCE_DATE_ANALYTICS_V1
-================================================
+axis_patcher.py
+===============
 
-Enhances the admin "Mark & History" modal so that:
+One-shot patcher that OVERWRITES:
 
-  * The modal panel is noticeably WIDER (1200px on desktop).
-  * A per-date ANALYTICS panel sits directly above the student list,
-    showing every KPI for the currently-loaded date: total students,
-    marked / unmarked, present / absent / late / half day / excused,
-    completion %, attendance %, auto-marked count, and whether the
-    date is locked.
-  * A horizontal "RECENT DATES" strip lets the admin see at a glance
-    how complete each of the last 14 days is.  Each pill shows a mini
-    progress bar and is colour-coded by completion state.  Clicking a
-    pill loads that date's roster + analytics in one shot.
+    templates/mobile/staff/attendence.html
 
-Implementation
---------------
-1.  Adds a new backend endpoint
-        GET /portal/<schema>/api/attendance/recent-summary/
-            ?class_id=<id>&days=<1..90>
-    which returns per-day KPI rows for the class.
+Three focused changes on top of the previous professional UI:
 
-2.  Wires the new endpoint into public_urls.py.
+1. HIDE THE HERO INSIDE THE DETAIL VIEW
+   -------------------------------------
+   The `.att-hero` block (which shows "Attendance", the staff name,
+   and the day + date chip) is now hidden the moment a teacher opens
+   a class or a subject period, and restored when they tap Back.
+   This keeps the detail page focused on the task: marking students.
 
-3.  Extends templates/tenant/attendence.html with:
-      - new CSS for the analytics panel + recent-dates strip
-      - new HTML blocks inside #attTabMark
-      - new JS functions (loadRecentDates, renderRecentDates,
-        renderDateAnalytics, markActivePill, gotoDate) plus a small
-        hook inside reloadStudents() and openMark().
+2. SVG ICON ON EACH CLASS CARD
+   ---------------------------
+   Every class-teacher card now shows a leading SVG badge icon
+   (graduated book) with a subtle accent tint, matching the rest of
+   the icon language. Keeps the existing left status stripe.
 
-Idempotent.  Safe to re-run.  Never deletes or overwrites unrelated
-code.
+3. DATE-SPECIFIC ANALYTICS INSIDE THE DETAIL VIEW
+   ----------------------------------------------
+   A compact horizontal analytics strip is added inside the Today
+   panel, right under the date picker. It updates every time the
+   teacher loads a different date:
+
+       • Total students in the class
+       • Present / Absent / Late / Leave counts
+       • A thin fill bar showing present% for that date
+
+   All values are computed client-side from `currentStudents`, so no
+   backend or view change is needed.
+
+   The strip auto-hides on holiday/locked days (where no live count
+   exists) and when the class has no students.
+
+What is NOT changed
+-------------------
+* Every existing JavaScript function name, API endpoint URL, element
+  ID, and `AXIS_ATT.*` call site is preserved 1:1.
+* File name stays `attendence.html` (matches the view).
+* No emojis. All iconography inline SVG.
 
 Usage
 -----
-    python3 axis_patcher.py --dry-run --verbose
-    python3 axis_patcher.py
-    python3 axis_patcher.py --target-dir /srv/fee_management
+    python axis_patcher.py --dry-run --verbose
+    python axis_patcher.py
+    python axis_patcher.py --target-dir /path/to/fee_management --verbose
+
+Idempotent: running it twice is a no-op.
 """
 
+from __future__ import annotations
+
 import argparse
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
 
-MARKER = "ATTENDANCE_DATE_ANALYTICS_V1"
+TARGET_REL_PATH = Path("templates") / "mobile" / "staff" / "attendence.html"
 
+# --------------------------------------------------------------------------
+# New file content
+# --------------------------------------------------------------------------
 
-# ------------------------------------------------------------------ utils
+NEW_CONTENT = r'''{% extends 'mobile/staff/base.html' %}
+{% block title %}Attendance{% endblock %}
+{% block body %}
+<style>
+    /* ============================================================
+       STAFF ATTENDANCE — PROFESSIONAL UI
+       Scoped with .att- prefix. Uses only the CSS variables that
+       templates/mobile/staff/base.html already defines.
+       No emojis. All iconography is inline SVG.
+       ============================================================ */
 
-def log(msg):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
-
-
-def read_file(path):
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        log(f"  ERROR: not found: {path}")
-        return None
-    except Exception as e:
-        log(f"  ERROR reading {path}: {e}")
-        return None
-
-
-def write_file(path, content, dry_run=False, label=""):
-    if dry_run:
-        log(f"  DRY-RUN: would write {path} ({label})")
-        return True
-    try:
-        path.write_text(content, encoding="utf-8")
-        log(f"  WROTE: {path} ({label})")
-        return True
-    except Exception as e:
-        log(f"  ERROR writing {path}: {e}")
-        return False
-
-
-# =====================================================================
-# 1. admin_attendence.py — new recent-summary API
-# =====================================================================
-
-ADMIN_VIEWS_APPEND = '''
-
-# =====================================================================
-# ATTENDANCE_DATE_ANALYTICS_V1
-# ---------------------------------------------------------------------
-# Per-day KPI rows for the last N days of a class.  Powers the
-# "Recent Dates" strip and the analytics panel inside the admin's
-# Mark & History modal.
-# =====================================================================
-
-
-@require_http_methods(['GET'])
-@require_tenant_type(['school', 'wing_school', 'single_small_school'])
-@require_school_feature('attendance_management')
-def admin_attendance_recent_summary_api(request, schema_name):
-    """GET per-day analytics for the last N days of one class.
-
-    Query params:
-        class_id  (required)
-        days      int 1..90 (default 14)
-
-    Response::
-
-        {
-          "ok": True,
-          "class_id": 7,
-          "class_name": "Grade 1 - A",
-          "total_students": 32,
-          "days": 14,
-          "rows": [
-            {
-              "date": "2026-09-17",
-              "day_name": "Wed",
-              "day_full": "Wednesday",
-              "is_today": True,
-              "is_holiday": False,
-              "holiday_reason": "",
-              "total_students": 32,
-              "marked": 30,
-              "present": 28, "absent": 2, "late": 0,
-              "half_day": 0, "excused": 0, "holiday": 0,
-              "completion_pct": 93.8,
-              "attendance_pct": 93.3,
-              "status": "partial",          # completed|partial|pending|holiday
-              "period_marked": 40,
-              "sources": {"teacher": 30, "auto_system": 0}
-            },
-            ...
-          ]
-        }
-    """
-    class_id = _parse_int(request.GET.get('class_id'))
-    if not class_id:
-        return JsonResponse(
-            {'ok': False, 'error': 'class_id required'}, status=400,
-        )
-    try:
-        days = int(request.GET.get('days', '14') or 14)
-    except (TypeError, ValueError):
-        days = 14
-    days = max(1, min(90, days))
-
-    today = _today()
-
-    with schema_context(schema_name):
-        school_class = SchoolClass.objects.filter(
-            id=class_id, is_active=True,
-        ).first()
-        if not school_class:
-            return JsonResponse(
-                {'ok': False, 'error': 'Class not found'}, status=404,
-            )
-
-        total_students = Student.objects.filter(
-            school_class=school_class, status='active',
-        ).count()
-
-        start = today - timedelta(days=days - 1)
-
-        # ---- batch-load holiday context (2-3 queries total) ----
-        try:
-            holiday_dows = set(
-                WeeklyHoliday.objects.values_list('day_of_week', flat=True)
-            )
-        except Exception:
-            holiday_dows = set()
-        try:
-            annual_pairs = set(
-                AnnualHoliday.objects.values_list('month', 'day')
-            )
-        except Exception:
-            annual_pairs = set()
-        try:
-            vacations = list(
-                Vacation.objects.values_list('start_date', 'end_date')
-            )
-        except Exception:
-            vacations = []
-
-        def _is_hol(d):
-            if d.weekday() in holiday_dows:
-                return True, 'Weekly holiday'
-            if (d.month, d.day) in annual_pairs:
-                return True, 'Annual holiday'
-            for s, e in vacations:
-                if s <= d <= e:
-                    return True, 'Vacation'
-            return False, ''
-
-        # ---- full-day rows for the window ----
-        rows_qs = (
-            StudentAttendance.objects
-            .filter(
-                school_class=school_class,
-                date__gte=start,
-                date__lte=today,
-                period_order__isnull=True,
-            )
-            .values('date', 'status', 'source')
-        )
-
-        from collections import defaultdict
-        buckets = defaultdict(lambda: {
-            'total_marked': 0,
-            'statuses': defaultdict(int),
-            'sources': defaultdict(int),
-        })
-        for r in rows_qs:
-            b = buckets[r['date']]
-            b['total_marked'] += 1
-            st = r['status'] or 'present'
-            b['statuses'][st] += 1
-            src = r['source'] or 'teacher'
-            b['sources'][src] += 1
-
-        # ---- period-wise counts for the window ----
-        period_rows_qs = (
-            StudentAttendance.objects
-            .filter(
-                school_class=school_class,
-                date__gte=start,
-                date__lte=today,
-                period_order__isnull=False,
-            )
-            .values('date')
-            .annotate(n=Count('id'))
-        )
-        period_by_date = {r['date']: r['n'] for r in period_rows_qs}
-
-        # ---- build rows, newest first ----
-        out = []
-        for i in range(days):
-            d = today - timedelta(days=i)
-            is_hol, hol_reason = _is_hol(d)
-            b = buckets.get(d)
-            marked = b['total_marked'] if b else 0
-            statuses = b['statuses'] if b else {}
-            sources = b['sources'] if b else {}
-
-            if is_hol:
-                status = 'holiday'
-            elif total_students and marked >= total_students:
-                status = 'completed'
-            elif marked > 0:
-                status = 'partial'
-            else:
-                status = 'pending'
-
-            completion_pct = (
-                round((marked / total_students) * 100, 1)
-                if total_students else 0.0
-            )
-            present = statuses.get('present', 0) if statuses else 0
-            late = statuses.get('late', 0) if statuses else 0
-            present_like = present + late
-            att_pct = (
-                round((present_like / marked) * 100, 1)
-                if marked else 0.0
-            )
-
-            out.append({
-                'date': d.isoformat(),
-                'day_name': d.strftime('%a'),
-                'day_full': d.strftime('%A'),
-                'is_today': d == today,
-                'is_holiday': is_hol,
-                'holiday_reason': hol_reason,
-                'total_students': total_students,
-                'marked': marked,
-                'present': present,
-                'absent': statuses.get('absent', 0) if statuses else 0,
-                'late': late,
-                'half_day': statuses.get('half_day', 0) if statuses else 0,
-                'excused': statuses.get('excused', 0) if statuses else 0,
-                'holiday': statuses.get('holiday', 0) if statuses else 0,
-                'completion_pct': completion_pct,
-                'attendance_pct': att_pct,
-                'status': status,
-                'period_marked': period_by_date.get(d, 0),
-                'sources': dict(sources) if sources else {},
-            })
-
-        return JsonResponse({
-            'ok': True,
-            'class_id': school_class.id,
-            'class_name': str(school_class),
-            'total_students': total_students,
-            'days': days,
-            'rows': out,
-        })
-'''
-
-
-def patch_admin_views(root, args):
-    path = root / "axis_saas" / "views" / "admin_attendence.py"
-    content = read_file(path)
-    if content is None:
-        return False
-
-    if "admin_attendance_recent_summary_api" in content:
-        log(f"  SKIP (already applied): recent-summary API in {path}")
-        return True
-
-    content = content.rstrip() + "\n" + ADMIN_VIEWS_APPEND
-    return write_file(path, content, args.dry_run,
-                      "add recent-summary API")
-
-
-# =====================================================================
-# 2. public_urls.py — register the new endpoint
-# =====================================================================
-
-def patch_public_urls(root, args):
-    path = root / "axis_saas" / "public_urls.py"
-    content = read_file(path)
-    if content is None:
-        return False
-
-    if "admin_attendance_recent_summary_api" in content:
-        log(f"  SKIP (already applied): recent-summary route in {path}")
-        return True
-
-    changes = []
-
-    # ---- import ----
-    old_import = "    admin_attendance_daily_logs_api,\n"
-    new_import = (
-        "    admin_attendance_daily_logs_api,\n"
-        "    # ATTENDANCE_DATE_ANALYTICS_V1\n"
-        "    admin_attendance_recent_summary_api,\n"
-    )
-    if old_import in content:
-        content = content.replace(old_import, new_import, 1)
-        changes.append("import")
-    else:
-        log(f"  WARN: daily_logs import anchor not found in {path}")
-
-    # ---- route ----
-    old_route = (
-        "    path('portal/<slug:schema_name>/api/attendance/daily-logs/', "
-        "portal_wrapper(login_required_for_schema(admin_attendance_daily_logs_api)), "
-        "name='admin_attendance_daily_logs_api'),\n"
-    )
-    new_route = old_route + (
-        "    # ATTENDANCE_DATE_ANALYTICS_V1\n"
-        "    path('portal/<slug:schema_name>/api/attendance/recent-summary/', "
-        "portal_wrapper(login_required_for_schema(admin_attendance_recent_summary_api)), "
-        "name='admin_attendance_recent_summary_api'),\n"
-    )
-    if old_route in content:
-        content = content.replace(old_route, new_route, 1)
-        changes.append("route")
-    else:
-        log(f"  WARN: daily_logs route anchor not found in {path}")
-
-    if not changes:
-        return True
-
-    return write_file(path, content, args.dry_run,
-                      f"wire recent-summary ({', '.join(changes)})")
-
-
-# =====================================================================
-# 3. templates/tenant/attendence.html
-# =====================================================================
-
-NEW_CSS = r'''
-    /* ============ ATTENDANCE_DATE_ANALYTICS_V1 ============
-       Wider modal + per-date analytics + recent-dates strip. */
-
-    /* Widen ONLY the mark & history modal. */
-    #attMarkModal .att-modal-panel {
-        width: min(1200px, 100%);
-    }
-    #attMarkModal .att-modal-body {
-        max-height: 66vh;
+    /* ---------------- HERO ---------------- */
+    .att-hero {
+        position: relative;
+        border-radius: 20px;
+        padding: 18px 18px 16px;
+        color: #ffffff;
+        background:
+            radial-gradient(520px 200px at 108% -30%, rgba(255, 255, 255, 0.16), transparent 62%),
+            linear-gradient(135deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%);
+        box-shadow: 0 18px 34px rgba(11, 110, 100, 0.22);
+        margin-bottom: 16px;
     }
 
-    /* --- per-date analytics panel --- */
-    .att-day-analytics {
-        padding: .9rem 1.2rem;
-        background: var(--surface-alt);
-        border-bottom: 1px solid var(--border);
-    }
-    .att-day-analytics .hero-row {
+    .att-hero-top {
         display: flex;
-        flex-wrap: wrap;
-        gap: .5rem .9rem;
-        align-items: center;
-        margin-bottom: .7rem;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
     }
-    .att-day-analytics .date-big {
-        font-size: 1.1rem;
+
+    .att-hero h2 {
+        margin: 0;
+        font-size: 1.32rem;
         font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1.15;
     }
-    .att-day-analytics .date-day {
-        font-size: .78rem;
-        color: var(--muted);
-        font-weight: 700;
-    }
-    .att-day-analytics .meta-row {
+
+    .att-hero .sub {
+        margin-top: 4px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.82);
         display: flex;
-        flex-wrap: wrap;
-        gap: .4rem;
-        font-size: .72rem;
-        color: var(--muted);
-        margin-left: auto;
+        align-items: center;
+        gap: 6px;
     }
-    .att-day-analytics .meta-chip {
+
+    .att-hero .sub svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.85;
+    }
+
+    .att-today-chip {
         display: inline-flex;
         align-items: center;
-        gap: .3rem;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: .45rem;
-        padding: .25rem .55rem;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: #fff8e1;
+        white-space: nowrap;
+    }
+
+    .att-today-chip::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--gold);
+    }
+
+    /* ---------------- HOLIDAY BANNER ---------------- */
+    .att-holiday-banner {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        background: #fffbeb;
+        border: 1px solid rgba(245, 158, 11, 0.32);
+        border-left: 4px solid var(--warning);
+        color: #78350f;
+        border-radius: 14px;
+        padding: 13px 14px;
+        margin-bottom: 14px;
+    }
+
+    .att-holiday-icon {
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fef3c7;
+        color: #b45309;
+    }
+
+    .att-holiday-icon svg {
+        width: 17px;
+        height: 17px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-holiday-title {
+        font-size: 0.88rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+    }
+
+    .att-holiday-reason {
+        margin-top: 3px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #92400e;
+    }
+
+    .att-holiday-desc {
+        margin-top: 4px;
+        font-size: 0.78rem;
         font-weight: 600;
+        color: #78350f;
+        opacity: 0.9;
+        line-height: 1.45;
     }
-    .att-day-analytics .kpi-grid {
+
+    /* ---------------- HOME ANALYTICS STRIP ---------------- */
+    .att-analytics {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
-        gap: .5rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 18px;
     }
-    .att-day-kpi {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: .6rem;
-        padding: .55rem .65rem;
+
+    .att-stat {
         position: relative;
         overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 13px 12px 12px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
     }
-    .att-day-kpi::after {
-        content: '';
+
+    .att-stat::after {
+        content: "";
+        position: absolute;
+        top: -22px;
+        right: -22px;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        pointer-events: none;
+    }
+
+    .att-stat-icon {
+        position: relative;
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        margin-bottom: 8px;
+    }
+
+    .att-stat-icon svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-stat-value {
+        position: relative;
+        font-size: 1.32rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--accent-deep);
+        line-height: 1.05;
+    }
+
+    .att-stat-label {
+        position: relative;
+        margin-top: 4px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-progress-track {
+        position: relative;
+        margin-top: 8px;
+        height: 4px;
+        border-radius: 99px;
+        background: var(--accent-soft);
+        overflow: hidden;
+    }
+
+    .att-progress-bar {
         position: absolute;
         inset: 0 auto 0 0;
-        width: 3px;
-        background: var(--primary);
-    }
-    .att-day-kpi.k-present::after  { background: #10b981; }
-    .att-day-kpi.k-absent::after   { background: #ef4444; }
-    .att-day-kpi.k-late::after     { background: #f59e0b; }
-    .att-day-kpi.k-halfday::after  { background: #8b5cf6; }
-    .att-day-kpi.k-excused::after  { background: #0ea5e9; }
-    .att-day-kpi.k-pct::after      { background: #6366f1; }
-    .att-day-kpi.k-total::after    { background: #0ea5e9; }
-    .att-day-kpi.k-auto::after     { background: #1e40af; }
-    .att-day-kpi .k {
-        font-size: .6rem;
-        text-transform: uppercase;
-        letter-spacing: .06em;
-        color: var(--muted);
-        font-weight: 800;
-    }
-    .att-day-kpi .v {
-        font-size: 1.2rem;
-        font-weight: 800;
-        color: var(--text);
-        line-height: 1.1;
-        margin-top: .1rem;
-    }
-    .att-day-kpi .sub {
-        font-size: .64rem;
-        color: var(--muted);
-        margin-top: .1rem;
+        width: 0%;
+        border-radius: 99px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+        transition: width 0.4s ease;
     }
 
-    /* --- recent dates strip --- */
-    .att-recent-dates {
+    /* ---------------- SECTION HEADERS ---------------- */
+    .att-section { margin-bottom: 18px; }
+
+    .att-section-title {
         display: flex;
-        gap: .4rem;
-        padding: .7rem 1.2rem;
-        background: var(--surface);
-        border-bottom: 1px solid var(--border);
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: thin;
+        align-items: center;
+        gap: 9px;
+        margin: 0 4px 10px;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
     }
-    .att-recent-dates::-webkit-scrollbar { height: 6px; }
-    .att-recent-dates::-webkit-scrollbar-thumb {
-        background: var(--border);
-        border-radius: 3px;
+
+    .att-section-title::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(201, 162, 39, 0.45), transparent);
     }
-    .att-date-pill {
+
+    .att-title-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 7px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+    }
+
+    .att-title-icon svg {
+        width: 12px;
+        height: 12px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-section-sub {
+        font-weight: 700;
+        font-size: 0.7rem;
+        letter-spacing: 0.02em;
+        color: var(--gold);
+        text-transform: none;
+    }
+
+    /* ---------------- CLASS CARDS ---------------- */
+    .att-class-card {
         position: relative;
-        flex: 0 0 auto;
-        min-width: 72px;
-        padding: .45rem .5rem .4rem;
-        border-radius: .55rem;
+        overflow: hidden;
+        background: var(--surface);
         border: 1px solid var(--border);
-        background: var(--surface-alt);
+        border-radius: 16px;
+        padding: 13px 15px 12px 17px;
+        margin-bottom: 10px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
         cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+    .att-class-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 3px;
+        background: var(--muted);
+    }
+
+    .att-class-card.status-green::before { background: var(--success); }
+    .att-class-card.status-amber::before { background: var(--warning); }
+    .att-class-card.status-red::before   { background: var(--danger); }
+
+    .att-class-card:hover {
+        border-color: rgba(15, 157, 143, 0.35);
+        box-shadow: 0 12px 26px rgba(11, 110, 100, 0.10);
+    }
+
+    .att-class-card:active { transform: scale(0.995); }
+
+    .att-class-card-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .att-class-head-left {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        min-width: 0;
+    }
+
+    .att-class-icon {
+        flex: 0 0 38px;
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(140deg, #e8f6f3 0%, #cdeee8 100%);
+        color: var(--accent-deep);
+        border: 1px solid rgba(15, 157, 143, 0.18);
+    }
+
+    .att-class-icon svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-class-name {
+        font-weight: 800;
+        font-size: 0.96rem;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        color: var(--text);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .att-class-card-meta {
+        font-size: 0.77rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-top: 8px;
+        padding-left: 49px;
+    }
+
+    .att-class-card-perm {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--muted);
+        margin-top: 9px;
+        padding-top: 9px;
+        padding-left: 49px;
+        border-top: 1px dashed var(--border);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .att-class-card-perm::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--gold);
+    }
+
+    /* ---------------- STATUS CHIPS ---------------- */
+    .att-status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 9px;
+        border-radius: 8px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+
+    .att-status-chip::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.85;
+    }
+
+    .att-green { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .att-amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .att-red   { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .att-blue  { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+
+    /* ---------------- PERIOD CARDS ---------------- */
+    .att-period-card {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        box-shadow: 0 6px 16px rgba(11, 110, 100, 0.04);
+        cursor: pointer;
+        transition: transform 0.12s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .att-period-card:hover {
+        border-color: rgba(15, 157, 143, 0.35);
+        box-shadow: 0 10px 22px rgba(11, 110, 100, 0.08);
+    }
+
+    .att-period-card:active { transform: scale(0.995); }
+
+    .att-period-left {
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+        color: #ffffff;
+        background: linear-gradient(140deg, #12b3a2 0%, #0b6e64 100%);
+    }
+
+    .att-period-mid { flex: 1; min-width: 0; }
+
+    .att-period-class {
+        font-weight: 800;
+        font-size: 0.9rem;
+        line-height: 1.2;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .att-period-subject {
+        margin-top: 3px;
+        font-size: 0.73rem;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    /* ---------------- EMPTY STATE ---------------- */
+    .att-empty {
         text-align: center;
-        transition: all .12s ease;
-        font-size: .68rem;
+        color: var(--muted);
+        padding: 26px 16px;
+        font-size: 0.84rem;
+        font-weight: 600;
+        line-height: 1.5;
+    }
+
+    .att-empty svg {
+        display: block;
+        width: 34px;
+        height: 34px;
+        margin: 0 auto 10px;
+        stroke: var(--accent);
+        fill: none;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.55;
+    }
+
+    /* ---------------- DETAIL HEADER ---------------- */
+    .att-detail-header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
+    }
+
+    .att-back-btn {
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        color: var(--accent-deep);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .att-back-btn svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-back-btn:hover {
+        background: var(--accent-soft);
+        border-color: rgba(15, 157, 143, 0.35);
+    }
+
+    .att-detail-header > div { min-width: 0; flex: 1; }
+
+    .att-detail-title {
+        font-weight: 800;
+        font-size: 1rem;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .att-detail-sub {
+        font-size: 0.74rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-top: 3px;
+    }
+
+    /* ---------------- TABS ---------------- */
+    .att-tabs {
+        display: flex;
+        padding: 4px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 14px;
+        gap: 4px;
+    }
+
+    .att-tab {
+        flex: 1;
+        padding: 9px 12px;
+        background: transparent;
+        border: none;
+        border-radius: 9px;
+        font-weight: 800;
+        font-size: 0.72rem;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+        cursor: pointer;
+        transition: background 0.18s ease, color 0.18s ease;
+    }
+
+    .att-tab.active {
+        background: #ffffff;
+        color: var(--accent-deep);
+        box-shadow: 0 4px 12px rgba(11, 110, 100, 0.08);
+    }
+
+    /* ---------------- CONTENT CARD ---------------- */
+    .att-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 15px;
+        margin-bottom: 12px;
+        box-shadow: 0 10px 24px rgba(11, 110, 100, 0.06);
+    }
+
+    /* ---------------- DATE ROW ---------------- */
+    .att-date-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+    }
+
+    .att-date-row label {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0;
+    }
+
+    .att-date-row input[type="date"] {
+        flex: 1;
+        min-width: 140px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-weight: 700;
+        font-size: 0.85rem;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .att-date-row input[type="date"]:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .att-date-row input[type="date"]:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .att-load-btn {
+        padding: 9px 16px;
+        border-radius: 10px;
+        border: none;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        box-shadow: 0 8px 16px rgba(11, 110, 100, 0.16);
+        transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .att-load-btn:active { transform: scale(0.97); }
+
+    /* ---------------- DATE ANALYTICS (detail view) ---------------- */
+    .att-date-analytics {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 11px 12px 10px;
+        margin-bottom: 12px;
+    }
+
+    .att-da-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 9px;
+    }
+
+    .att-da-title {
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-da-date {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        color: var(--accent-deep);
+        background: var(--accent-soft);
+        padding: 2px 8px;
+        border-radius: 6px;
+    }
+
+    .att-da-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 5px;
+        margin-bottom: 9px;
+    }
+
+    .att-da-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+        padding: 6px 3px 5px;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid var(--border);
+    }
+
+    .att-da-num {
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        color: var(--text);
+    }
+
+    .att-da-lbl {
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-da-item.present  .att-da-num { color: #16a34a; }
+    .att-da-item.absent   .att-da-num { color: #dc2626; }
+    .att-da-item.late     .att-da-num { color: #d97706; }
+    .att-da-item.half_day .att-da-num { color: #7c3aed; }
+    .att-da-item.excused  .att-da-num { color: #0284c7; }
+
+    .att-da-bar {
+        position: relative;
+        height: 5px;
+        border-radius: 99px;
+        background: rgba(15, 157, 143, 0.10);
+        overflow: hidden;
+        display: flex;
+    }
+
+    .att-da-seg {
+        height: 100%;
+        transition: width 0.35s ease;
+    }
+    .att-da-seg.present  { background: #16a34a; }
+    .att-da-seg.absent   { background: #dc2626; }
+    .att-da-seg.late     { background: #d97706; }
+    .att-da-seg.half_day { background: #7c3aed; }
+    .att-da-seg.excused  { background: #0284c7; }
+
+    .att-da-summary {
+        margin-top: 7px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .att-da-summary b {
+        color: var(--text);
+        font-weight: 800;
+    }
+
+    /* ---------------- INFO BANNERS ---------------- */
+    .att-banner {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 11px 13px;
+        border-radius: 12px;
+        font-size: 0.81rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 12px;
+    }
+
+    .att-banner svg {
+        flex: 0 0 18px;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .att-banner.holiday {
+        background: #fffbeb;
+        border: 1px solid rgba(245, 158, 11, 0.32);
+        border-left: 4px solid var(--warning);
+        color: #78350f;
+    }
+
+    .att-banner.locked {
+        background: #eef2ff;
+        border: 1px solid rgba(99, 102, 241, 0.28);
+        border-left: 4px solid #6366f1;
+        color: #3730a3;
+    }
+
+    .att-banner.auto {
+        background: #eff6ff;
+        border: 1px solid rgba(30, 64, 175, 0.22);
+        border-left: 4px solid #1e40af;
+        color: #1e40af;
+    }
+
+    /* ---------------- STUDENT LIST ---------------- */
+    .att-students-list { margin-bottom: 8px; }
+
+    .att-student-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .att-student-row:last-child { border-bottom: none; }
+
+    .att-student-info { flex: 1; min-width: 0; }
+
+    .att-student-roll {
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .att-student-name {
+        margin-top: 3px;
+        font-weight: 800;
+        font-size: 0.88rem;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        line-height: 1.25;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .att-student-meta {
+        margin-top: 2px;
+        font-size: 0.71rem;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    /* ---------------- TAGS ---------------- */
+    .att-tag {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 5px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+    }
+
+    .att-tag.leave { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
+    .att-tag.auto  { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+
+    /* ---------------- STATUS RADIO GROUP ---------------- */
+    .att-status-group {
+        display: flex;
+        gap: 3px;
+        flex-wrap: nowrap;
+        flex: 0 0 auto;
+    }
+
+    .att-status-group input { display: none; }
+
+    .att-status-group label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 30px;
+        height: 30px;
+        padding: 0 7px;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--muted);
         user-select: none;
+        margin: 0;
+        transition: background 0.14s ease, color 0.14s ease,
+                    border-color 0.14s ease, transform 0.10s ease;
     }
-    .att-date-pill:hover {
-        border-color: var(--primary);
-        transform: translateY(-1px);
+
+    .att-status-group label:hover {
+        border-color: var(--accent);
+        color: var(--accent-deep);
     }
-    .att-date-pill.active {
-        border-color: var(--primary);
-        background: var(--primary);
-        color: #fff;
-        box-shadow: 0 4px 12px rgba(99,102,241,.35);
+
+    .att-status-group input[value="present"]:checked  + label { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .att-status-group input[value="absent"]:checked   + label { background: #dc2626; color: #fff; border-color: #dc2626; }
+    .att-status-group input[value="late"]:checked     + label { background: #d97706; color: #fff; border-color: #d97706; }
+    .att-status-group input[value="half_day"]:checked + label { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+    .att-status-group input[value="excused"]:checked  + label { background: #0284c7; color: #fff; border-color: #0284c7; }
+
+    .att-status-group input:disabled + label { opacity: 0.45; cursor: not-allowed; }
+
+    /* ---------------- BULK ACTIONS ---------------- */
+    .att-bulk-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        padding-top: 12px;
+        border-top: 1px dashed var(--border);
     }
-    .att-date-pill.status-holiday {
-        opacity: .6;
-        filter: grayscale(.5);
-    }
-    .att-date-pill .dp-day {
+
+    .att-ghost-btn {
+        padding: 9px 14px;
+        border-radius: 10px;
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        border: 1px solid var(--border);
         font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .04em;
-        font-size: .58rem;
-        opacity: .85;
+        font-size: 0.74rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
     }
-    .att-date-pill .dp-num {
+
+    .att-ghost-btn:hover { background: var(--accent-soft); border-color: rgba(15, 157, 143, 0.35); }
+    .att-ghost-btn:active { transform: scale(0.97); }
+    .att-ghost-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    /* ---------------- SAVE BAR ---------------- */
+    .att-save-area {
+        margin-top: 14px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .att-quota-info {
+        flex: 1;
+        min-width: 120px;
+        font-size: 0.73rem;
+        font-weight: 700;
+        color: var(--muted);
+        line-height: 1.35;
+    }
+
+    .att-save-btn {
+        padding: 11px 20px;
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
         font-weight: 800;
-        font-size: .95rem;
-        line-height: 1.05;
-        margin: .1rem 0 0;
+        font-size: 0.82rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        box-shadow: 0 10px 20px rgba(11, 110, 100, 0.20);
+        transition: transform 0.12s ease, filter 0.15s ease;
     }
-    .att-date-pill .dp-month {
-        font-size: .56rem;
-        opacity: .75;
+
+    .att-save-btn:hover { filter: brightness(1.05); }
+    .att-save-btn:active { transform: scale(0.98); }
+    .att-save-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .att-save-msg {
+        font-size: 0.77rem;
+        font-weight: 700;
+        text-align: center;
+        margin-top: 10px;
+        color: var(--muted);
+        min-height: 1em;
+    }
+
+    .att-save-msg.ok  { color: var(--success); }
+    .att-save-msg.err { color: var(--danger); }
+
+    /* ---------------- HISTORY ---------------- */
+    .att-history-header {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr auto;
+        gap: 10px;
+        padding: 0 4px 10px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 4px;
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
         text-transform: uppercase;
-        letter-spacing: .05em;
+        color: var(--muted);
     }
-    .att-date-pill .dp-bar {
-        height: 3px;
-        margin-top: .3rem;
-        border-radius: 999px;
-        background: var(--border);
+
+    .att-history-row {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 12px 4px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 0.15s ease;
+        border-radius: 8px;
+    }
+
+    .att-history-row:hover { background: var(--accent-soft); }
+    .att-history-row:last-child { border-bottom: none; }
+
+    .att-history-date {
+        font-weight: 800;
+        font-size: 0.84rem;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .att-history-day {
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: var(--muted);
+        margin-top: 3px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .att-history-status {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-start;
+    }
+
+    .att-history-counts {
+        font-size: 0.71rem;
+        font-weight: 700;
+        color: var(--muted);
+    }
+
+    .att-history-quota {
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: var(--gold);
+        letter-spacing: 0.03em;
+    }
+
+    .att-history-action { text-align: right; }
+
+    .att-mini-btn {
+        padding: 6px 12px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        border: none;
+        font-weight: 800;
+        font-size: 0.68rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        cursor: pointer;
+        box-shadow: 0 6px 12px rgba(11, 110, 100, 0.16);
+    }
+
+    .att-mini-lock {
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    /* ---------------- MODAL ---------------- */
+    .att-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 45, 41, 0.52);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        padding: 20px;
+    }
+
+    .att-modal.open { display: flex; }
+
+    .att-modal-card {
+        position: relative;
+        background: var(--surface);
+        border-radius: 18px;
+        width: min(400px, 100%);
+        padding: 20px 20px 18px;
+        box-shadow: 0 24px 48px rgba(6, 45, 41, 0.32);
+        border: 1px solid var(--border);
         overflow: hidden;
     }
-    .att-date-pill .dp-bar > span {
-        display: block;
-        height: 100%;
-        border-radius: 999px;
-        background: #10b981;
-        transition: width .2s ease;
-    }
-    .att-date-pill.active .dp-bar {
-        background: rgba(255,255,255,.35);
-    }
-    .att-date-pill.active .dp-bar > span { background: #fff; }
-    .att-date-pill.status-partial .dp-bar > span  { background: #f59e0b; }
-    .att-date-pill.status-pending .dp-bar > span  { background: #ef4444; }
-    .att-date-pill.status-holiday .dp-bar > span  { background: #0ea5e9; }
-    .att-date-pill.is-today {
-        border-color: #10b981;
-    }
-    .att-date-pill.is-today::after {
-        content: '●';
-        color: #10b981;
+
+    .att-modal-card::before {
+        content: "";
         position: absolute;
-        top: 1px;
-        right: 3px;
-        font-size: .5rem;
-        line-height: 1;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
     }
-    .att-date-pill.active.is-today::after { color: #fff; }
 
-    .att-recent-empty {
-        width: 100%;
-        text-align: center;
-        font-size: .78rem;
+    .att-modal-title {
+        margin: 0 0 8px;
+        font-size: 1rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .att-modal-body {
+        font-size: 0.86rem;
+        font-weight: 600;
         color: var(--muted);
-        padding: .5rem 0;
-    }
-    /* ============ /ATTENDANCE_DATE_ANALYTICS_V1 ============ */
-'''
-
-
-NEW_HTML = r'''            <!-- ============ ATTENDANCE_DATE_ANALYTICS_V1 ============ -->
-            <div id="attRecentDates" class="att-recent-dates" style="display:none;"></div>
-            <div id="attDateAnalytics" class="att-day-analytics" style="display:none;"></div>
-            <!-- ============ /ATTENDANCE_DATE_ANALYTICS_V1 ============ -->
-'''
-
-
-NEW_JS_FUNCTIONS = r'''    // ================= ATTENDANCE_DATE_ANALYTICS_V1 =================
-    // Per-date analytics panel + recent-dates strip.  Purely additive:
-    // no existing function is modified in a destructive way.
-
-    var recentDatesCache = [];
-
-    function fmtDateParts(dateStr) {
-        // Returns { num, monthShort, dayShort, dayFull }
-        try {
-            var parts = dateStr.split('-');
-            var d = new Date(
-                parseInt(parts[0], 10),
-                parseInt(parts[1], 10) - 1,
-                parseInt(parts[2], 10),
-            );
-            var dayShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
-            var dayFull  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()];
-            var monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
-            return {
-                num: parts[2],
-                monthShort: monthShort,
-                dayShort: dayShort,
-                dayFull: dayFull,
-            };
-        } catch (e) {
-            return { num: dateStr, monthShort: '', dayShort: '', dayFull: '' };
-        }
+        line-height: 1.5;
+        margin-bottom: 18px;
     }
 
-    function loadRecentDates() {
-        if (!modalClassId) return;
-        var strip = q('#attRecentDates');
-        if (strip) {
-            strip.style.display = 'flex';
-            strip.innerHTML = '<div class="att-recent-empty">Loading recent dates…</div>';
+    .att-modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    /* ---------------- RESPONSIVE ---------------- */
+    @media (max-width: 400px) {
+        .att-hero h2 { font-size: 1.2rem; }
+        .att-status-group label { min-width: 28px; height: 28px; font-size: 0.66rem; padding: 0 5px; }
+        .att-save-btn { width: 100%; }
+        .att-load-btn { width: 100%; }
+        .att-stat-value { font-size: 1.15rem; }
+        .att-da-num { font-size: 0.84rem; }
+        .att-da-lbl { font-size: 8px; letter-spacing: 0.06em; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+    }
+</style>
+
+<!-- ==================== HERO (hidden in detail view) ==================== -->
+<div class="att-hero" id="attHero">
+    <div class="att-hero-top">
+        <div>
+            <h2>Attendance</h2>
+            <div class="sub">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="8.5" r="3.8"/>
+                    <path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>
+                </svg>
+                {{ staff.full_name }}
+            </div>
+        </div>
+        <span class="att-today-chip">{{ day_name }} · {{ today }}</span>
+    </div>
+</div>
+
+{% if is_holiday %}
+<div class="att-holiday-banner" id="attPageHolidayBanner">
+    <div class="att-holiday-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+            <rect x="3" y="4.5" width="18" height="16" rx="3"/>
+            <path d="M8 3v3M16 3v3M3 10h18"/>
+        </svg>
+    </div>
+    <div>
+        <div class="att-holiday-title">Today is a holiday</div>
+        <div class="att-holiday-reason">{{ holiday_reason }}</div>
+        <div class="att-holiday-desc">Aaj holiday hai — attendance mark karne ki zaroorat nahi.</div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ==================== HOME VIEW ==================== -->
+<div id="attHomeView">
+
+    <div class="att-analytics" id="attAnalytics" style="display:none;">
+        <div class="att-stat">
+            <div class="att-stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3z"/><path d="M4 6v9l8 4 8-4V6"/></svg>
+            </div>
+            <div class="att-stat-value" id="attStatClasses">—</div>
+            <div class="att-stat-label">Classes</div>
+        </div>
+        <div class="att-stat">
+            <div class="att-stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="8.5" r="2.5"/><path d="M14.5 20a5.5 5.5 0 0 1 8-4.9"/></svg>
+            </div>
+            <div class="att-stat-value" id="attStatStudents">—</div>
+            <div class="att-stat-label">Students</div>
+        </div>
+        <div class="att-stat">
+            <div class="att-stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 19h16"/><path d="M6 16V9M11 16V5M16 16v-4M21 16V7"/></svg>
+            </div>
+            <div class="att-stat-value" id="attStatProgress">—</div>
+            <div class="att-stat-label">Progress</div>
+            <div class="att-progress-track" aria-hidden="true">
+                <span class="att-progress-bar" id="attProgressBar"></span>
+            </div>
+        </div>
+    </div>
+
+    <div id="attCTSection" class="att-section" style="display:none;">
+        <div class="att-section-title">
+            <span class="att-title-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3z"/><path d="M4 6v9l8 4 8-4V6"/></svg>
+            </span>
+            My Classes
+            <span class="att-section-sub">(Class Teacher)</span>
+        </div>
+        <div id="attCTList"></div>
+    </div>
+
+    <div id="attSubSection" class="att-section" style="display:none;">
+        <div class="att-section-title">
+            <span class="att-title-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            </span>
+            My Periods Today
+            <span class="att-section-sub">(Subject Teacher)</span>
+        </div>
+        <div id="attSubList"></div>
+    </div>
+
+    <div id="attNoClasses" class="att-card" style="display:none;">
+        <div class="att-empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 8v5M12 16h.01"/>
+            </svg>
+            You are not currently assigned as a class teacher or subject teacher to any class.<br>
+            Please contact your school admin.
+        </div>
+    </div>
+</div>
+
+<!-- ==================== DETAIL VIEW ==================== -->
+<div id="attDetailView" style="display:none;">
+    <div class="att-detail-header">
+        <button class="att-back-btn" onclick="AXIS_ATT.back()" aria-label="Back">
+            <svg viewBox="0 0 24 24"><path d="M15 6 9 12l6 6"/></svg>
+        </button>
+        <div>
+            <div class="att-detail-title" id="attDetailTitle">Class</div>
+            <div class="att-detail-sub" id="attDetailSub"></div>
+        </div>
+    </div>
+
+    <div class="att-tabs">
+        <button class="att-tab active" data-tab="today" onclick="AXIS_ATT.switchTab('today')">Today</button>
+        <button class="att-tab" data-tab="history" onclick="AXIS_ATT.switchTab('history')">History</button>
+    </div>
+
+    <!-- TODAY PANEL -->
+    <div id="attTabToday" class="att-tab-panel">
+        <div class="att-card">
+            <div class="att-date-row">
+                <label for="attDatePicker">Date</label>
+                <input type="date" id="attDatePicker">
+                <button class="att-load-btn" type="button" onclick="AXIS_ATT.loadDate()">Load</button>
+            </div>
+
+            <!-- Date-specific analytics (populated by JS) -->
+            <div class="att-date-analytics" id="attDateAnalytics" style="display:none;">
+                <div class="att-da-head">
+                    <span class="att-da-title">Date Snapshot</span>
+                    <span class="att-da-date" id="attDaDate">—</span>
+                </div>
+                <div class="att-da-grid">
+                    <div class="att-da-item present">
+                        <span class="att-da-num" id="attDaPresent">0</span>
+                        <span class="att-da-lbl">Present</span>
+                    </div>
+                    <div class="att-da-item absent">
+                        <span class="att-da-num" id="attDaAbsent">0</span>
+                        <span class="att-da-lbl">Absent</span>
+                    </div>
+                    <div class="att-da-item late">
+                        <span class="att-da-num" id="attDaLate">0</span>
+                        <span class="att-da-lbl">Late</span>
+                    </div>
+                    <div class="att-da-item half_day">
+                        <span class="att-da-num" id="attDaHalf">0</span>
+                        <span class="att-da-lbl">Half</span>
+                    </div>
+                    <div class="att-da-item excused">
+                        <span class="att-da-num" id="attDaExcused">0</span>
+                        <span class="att-da-lbl">Leave</span>
+                    </div>
+                </div>
+                <div class="att-da-bar" aria-hidden="true">
+                    <span class="att-da-seg present" id="attDaSegPresent" style="width:0%"></span>
+                    <span class="att-da-seg absent"  id="attDaSegAbsent"  style="width:0%"></span>
+                    <span class="att-da-seg late"    id="attDaSegLate"    style="width:0%"></span>
+                    <span class="att-da-seg half_day" id="attDaSegHalf"   style="width:0%"></span>
+                    <span class="att-da-seg excused" id="attDaSegExcused" style="width:0%"></span>
+                </div>
+                <div class="att-da-summary">
+                    <span id="attDaSummaryTotal">Total <b>0</b></span>
+                    <span id="attDaSummaryPresent">Present <b>0%</b></span>
+                </div>
+            </div>
+
+            <div id="attTodayBanner" class="att-banner" style="display:none;"></div>
+            <div id="attTodayLock" class="att-banner locked" style="display:none;"></div>
+            <div id="attTodayStudents" class="att-students-list">
+                <div class="att-empty">Pick a class to begin.</div>
+            </div>
+            <div class="att-bulk-actions">
+                <button class="att-ghost-btn" id="attBulkPresent" type="button" onclick="AXIS_ATT.bulk('present')">All Present</button>
+                <button class="att-ghost-btn" id="attBulkAbsent"  type="button" onclick="AXIS_ATT.bulk('absent')">All Absent</button>
+            </div>
+            <div class="att-save-area">
+                <div class="att-quota-info" id="attQuotaInfo"></div>
+                <button class="att-save-btn" id="attSaveBtn" type="button" onclick="AXIS_ATT.confirmSave()">Save Attendance</button>
+            </div>
+            <div id="attSaveMsg" class="att-save-msg"></div>
+        </div>
+    </div>
+
+    <!-- HISTORY PANEL -->
+    <div id="attTabHistory" class="att-tab-panel" style="display:none;">
+        <div class="att-card">
+            <div class="att-history-header">
+                <div>Date</div>
+                <div>Status</div>
+                <div></div>
+            </div>
+            <div id="attHistoryList" class="att-history-list">
+                <div class="att-empty">Loading…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== CONFIRM MODAL ==================== -->
+<div id="attConfirmModal" class="att-modal" role="dialog" aria-modal="true" aria-labelledby="attConfirmTitle">
+    <div class="att-modal-card">
+        <div class="att-modal-title" id="attConfirmTitle">Confirm Save</div>
+        <div class="att-modal-body" id="attConfirmBody">
+            Are you sure you want to save this attendance?
+        </div>
+        <div class="att-modal-actions">
+            <button class="att-ghost-btn" type="button" onclick="AXIS_ATT.closeConfirm()">Cancel</button>
+            <button class="att-save-btn"  type="button" onclick="AXIS_ATT.doSave()">Yes, Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+window.AXIS_ATT = (function() {
+    /* =========================================================
+       STAFF ATTENDANCE — logic preserved 1:1.
+       Additions:
+         • renderAnalytics()      — home view stat strip
+         • renderDateAnalytics()  — detail view, updates per date
+         • toggleHero()           — hide/show hero on detail enter/exit
+         • Class card leading SVG badge
+       No existing behaviour removed.
+       ========================================================= */
+
+    var CT_CLASSES = {{ class_teacher_classes_json|safe }};
+    var SUBJECT_PERIODS = {{ subject_periods_json|safe }};
+    var TODAY = '{{ today }}';
+
+    var currentClass = null;
+    var currentDate = TODAY;
+    var currentPeriod = null;
+    var currentStudents = [];
+    var currentPermission = null;
+    var currentLocked = false;
+
+    /* --- inline SVG helpers (no emojis anywhere in the DOM) --- */
+    function svgHoliday() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="3" y="4.5" width="18" height="16" rx="3"/>'
+             + '<path d="M8 3v3M16 3v3M3 10h18"/>'
+             + '</svg>';
+    }
+    function svgLock() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/>'
+             + '<path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>'
+             + '</svg>';
+    }
+    function svgBot() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="4" y="7" width="16" height="12" rx="3"/>'
+             + '<path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/>'
+             + '<circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/>'
+             + '<path d="M10 16.5h4"/>'
+             + '</svg>';
+    }
+    /* Leading badge icon for class cards (graduated book). */
+    function svgClassIcon() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<path d="M4 19.5V7.5A2.5 2.5 0 0 1 6.5 5H20v14.5"/>'
+             + '<path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/>'
+             + '<path d="M8 9h8M8 13h8"/>'
+             + '</svg>';
+    }
+
+    function q(s, r) { return (r || document).querySelector(s); }
+    function qa(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+        });
+    }
+    function csrf() {
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute('content')) return m.getAttribute('content');
+        var name = 'csrftoken=';
+        var parts = (document.cookie || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return c.substring(name.length);
         }
-        var url = '/portal/' + SCHEMA
-                + '/api/attendance/recent-summary/?class_id=' + modalClassId
-                + '&days=14';
+        return '';
+    }
+
+    function permLabel(v) {
+        if (v === 'read_write') return 'Read & Write';
+        if (v === 'read') return 'Read only';
+        return 'Today only';
+    }
+
+    function statusClass(s) {
+        if (s === 'completed') return 'green';
+        if (s === 'partial')   return 'amber';
+        return 'red';
+    }
+
+    function statusText(s) {
+        if (s === 'completed') return 'Completed';
+        if (s === 'partial')   return 'Partial';
+        return 'Pending';
+    }
+
+    /* ---- Hero / page banner toggle ---- */
+    function toggleHero(show) {
+        var hero = q('#attHero');
+        if (hero) hero.style.display = show ? 'block' : 'none';
+        var pg = q('#attPageHolidayBanner');
+        if (pg) pg.style.display = show ? 'flex' : 'none';
+    }
+
+    /* ---- Home view analytics strip ---- */
+    function renderAnalytics() {
+        var box = q('#attAnalytics');
+        if (!box) return;
+
+        var ctCount = (CT_CLASSES && CT_CLASSES.length) ? CT_CLASSES.length : 0;
+        var spCount = (SUBJECT_PERIODS && SUBJECT_PERIODS.length) ? SUBJECT_PERIODS.length : 0;
+        var totalClasses = ctCount + spCount;
+
+        var totalStudents = 0;
+        var totalMarked = 0;
+        (CT_CLASSES || []).forEach(function(c) {
+            totalStudents += (c.student_count || 0);
+            totalMarked   += (c.marked_today  || 0);
+        });
+
+        var pct = totalStudents > 0
+            ? Math.min(100, Math.round(totalMarked * 100 / totalStudents))
+            : 0;
+
+        var classesEl  = q('#attStatClasses');
+        var studentsEl = q('#attStatStudents');
+        var progressEl = q('#attStatProgress');
+        var barEl      = q('#attProgressBar');
+
+        if (classesEl)  classesEl.textContent  = String(totalClasses);
+        if (studentsEl) studentsEl.textContent = String(totalStudents);
+        if (progressEl) progressEl.textContent = (totalStudents > 0 ? pct + '%' : '—');
+        if (barEl)      barEl.style.width      = pct + '%';
+
+        box.style.display = totalClasses > 0 ? 'grid' : 'none';
+    }
+
+    /* ---- Detail view analytics strip (per date) ---- */
+    function renderDateAnalytics() {
+        var box = q('#attDateAnalytics');
+        if (!box) return;
+
+        var total = currentStudents.length;
+        if (!total) {
+            box.style.display = 'none';
+            return;
+        }
+
+        var c = { present: 0, absent: 0, late: 0, half_day: 0, excused: 0 };
+        currentStudents.forEach(function(s) {
+            var k = s.status || 'present';
+            if (c[k] === undefined) c[k] = 0;
+            c[k] += 1;
+        });
+
+        function setTxt(id, v) { var el = q(id); if (el) el.textContent = String(v); }
+        setTxt('#attDaPresent', c.present);
+        setTxt('#attDaAbsent',  c.absent);
+        setTxt('#attDaLate',    c.late);
+        setTxt('#attDaHalf',    c.half_day);
+        setTxt('#attDaExcused', c.excused);
+
+        function pctOf(n) { return total ? (n * 100 / total) : 0; }
+        function setW(id, v) { var el = q(id); if (el) el.style.width = v.toFixed(2) + '%'; }
+        setW('#attDaSegPresent', pctOf(c.present));
+        setW('#attDaSegAbsent',  pctOf(c.absent));
+        setW('#attDaSegLate',    pctOf(c.late));
+        setW('#attDaSegHalf',    pctOf(c.half_day));
+        setW('#attDaSegExcused', pctOf(c.excused));
+
+        var presentPct = total ? Math.round(c.present * 100 / total) : 0;
+
+        var dateEl = q('#attDaDate');
+        if (dateEl) dateEl.textContent = currentDate || TODAY;
+        var sumTot = q('#attDaSummaryTotal');
+        if (sumTot) sumTot.innerHTML = 'Total <b>' + total + '</b>';
+        var sumPre = q('#attDaSummaryPresent');
+        if (sumPre) sumPre.innerHTML = 'Present <b>' + presentPct + '%</b>';
+
+        box.style.display = 'block';
+    }
+
+    function init() {
+        var anyClass = false;
+
+        if (CT_CLASSES && CT_CLASSES.length) {
+            var h = '';
+            CT_CLASSES.forEach(function(c) {
+                var sc = statusClass(c.status);
+                var st = statusText(c.status);
+                var autoTag = c.auto_marked
+                    ? '<span class="att-tag auto">AUTO</span>' : '';
+                h += '<div class="att-class-card status-' + sc + '" onclick="AXIS_ATT.openClass(' + c.id + ')">';
+                h +=   '<div class="att-class-card-head">';
+                h +=     '<div class="att-class-head-left">';
+                h +=       '<span class="att-class-icon" aria-hidden="true">' + svgClassIcon() + '</span>';
+                h +=       '<div class="att-class-name">' + esc(c.name) + autoTag + '</div>';
+                h +=     '</div>';
+                h +=     '<div class="att-status-chip att-' + sc + '">' + st + '</div>';
+                h +=   '</div>';
+                h +=   '<div class="att-class-card-meta">';
+                h +=     c.student_count + ' students · ' + c.marked_today + ' marked today';
+                h +=   '</div>';
+                h +=   '<div class="att-class-card-perm">';
+                h +=     'Permission: ' + permLabel(c.backdate_access)
+                       + ' · Max ' + c.max_edits_per_date + ' edit(s)/date';
+                h +=   '</div>';
+                h += '</div>';
+            });
+            q('#attCTList').innerHTML = h;
+            q('#attCTSection').style.display = 'block';
+            anyClass = true;
+        }
+
+        if (SUBJECT_PERIODS && SUBJECT_PERIODS.length) {
+            var ph = '';
+            SUBJECT_PERIODS.forEach(function(p) {
+                var sc = p.marked ? 'green' : 'amber';
+                var st = p.marked ? 'Marked' : 'Pending';
+                ph += '<div class="att-period-card" onclick="AXIS_ATT.openPeriod(' + p.class_id + ',' + p.period_order + ')">';
+                ph +=   '<div class="att-period-left"><strong>P' + p.period_order + '</strong></div>';
+                ph +=   '<div class="att-period-mid">';
+                ph +=     '<div class="att-period-class">' + esc(p.class_name) + '</div>';
+                ph +=     '<div class="att-period-subject">' + esc(p.subject || '') + '</div>';
+                ph +=   '</div>';
+                ph +=   '<div class="att-status-chip att-' + sc + '">' + st + '</div>';
+                ph += '</div>';
+            });
+            q('#attSubList').innerHTML = ph;
+            q('#attSubSection').style.display = 'block';
+            anyClass = true;
+        }
+
+        if (!anyClass) {
+            q('#attNoClasses').style.display = 'block';
+        }
+
+        q('#attDatePicker').value = TODAY;
+
+        renderAnalytics();
+    }
+
+    function back() {
+        q('#attHomeView').style.display = 'block';
+        q('#attDetailView').style.display = 'none';
+        q('#attDatePicker').disabled = false;
+        currentClass = null;
+        currentPeriod = null;
+        currentStudents = [];
+        currentPermission = null;
+        currentLocked = false;
+
+        /* Restore hero + page holiday banner on the home view */
+        toggleHero(true);
+
+        /* Detail analytics are no longer relevant here */
+        var da = q('#attDateAnalytics');
+        if (da) da.style.display = 'none';
+    }
+
+    function switchTab(which) {
+        qa('.att-tab').forEach(function(t) {
+            t.classList.toggle('active', t.getAttribute('data-tab') === which);
+        });
+        q('#attTabToday').style.display = which === 'today' ? 'block' : 'none';
+        q('#attTabHistory').style.display = which === 'history' ? 'block' : 'none';
+        if (which === 'history' && currentClass) loadHistory();
+    }
+
+    function openClass(classId) {
+        var c = null;
+        for (var i = 0; i < CT_CLASSES.length; i++) {
+            if (CT_CLASSES[i].id === classId) { c = CT_CLASSES[i]; break; }
+        }
+        if (!c) return;
+        currentClass = c;
+        currentPeriod = null;
+        currentDate = TODAY;
+        q('#attDetailTitle').textContent = c.name;
+        q('#attDetailSub').textContent = c.student_count + ' students · Class Teacher';
+        q('#attDatePicker').value = TODAY;
+        q('#attDatePicker').disabled = false;
+        q('#attHomeView').style.display = 'none';
+        q('#attDetailView').style.display = 'block';
+        switchTab('today');
+
+        /* Hide hero + page banner while marking attendance */
+        toggleHero(false);
+
+        loadStudents(c.id, null, TODAY);
+    }
+
+    function openPeriod(classId, periodOrder) {
+        currentPeriod = periodOrder;
+        currentClass = { id: classId, name: 'Period ' + periodOrder };
+        currentDate = TODAY;
+        q('#attDetailTitle').textContent = 'Period ' + periodOrder;
+        q('#attDetailSub').textContent = 'Subject period attendance';
+        q('#attDatePicker').value = TODAY;
+        q('#attDatePicker').disabled = true;
+        q('#attHomeView').style.display = 'none';
+        q('#attDetailView').style.display = 'block';
+        switchTab('today');
+
+        toggleHero(false);
+
+        loadStudents(classId, periodOrder, TODAY);
+    }
+
+    function loadDate() {
+        if (!currentClass) return;
+        currentDate = q('#attDatePicker').value || TODAY;
+        loadStudents(currentClass.id, currentPeriod, currentDate);
+    }
+
+    function loadStudents(classId, periodOrder, date) {
+        var url = '/portal/staff/api/attendance/students/?class_id=' + classId
+                + '&date=' + encodeURIComponent(date);
+        if (periodOrder) url += '&period_order=' + periodOrder;
+
+        q('#attTodayStudents').innerHTML = '<div class="att-empty">Loading…</div>';
+        q('#attTodayBanner').style.display = 'none';
+        q('#attTodayLock').style.display = 'none';
+        q('#attSaveMsg').textContent = '';
+        q('#attSaveMsg').className = 'att-save-msg';
+
+        /* Hide stale date analytics until new data lands. */
+        var da = q('#attDateAnalytics');
+        if (da) da.style.display = 'none';
+
         fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
             .then(function(r) { return r.json(); })
             .then(function(j) {
                 if (!j.ok) {
-                    if (strip) {
-                        strip.innerHTML = '<div class="att-recent-empty">'
-                            + esc(j.error || 'Failed to load recent dates.') + '</div>';
-                    }
+                    q('#attTodayStudents').innerHTML =
+                        '<div class="att-empty">' + esc(j.error || 'Failed') + '</div>';
                     return;
                 }
-                recentDatesCache = j.rows || [];
-                renderRecentDates(j);
-                markActivePill(q('#attModalDate').value);
+                if (j.is_holiday) {
+                    var b = q('#attTodayBanner');
+                    b.className = 'att-banner holiday';
+                    b.innerHTML = svgHoliday()
+                        + '<span>' + esc(j.holiday_reason || 'Holiday') + '</span>';
+                    b.style.display = 'flex';
+                    q('#attTodayStudents').innerHTML =
+                        '<div class="att-empty">No attendance is expected on a holiday.</div>';
+                    q('#attSaveBtn').disabled = true;
+                    q('#attSaveBtn').style.opacity = 0.5;
+                    q('#attBulkPresent').disabled = true;
+                    q('#attBulkAbsent').disabled = true;
+                    return;
+                }
+                currentStudents = j.students || [];
+                currentPermission = j.permission || null;
+                currentLocked = !!j.locked;
+
+                if (currentLocked) {
+                    var lk = q('#attTodayLock');
+                    lk.className = 'att-banner locked';
+                    lk.innerHTML = svgLock()
+                        + '<span>' + esc(j.lock_reason || 'This date is locked for you.') + '</span>';
+                    lk.style.display = 'flex';
+                } else if (j.auto_marked) {
+                    var b2 = q('#attTodayBanner');
+                    b2.className = 'att-banner auto';
+                    b2.innerHTML = svgBot()
+                        + '<span>This date was auto-marked by the system. You can still edit it.</span>';
+                    b2.style.display = 'flex';
+                }
+
+                renderStudents();
+                renderDateAnalytics();
+                updateQuota();
+
+                q('#attSaveBtn').disabled = currentLocked;
+                q('#attSaveBtn').style.opacity = currentLocked ? 0.5 : 1;
+                q('#attBulkPresent').disabled = currentLocked;
+                q('#attBulkAbsent').disabled = currentLocked;
             })
             .catch(function() {
-                if (strip) {
-                    strip.innerHTML = '<div class="att-recent-empty">Network error.</div>';
-                }
+                q('#attTodayStudents').innerHTML =
+                    '<div class="att-empty">Network error.</div>';
             });
     }
 
-    function renderRecentDates(j) {
-        var strip = q('#attRecentDates');
-        if (!strip) return;
-        var rows = j.rows || [];
-        if (!rows.length) {
-            strip.innerHTML = '<div class="att-recent-empty">No recent dates.</div>';
+    function renderStudents() {
+        if (!currentStudents.length) {
+            q('#attTodayStudents').innerHTML =
+                '<div class="att-empty">No active students in this class.</div>';
             return;
         }
-        // Newest first -> render oldest-left, today-right?  We want
-        // today on the far right so the eye lands there.  rows comes
-        // newest-first, so reverse for display.
-        var disp = rows.slice().reverse();
         var h = '';
-        disp.forEach(function(r) {
-            var p = fmtDateParts(r.date);
-            var cls = 'att-date-pill status-' + r.status
-                    + (r.is_today ? ' is-today' : '');
-            var barPct = Math.max(4, r.completion_pct || 0);
-            var titleBits = [];
-            titleBits.push(r.date + ' (' + r.day_full + ')');
-            if (r.is_holiday) {
-                titleBits.push('Holiday');
-            } else {
-                titleBits.push('Marked ' + r.marked + '/' + r.total_students);
-                titleBits.push('P' + r.present + ' A' + r.absent
-                             + ' L' + r.late + ' H' + r.half_day
-                             + ' Lv' + r.excused);
-                titleBits.push(r.completion_pct + '% done');
-            }
-            h += '<div class="' + cls + '"'
-               + ' data-date="' + esc(r.date) + '"'
-               + ' title="' + esc(titleBits.join('  ·  ')) + '"'
-               + ' onclick="AXIS_ADMIN_ATT.gotoDate(\'' + esc(r.date) + '\')">'
-               +   '<div class="dp-day">' + esc(p.dayShort) + '</div>'
-               +   '<div class="dp-num">' + esc(p.num) + '</div>'
-               +   '<div class="dp-month">' + esc(p.monthShort) + '</div>'
-               +   '<div class="dp-bar"><span style="width:' + barPct + '%;"></span></div>'
-               + '</div>';
+        currentStudents.forEach(function(s) {
+            var tags = '';
+            if (s.on_leave) tags += '<span class="att-tag leave">ON LEAVE</span>';
+            if (s.is_auto)  tags += '<span class="att-tag auto">AUTO</span>';
+            h += '<div class="att-student-row">';
+            h +=   '<div class="att-student-info">';
+            h +=     '<div class="att-student-roll">' + esc(s.roll_number || '—') + '</div>';
+            h +=     '<div class="att-student-name">' + esc(s.name) + tags + '</div>';
+            h +=     '<div class="att-student-meta">' + esc(s.father_name || '') + '</div>';
+            h +=   '</div>';
+            h +=   '<div class="att-status-group">';
+            ['present', 'absent', 'late', 'half_day', 'excused'].forEach(function(v) {
+                var label = {present:'P', absent:'A', late:'L', half_day:'H', excused:'Lv'}[v];
+                var id = 'att_' + s.id + '_' + v;
+                var checked = (s.status === v) ? 'checked' : '';
+                var dis = currentLocked ? 'disabled' : '';
+                h += '<input type="radio" name="st_' + s.id + '" id="' + id + '" value="' + v + '" ' + checked + ' ' + dis + '>';
+                h += '<label for="' + id + '">' + label + '</label>';
+            });
+            h +=   '</div>';
+            h += '</div>';
         });
-        strip.innerHTML = h;
+        q('#attTodayStudents').innerHTML = h;
     }
 
-    function markActivePill(dateStr) {
-        var strip = q('#attRecentDates');
-        if (!strip) return;
-        qa('.att-date-pill', strip).forEach(function(p) {
-            if (p.getAttribute('data-date') === dateStr) {
-                p.classList.add('active');
-            } else {
-                p.classList.remove('active');
-            }
-        });
-    }
-
-    function gotoDate(dateStr) {
-        if (!modalClassId) return;
-        var dp = q('#attModalDate');
-        if (dp) dp.value = dateStr;
-        var pp = q('#attModalPeriod');
-        if (pp) pp.value = '';
-        markActivePill(dateStr);
-        reloadStudents();
-    }
-
-    function renderDateAnalytics(j) {
-        // `j` is the payload from /api/attendance/students/.
-        // We compute counts from the current roster.  Only rows that
-        // are ALREADY marked count as present/absent/etc.; unmarked
-        // students default to 'present' in the API response but are
-        // not real marks.
-        var panel = q('#attDateAnalytics');
-        if (!panel) return;
-
-        if (j.is_holiday) {
-            var dpH = fmtDateParts(j.date || '');
-            panel.style.display = 'block';
-            panel.innerHTML =
-                '<div class="hero-row">'
-                + '<div><span class="date-big">' + esc(j.date || '') + '</span>'
-                +   ' <span class="date-day">' + esc(dpH.dayFull || '') + '</span></div>'
-                + '<div class="meta-row">'
-                +   '<span class="meta-chip">🎉 Holiday'
-                +   (j.holiday_reason ? ' — ' + esc(j.holiday_reason) : '')
-                +   '</span></div>'
-                + '</div>';
+    function updateQuota() {
+        var el = q('#attQuotaInfo');
+        if (!currentPermission || !currentPermission.is_class_teacher) {
+            el.textContent = '';
             return;
         }
-
-        var rows = j.students || [];
-        var total = rows.length;
-        if (!total) {
-            panel.style.display = 'none';
-            return;
-        }
-
-        var marked = 0, present = 0, absent = 0, late = 0,
-            halfDay = 0, excused = 0, autoCount = 0;
-        rows.forEach(function(s) {
-            if (s.already_marked) {
-                marked++;
-                if (s.status === 'present') present++;
-                else if (s.status === 'absent') absent++;
-                else if (s.status === 'late') late++;
-                else if (s.status === 'half_day') halfDay++;
-                else if (s.status === 'excused') excused++;
-            }
-            if (s.is_auto) autoCount++;
-        });
-
-        var completionPct = total
-            ? Math.round((marked / total) * 100) : 0;
-        var presentLike = present + late;
-        var attPct = marked
-            ? Math.round((presentLike / marked) * 100) : 0;
-
-        var dp = fmtDateParts(j.date || '');
-        var periodLabel = (j.period_order !== null &&
-                           j.period_order !== undefined)
-                          ? 'Period ' + j.period_order
-                          : 'Full day';
-
-        // Meta chips: status, auto, lock
-        var statusChip;
-        if (j.locked) {
-            statusChip = '🔒 Already marked';
+        if (currentDate === TODAY) {
+            el.textContent = "Marking today's attendance.";
         } else {
-            statusChip = '⏳ Not yet marked';
+            el.textContent = 'Edits used: ' + currentPermission.quota_used
+                + ' / ' + currentPermission.quota_max
+                + (currentPermission.quota_remaining > 0
+                    ? ' (' + currentPermission.quota_remaining + ' remaining)'
+                    : '');
         }
-        var autoChip = autoCount > 0
-            ? '<span class="meta-chip" style="background:#dbeafe;color:#1e40af;">'
-              + '🤖 ' + autoCount + ' auto</span>'
-            : '';
-        var percentChip = marked > 0
-            ? '<span class="meta-chip" style="background:#d1fae5;color:#065f46;">'
-              + '📊 ' + completionPct + '% done</span>'
-            : '';
-
-        var html = '';
-        html += '<div class="hero-row">';
-        html +=   '<div>'
-               +    '<span class="date-big">' + esc(j.date || '') + '</span>'
-               +    ' <span class="date-day">' + esc(dp.dayFull || '') + '</span>'
-               +  '</div>';
-        html +=   '<div class="meta-row">'
-               +    '<span class="meta-chip">' + esc(periodLabel) + '</span>'
-               +    '<span class="meta-chip">' + statusChip + '</span>'
-               +    autoChip
-               +    percentChip
-               +  '</div>';
-        html += '</div>';
-
-        html += '<div class="kpi-grid">';
-        html +=   '<div class="att-day-kpi k-total">'
-               +    '<div class="k">Total</div>'
-               +    '<div class="v">' + total + '</div>'
-               +    '<div class="sub">active students</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-present">'
-               +    '<div class="k">Present</div>'
-               +    '<div class="v">' + present + '</div>'
-               +    '<div class="sub">' + (marked ? Math.round(present/marked*100) : 0) + '% of marked</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-absent">'
-               +    '<div class="k">Absent</div>'
-               +    '<div class="v">' + absent + '</div>'
-               +    '<div class="sub">' + (marked ? Math.round(absent/marked*100) : 0) + '% of marked</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-late">'
-               +    '<div class="k">Late</div>'
-               +    '<div class="v">' + late + '</div>'
-               +    '<div class="sub">arrived late</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-halfday">'
-               +    '<div class="k">Half day</div>'
-               +    '<div class="v">' + halfDay + '</div>'
-               +    '<div class="sub">partial</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-excused">'
-               +    '<div class="k">Excused</div>'
-               +    '<div class="v">' + excused + '</div>'
-               +    '<div class="sub">on leave</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-pct">'
-               +    '<div class="k">Attendance</div>'
-               +    '<div class="v">' + attPct + '%</div>'
-               +    '<div class="sub">of marked</div>'
-               +  '</div>';
-        html +=   '<div class="att-day-kpi k-auto">'
-               +    '<div class="k">Auto-marked</div>'
-               +    '<div class="v">' + autoCount + '</div>'
-               +    '<div class="sub">by system</div>'
-               +  '</div>';
-        html += '</div>';
-
-        panel.innerHTML = html;
-        panel.style.display = 'block';
     }
 
-    // ================ /ATTENDANCE_DATE_ANALYTICS_V1 =================
+    function bulk(status) {
+        if (currentLocked) return;
+        currentStudents.forEach(function(s) {
+            var el = document.getElementById('att_' + s.id + '_' + status);
+            if (el) el.checked = true;
+            /* keep local model in sync so analytics reflect bulk change */
+            s.status = status;
+        });
+        renderDateAnalytics();
+    }
+
+    function confirmSave() {
+        if (currentLocked) return;
+        var isEdit = currentDate !== TODAY;
+        q('#attConfirmBody').textContent = isEdit
+            ? 'Are you sure? This will use 1 of your remaining edits for ' + currentDate + '.'
+            : "Are you sure you want to save today's attendance?";
+        q('#attConfirmModal').classList.add('open');
+    }
+
+    function closeConfirm() {
+        q('#attConfirmModal').classList.remove('open');
+    }
+
+    function doSave() {
+        closeConfirm();
+        if (!currentClass) return;
+
+        var records = currentStudents.map(function(s) {
+            var el = document.querySelector('input[name="st_' + s.id + '"]:checked');
+            return { student_id: s.id, status: el ? el.value : 'present' };
+        });
+        var payload = {
+            class_id: currentClass.id,
+            date: currentDate,
+            records: records,
+        };
+        if (currentPeriod) payload.period_order = currentPeriod;
+
+        var msg = q('#attSaveMsg');
+        msg.textContent = 'Saving…';
+        msg.className = 'att-save-msg';
+
+        fetch('/portal/staff/api/attendance/mark/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    msg.textContent = j.error || 'Save failed.';
+                    msg.className = 'att-save-msg err';
+                    if (j.permission) {
+                        currentPermission = j.permission;
+                        updateQuota();
+                    }
+                    return;
+                }
+                msg.textContent = 'Saved ' + j.saved + ' record(s).';
+                msg.className = 'att-save-msg ok';
+                if (j.permission) {
+                    currentPermission = j.permission;
+                    updateQuota();
+                }
+                setTimeout(function() { window.location.reload(); }, 900);
+            })
+            .catch(function() {
+                msg.textContent = 'Network error.';
+                msg.className = 'att-save-msg err';
+            });
+    }
+
+    function loadHistory() {
+        if (!currentClass) return;
+        q('#attHistoryList').innerHTML = '<div class="att-empty">Loading…</div>';
+        fetch('/portal/staff/api/attendance/dates/?class_id=' + currentClass.id,
+              { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#attHistoryList').innerHTML =
+                        '<div class="att-empty">' + esc(j.error || 'Failed') + '</div>';
+                    return;
+                }
+                var h = '';
+                (j.dates || []).forEach(function(d) {
+                    var badge = '';
+                    if (d.is_holiday) {
+                        badge = '<span class="att-status-chip att-blue">Holiday</span>';
+                    } else if (d.status === 'completed') {
+                        badge = '<span class="att-status-chip att-green">Completed</span>';
+                    } else if (d.status === 'partial') {
+                        badge = '<span class="att-status-chip att-amber">Partial</span>';
+                    } else {
+                        badge = '<span class="att-status-chip att-red">Pending</span>';
+                    }
+
+                    var action = '';
+                    if (d.can_edit) {
+                        action = '<button type="button" class="att-mini-btn" '
+                               + 'onclick="event.stopPropagation(); AXIS_ATT.jumpToDate(\''
+                               + d.date + '\')">Edit</button>';
+                    } else if (!d.can_view) {
+                        action = '<span class="att-mini-lock">Locked</span>';
+                    } else {
+                        action = '<span class="att-mini-lock">View</span>';
+                    }
+
+                    var autoTag = d.auto_marked > 0
+                        ? '<span class="att-tag auto">AUTO ×' + d.auto_marked + '</span>'
+                        : '';
+
+                    h += '<div class="att-history-row" '
+                       + 'onclick="AXIS_ATT.jumpToDate(\'' + d.date + '\')">';
+                    h +=   '<div>';
+                    h +=     '<div class="att-history-date">' + d.date + '</div>';
+                    h +=     '<div class="att-history-day">' + d.day_name
+                           + (d.is_today ? ' · Today' : '') + '</div>';
+                    h +=   '</div>';
+                    h +=   '<div class="att-history-status">';
+                    h +=     badge + autoTag;
+                    h +=     '<div class="att-history-counts">'
+                           + d.marked + '/' + d.total_students + ' marked</div>';
+                    if (d.quota_max > 0 && !d.is_today && !d.is_holiday) {
+                        h += '<div class="att-history-quota">Edits '
+                           + d.quota_used + '/' + d.quota_max + '</div>';
+                    }
+                    h +=   '</div>';
+                    h +=   '<div class="att-history-action">' + action + '</div>';
+                    h += '</div>';
+                });
+                q('#attHistoryList').innerHTML = h
+                    || '<div class="att-empty">No history available.</div>';
+            })
+            .catch(function() {
+                q('#attHistoryList').innerHTML =
+                    '<div class="att-empty">Network error.</div>';
+            });
+    }
+
+    function jumpToDate(date) {
+        if (!currentClass) return;
+        if (currentPeriod) {
+            alert('History navigation is only available for the class-teacher view.');
+            return;
+        }
+        q('#attDatePicker').value = date;
+        currentDate = date;
+        switchTab('today');
+        loadStudents(currentClass.id, null, date);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+
+    return {
+        openClass: openClass,
+        openPeriod: openPeriod,
+        back: back,
+        switchTab: switchTab,
+        loadDate: loadDate,
+        bulk: bulk,
+        confirmSave: confirmSave,
+        closeConfirm: closeConfirm,
+        doSave: doSave,
+        jumpToDate: jumpToDate,
+    };
+})();
+</script>
+{% endblock %}
 '''
 
-
-def patch_template(root, args):
-    path = root / "templates" / "tenant" / "attendence.html"
-    content = read_file(path)
-    if content is None:
-        return False
-
-    if MARKER in content:
-        log(f"  SKIP (already applied): {path}")
-        return True
-
-    changes = []
-
-    # ------------------------------------------------------------- CSS
-    old_css_anchor = (
-        "    /* ============== /ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */\n"
-        "</style>"
-    )
-    new_css_block = (
-        "    /* ============== /ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */\n"
-        + NEW_CSS + "\n</style>"
-    )
-    if old_css_anchor in content:
-        content = content.replace(old_css_anchor, new_css_block, 1)
-        changes.append("css")
-    else:
-        log(f"  WARN: CSS anchor not found in {path}")
-
-    # ------------------------------------------------------------ HTML
-    old_html_anchor = '<div class="att-modal-body" id="attModalBody">'
-    if old_html_anchor in content:
-        content = content.replace(
-            old_html_anchor,
-            NEW_HTML + old_html_anchor,
-            1,
-        )
-        changes.append("html")
-    else:
-        log(f"  WARN: HTML anchor not found in {path}")
-
-    # -------------------------------------------------------------- JS
-    # (a) state variable for the recent-dates cache
-    old_state = "    var modalIsHoliday = false;\n"
-    new_state = (
-        "    var modalIsHoliday = false;\n"
-        "    // ATTENDANCE_DATE_ANALYTICS_V1\n"
-        "    var recentDatesCache = [];\n"
-    )
-    if old_state in content:
-        content = content.replace(old_state, new_state, 1)
-        changes.append("state var")
-    else:
-        log(f"  WARN: modal state anchor not found in {path}")
-
-    # (b) openMark(): trigger the recent-dates strip load.
-    old_openmark = (
-        "        modalClassId = classId;\n"
-        "        q('#attModalTitle').textContent"
-    )
-    new_openmark = (
-        "        modalClassId = classId;\n"
-        "        // ATTENDANCE_DATE_ANALYTICS_V1\n"
-        "        loadRecentDates();\n"
-        "        q('#attModalTitle').textContent"
-    )
-    if old_openmark in content:
-        content = content.replace(old_openmark, new_openmark, 1)
-        changes.append("openMark hook")
-    else:
-        log(f"  WARN: openMark anchor not found in {path}")
-
-    # (c) reloadStudents(): after a successful load, render analytics
-    #     and highlight the active pill.  Insert right before the
-    #     closing of the successful `.then(...)` in reloadStudents.
-    old_reload = (
-        "                if (modalLocked) {\n"
-        "                    q('#attLockedBanner').style.display = 'flex';\n"
-        "                }\n"
-        "            })\n"
-        "            .catch(function() {\n"
-        "                q('#attModalBody').innerHTML =\n"
-        "                    '<div class=\"att-modal-empty\">Network error.</div>';\n"
-        "            });\n"
-        "    }\n"
-    )
-    new_reload = (
-        "                if (modalLocked) {\n"
-        "                    q('#attLockedBanner').style.display = 'flex';\n"
-        "                }\n"
-        "                // ATTENDANCE_DATE_ANALYTICS_V1\n"
-        "                renderDateAnalytics(j);\n"
-        "                markActivePill(q('#attModalDate').value);\n"
-        "            })\n"
-        "            .catch(function() {\n"
-        "                q('#attModalBody').innerHTML =\n"
-        "                    '<div class=\"att-modal-empty\">Network error.</div>';\n"
-        "            });\n"
-        "    }\n"
-    )
-    if old_reload in content:
-        content = content.replace(old_reload, new_reload, 1)
-        changes.append("reloadStudents hook")
-    else:
-        log(f"  WARN: reloadStudents anchor not found in {path}")
-
-    # (d) insert the new JS functions before the init block.
-    old_init_anchor = "    // ---------------- init ----------------"
-    if old_init_anchor in content:
-        content = content.replace(
-            old_init_anchor,
-            NEW_JS_FUNCTIONS + "\n" + old_init_anchor,
-            1,
-        )
-        changes.append("js functions")
-    else:
-        log(f"  WARN: init anchor not found in {path}")
-
-    # (e) expose gotoDate + loadRecentDates on the AXIS_ADMIN_ATT API.
-    old_exports = (
-        "        openClass: openClass,\n"
-        "        // ATTENDANCE_LOGS_ANY_DATE_V1\n"
-        "        openCurrentLogs: openCurrentLogs\n"
-    )
-    new_exports = (
-        "        openClass: openClass,\n"
-        "        // ATTENDANCE_LOGS_ANY_DATE_V1\n"
-        "        openCurrentLogs: openCurrentLogs,\n"
-        "        // ATTENDANCE_DATE_ANALYTICS_V1\n"
-        "        gotoDate: gotoDate,\n"
-        "        loadRecentDates: loadRecentDates\n"
-    )
-    if old_exports in content:
-        content = content.replace(old_exports, new_exports, 1)
-        changes.append("exports")
-    else:
-        log(f"  WARN: exports anchor not found in {path}")
-
-    if not changes:
-        log(f"  NO CHANGES for {path}")
-        return True
-
-    return write_file(path, content, args.dry_run,
-                      ", ".join(changes))
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
 
 
-# =====================================================================
-# MAIN
-# =====================================================================
+def ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def main():
+
+class Log:
+    def __init__(self, verbose: bool) -> None:
+        self.verbose = verbose
+
+    def info(self, message: str) -> None:
+        print(f"[{ts()}] {message}")
+
+    def detail(self, message: str) -> None:
+        if self.verbose:
+            print(f"[{ts()}]   -> {message}")
+
+    def error(self, message: str) -> None:
+        print(f"[{ts()}] ERROR: {message}", file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            f"{MARKER} — adds a per-date analytics panel and a "
-            f"recent-dates strip to the admin Mark & History modal."
-        )
+            "Update templates/mobile/staff/attendence.html: hide hero in "
+            "detail view, add class card SVG icons, add per-date analytics."
+        ),
     )
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--target-dir", default=".")
-    args = parser.parse_args()
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Preview changes without writing anything to disk.")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show detailed output for every action.")
+    parser.add_argument("--target-dir", default=".",
+                        help="Project root directory (default: current directory).")
+    return parser
 
-    root = Path(args.target_dir).resolve()
-    if not (root / "manage.py").is_file():
-        log(f"ERROR: manage.py not found in {root}")
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    log = Log(args.verbose)
+
+    try:
+        root = Path(args.target_dir).expanduser().resolve()
+    except OSError as exc:  # pragma: no cover - defensive
+        print(f"[{ts()}] ERROR: cannot resolve target dir: {exc}", file=sys.stderr)
         return 1
 
-    log(f"Target: {root}")
-    log(f"Mode:   {'DRY-RUN' if args.dry_run else 'APPLY'}")
-    log(f"Patch:  {MARKER}")
+    target = root / TARGET_REL_PATH
 
-    steps = [
-        ("Admin views: recent-summary API", patch_admin_views),
-        ("URLs: register recent-summary route", patch_public_urls),
-        ("Template: analytics panel + strip", patch_template),
-    ]
+    log.info(f"target root : {root}")
+    log.info(f"target file : {target}")
+    if args.dry_run:
+        log.info("mode        : DRY RUN (no files will be written)")
 
-    results = []
-    for label, fn in steps:
-        log(f"--- {label} ---")
+    if not root.exists() or not root.is_dir():
+        log.error(f"target directory does not exist or is not a directory: {root}")
+        return 1
+
+    existing: str | None = None
+    if target.exists():
+        if target.is_dir():
+            log.error(f"target path is a directory, not a file: {target}")
+            return 1
         try:
-            ok = fn(root, args)
-        except Exception as exc:
-            log(f"  EXCEPTION: {exc.__class__.__name__}: {exc}")
-            ok = False
-        results.append((label, ok))
+            existing = target.read_text(encoding="utf-8")
+            log.detail(f"read existing file ({len(existing)} chars)")
+        except OSError as exc:
+            log.error(f"could not read existing file: {exc}")
+            return 1
+    else:
+        log.detail("target file does not exist yet; it will be created")
 
-    log("=" * 65)
-    for label, ok in results:
-        log(f"  {'OK  ' if ok else 'FAIL'}  {label}")
-
-    all_ok = all(ok for _, ok in results)
-    if all_ok:
-        log("All steps completed successfully.")
-        if args.dry_run:
-            log("Re-run without --dry-run to apply.")
-        else:
-            log("Next steps:")
-            log("  1. Restart the Django server / WSGI workers.")
-            log("  2. Open /portal/<schema>/attendance/ and click "
-                "\"Mark & History\" on any class.")
+    if existing is not None and existing == NEW_CONTENT:
+        log.info("already up to date - nothing to do (idempotent no-op)")
         return 0
-    log("One or more steps failed. See messages above.")
-    return 2
+
+    if existing is not None:
+        if "attHero" not in existing:
+            log.info("change #1: hero will now hide inside detail view")
+        if "att-class-icon" not in existing:
+            log.info("change #2: class cards will get a leading SVG badge")
+        if "attDateAnalytics" not in existing:
+            log.info("change #3: detail view will gain a per-date analytics strip")
+
+    action = "overwrite" if existing is not None else "create"
+    log.info(f"action      : {action} ({len(NEW_CONTENT)} chars)")
+
+    if args.dry_run:
+        log.info("dry run complete - no changes were written")
+        log.detail("would write: " + str(target))
+        return 0
+
+    try:
+        if not target.parent.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            log.info(f"created directory: {target.parent}")
+    except OSError as exc:
+        log.error(f"could not create directory {target.parent}: {exc}")
+        return 1
+
+    try:
+        target.write_text(NEW_CONTENT, encoding="utf-8")
+    except OSError as exc:
+        log.error(f"failed to write {target}: {exc}")
+        return 1
+
+    log.info(f"written     : {target}")
+    log.info("done. 1 file updated.")
+    return 0
 
 
 if __name__ == "__main__":

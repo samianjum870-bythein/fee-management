@@ -1,77 +1,715 @@
 {% extends 'mobile/staff/base.html' %}
 {% block title %}Staff Dashboard{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* ============================================================
+       Dashboard-only premium styling (scoped with .dash- prefix)
+       ============================================================ */
+
+    /* ---------- HERO ---------- */
+    .dash-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 26px;
+        padding: 22px 20px 20px;
+        color: #ffffff;
+        background:
+            radial-gradient(600px 220px at 100% -20%, rgba(255, 255, 255, 0.20), transparent 60%),
+            radial-gradient(420px 200px at -20% 120%, rgba(201, 162, 39, 0.32), transparent 60%),
+            linear-gradient(135deg, #12b3a2 0%, #0b6e64 55%, #084c46 100%);
+        box-shadow: 0 24px 44px rgba(11, 110, 100, 0.28);
+        margin-bottom: 18px;
+        animation: dashRise 0.4s ease both;
+    }
+
+    @keyframes dashRise {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: none; }
+    }
+
+    .dash-hero-top {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        position: relative;
+    }
+
+    .dash-avatar {
+        flex: 0 0 54px;
+        width: 54px;
+        height: 54px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        color: #0b6e64;
+        background: linear-gradient(140deg, #fff8e1 0%, #ffd97a 100%);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    }
+
+    .dash-hero-text { min-width: 0; flex: 1; }
+
+    .dash-greet {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.78);
+        margin-bottom: 3px;
+    }
+
+    .dash-name {
+        margin: 0;
+        font-size: 1.32rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dash-role {
+        display: inline-block;
+        margin-top: 7px;
+        padding: 3px 10px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #fff8e1;
+        backdrop-filter: blur(6px);
+    }
+
+    .dash-hero-foot {
+        margin-top: 16px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.18);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.88);
+    }
+
+    .dash-hero-foot svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.85;
+    }
+
+    /* ---------- STATS ---------- */
+    .dash-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 18px;
+    }
+
+    .dash-stat {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 14px 12px 13px;
+        box-shadow: 0 12px 24px rgba(11, 110, 100, 0.07);
+    }
+
+    .dash-stat::after {
+        content: "";
+        position: absolute;
+        top: -26px;
+        right: -26px;
+        width: 62px;
+        height: 62px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        pointer-events: none;
+    }
+
+    .dash-stat-icon {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        margin-bottom: 9px;
+    }
+
+    .dash-stat-icon svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .dash-stat-value {
+        position: relative;
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--accent-deep);
+        line-height: 1.05;
+    }
+
+    .dash-stat-label {
+        position: relative;
+        margin-top: 5px;
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    /* ---------- QUICK ACTIONS ---------- */
+    .dash-quick {
+        margin-bottom: 18px;
+    }
+
+    .dash-section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 0 4px 10px;
+    }
+
+    .dash-section-title h3 {
+        margin: 0;
+        font-size: 0.86rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .dash-section-title .dash-count {
+        font-size: 11px;
+        font-weight: 800;
+        color: var(--accent-deep);
+        background: var(--accent-soft);
+        padding: 2px 8px;
+        border-radius: 99px;
+        letter-spacing: 0.04em;
+    }
+
+    .dash-quick-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .dash-quick-tile {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 14px 14px 12px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+        border: 1px solid var(--border);
+        box-shadow: 0 10px 22px rgba(11, 110, 100, 0.06);
+        text-decoration: none;
+        color: var(--text);
+        transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .dash-quick-tile:hover {
+        border-color: var(--accent);
+        box-shadow: 0 16px 28px rgba(11, 110, 100, 0.12);
+    }
+
+    .dash-quick-tile:active { transform: scale(0.98); }
+
+    .dash-quick-icon {
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #ffffff;
+        background: linear-gradient(140deg, #12b3a2 0%, #0b6e64 100%);
+        box-shadow: 0 10px 18px rgba(11, 110, 100, 0.24);
+    }
+
+    .dash-quick-icon.gold {
+        background: linear-gradient(140deg, #e0b94a 0%, #c9a227 60%, #a78212 100%);
+        box-shadow: 0 10px 18px rgba(201, 162, 39, 0.28);
+    }
+
+    .dash-quick-icon svg {
+        width: 19px;
+        height: 19px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .dash-quick-text {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .dash-quick-label {
+        font-size: 0.84rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        line-height: 1.2;
+    }
+
+    .dash-quick-sub {
+        margin-top: 2px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    .dash-quick-dot {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--danger);
+        box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.18);
+    }
+
+    /* ---------- SECTIONS / LISTS ---------- */
+    .dash-section {
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        box-shadow: 0 14px 28px rgba(11, 110, 100, 0.08);
+        padding: 16px 16px 12px;
+        margin-bottom: 14px;
+    }
+
+    .dash-section > h3 {
+        margin: 0 0 12px;
+        font-size: 0.98rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .dash-section > h3 .dash-h-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 8px;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dash-section > h3 .dash-h-icon svg {
+        width: 13px;
+        height: 13px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .dash-subgroup-label {
+        display: block;
+        margin: 4px 0 8px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--gold);
+    }
+
+    .dash-class-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 4px 12px 4px;
+        border-bottom: 1px solid var(--border);
+        text-decoration: none;
+        color: var(--text);
+    }
+
+    .dash-class-item:last-child { border-bottom: none; }
+
+    .dash-class-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+
+    .dash-class-badge {
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(140deg, #e8f6f3 0%, #d1ece7 100%);
+        color: var(--accent-deep);
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+    }
+
+    .dash-class-info { min-width: 0; }
+
+    .dash-class-name {
+        font-size: 0.9rem;
+        font-weight: 800;
+        color: var(--text);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dash-class-meta {
+        margin-top: 3px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    .dash-class-arrow {
+        flex: 0 0 auto;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dash-class-arrow svg {
+        width: 13px;
+        height: 13px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .dash-empty {
+        padding: 14px 8px;
+        text-align: center;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    /* ---------- NOTIFICATIONS ---------- */
+    .dash-notif {
+        display: flex;
+        gap: 12px;
+        padding: 12px 4px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .dash-notif:last-child { border-bottom: none; }
+
+    .dash-notif-dot {
+        flex: 0 0 9px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        margin-top: 6px;
+        background: var(--accent);
+        box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+
+    .dash-notif-body { min-width: 0; }
+
+    .dash-notif-msg {
+        font-size: 0.86rem;
+        font-weight: 600;
+        line-height: 1.45;
+        color: var(--text);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .dash-notif-time {
+        margin-top: 4px;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    /* ---------- RESPONSIVE ---------- */
+    @media (max-width: 380px) {
+        .dash-name { font-size: 1.18rem; }
+        .dash-avatar { width: 48px; height: 48px; flex-basis: 48px; border-radius: 15px; font-size: 1.2rem; }
+        .dash-stat-value { font-size: 1.3rem; }
+        .dash-quick-label { font-size: 0.8rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .dash-hero { animation: none; }
+    }
+</style>
+{% endblock %}
+
 {% block body %}
 
-<!-- ===== CLASSES SUMMARY ===== -->
-<div class="classes-summary" style="margin-bottom:1.5rem;">
-    <div class="card" style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1rem; box-shadow:var(--shadow);">
-        <h3 style="margin-top:0; font-weight:700; font-size:1.1rem; color:var(--text);">Your Classes</h3>
-        {% if class_teacher_classes %}
-            <div style="margin-bottom:0.5rem;">
-                <strong style="color:var(--accent);">Class Teacher:</strong>
-                <ul style="margin:0.2rem 0; padding-left:1.2rem;">
-                    {% for cls in class_teacher_classes %}
-                        <li>{{ cls.name }} - {{ cls.section }} ({{ cls.student_count }} students)</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        {% endif %}
-        {% if subject_teacher_classes %}
-            <div>
-                <strong style="color:var(--accent);">Subject Teacher:</strong>
-                <ul style="margin:0.2rem 0; padding-left:1.2rem;">
-                    {% for cls in subject_teacher_classes %}
-                        <li>{{ cls.name }} - {{ cls.section }} ({{ cls.student_count }} students)</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        {% endif %}
-        {% if not class_teacher_classes and not subject_teacher_classes %}
-            <p style="color:var(--muted); margin:0;">You are not assigned to any classes.</p>
-        {% endif %}
+{# ================= HERO ================= #}
+<section class="dash-hero">
+    <div class="dash-hero-top">
+        <div class="dash-avatar" aria-hidden="true">
+            {% if staff.full_name %}{{ staff.full_name|slice:":1"|upper }}{% else %}A{% endif %}
+        </div>
+        <div class="dash-hero-text">
+            <span class="dash-greet" id="dashGreeting">Welcome back</span>
+            <h2 class="dash-name">{{ staff.full_name }}</h2>
+            <span class="dash-role">{{ staff.get_role_display }}</span>
+        </div>
     </div>
-</div>
+    <div class="dash-hero-foot">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4.5" width="18" height="16" rx="3"/>
+            <path d="M8 3v3M16 3v3M3 10h18"/>
+        </svg>
+        <span id="dashDate">Today</span>
+    </div>
+</section>
 
-<div class="card">
-    <h2 style="margin-bottom: 4px;">Welcome, {{ staff.full_name }}</h2>
-    <div class="text-secondary">{{ staff.get_role_display }}</div>
-</div>
+{# ================= STATS ================= #}
+<section class="dash-stats" aria-label="Summary">
+    <div class="dash-stat">
+        <div class="dash-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 19.5V7.5A2.5 2.5 0 0 1 6.5 5H20v14.5"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/><path d="M8 9h8M8 13h8"/></svg>
+        </div>
+        <div class="dash-stat-value">{{ class_teacher_classes|length }}</div>
+        <div class="dash-stat-label">My Class</div>
+    </div>
+    <div class="dash-stat">
+        <div class="dash-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="8.5" r="2.5"/><path d="M14.5 20a5.5 5.5 0 0 1 8-4.9"/></svg>
+        </div>
+        <div class="dash-stat-value">{{ student_count }}</div>
+        <div class="dash-stat-label">Students</div>
+    </div>
+    <div class="dash-stat">
+        <div class="dash-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M8 3v3M16 3v3M3 10h18"/><path d="m8.8 14.7 1.8 1.8 3.6-3.6"/></svg>
+        </div>
+        <div class="dash-stat-value">{{ attendance_today }}</div>
+        <div class="dash-stat-label">Marked</div>
+    </div>
+</section>
 
-<div style="display:grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr));">
-    <div class="card" style="padding: 0.9rem;">
-        <div class="text-secondary" style="font-size: 12px;">Classes</div>
-        <div style="font-size: 1.6rem; font-weight: 700; margin-top: 0.25rem;">{{ classes|length }}</div>
+{# ================= QUICK ACTIONS ================= #}
+<section class="dash-quick">
+    <div class="dash-section-title">
+        <h3>Quick Actions</h3>
     </div>
-    <div class="card" style="padding: 0.9rem;">
-        <div class="text-secondary" style="font-size: 12px;">Students</div>
-        <div style="font-size: 1.6rem; font-weight: 700; margin-top: 0.25rem;">{{ student_count }}</div>
-    </div>
-    <div class="card" style="padding: 0.9rem;">
-        <div class="text-secondary" style="font-size: 12px;">Today</div>
-        <div style="font-size: 1.6rem; font-weight: 700; margin-top: 0.25rem;">{{ attendance_today }}</div>
-    </div>
-</div>
+    <div class="dash-quick-grid">
 
-<div class="card">
-    <h3 style="margin-bottom: 12px;">Assigned Classes</h3>
-    {% for school_class in classes %}
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding: 12px 0; border-bottom: 1px solid var(--border);">
-            <div>
-                <strong>{{ school_class.name }} - {{ school_class.section }}</strong>
+        <a class="dash-quick-tile" href="{% url 'staff_attendance' %}">
+            <span class="dash-quick-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M8 3v3M16 3v3M3 10h18"/><path d="m8.8 14.7 1.8 1.8 3.6-3.6"/></svg>
+            </span>
+            <span class="dash-quick-text">
+                <span class="dash-quick-label">Mark Attendance</span>
+                <span class="dash-quick-sub">Today's roll call</span>
+            </span>
+        </a>
+
+        <a class="dash-quick-tile" href="{% url 'staff_classes' %}">
+            <span class="dash-quick-icon gold" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 19.5V7.5A2.5 2.5 0 0 1 6.5 5H20v14.5"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/><path d="M8 9h8M8 13h8"/></svg>
+            </span>
+            <span class="dash-quick-text">
+                <span class="dash-quick-label">My Classes</span>
+                <span class="dash-quick-sub">View all classes</span>
+            </span>
+        </a>
+
+        <a class="dash-quick-tile" href="{% url 'staff_notifications' %}">
+            <span class="dash-quick-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+            </span>
+            <span class="dash-quick-text">
+                <span class="dash-quick-label">Notifications</span>
+                <span class="dash-quick-sub">{% if notifications %}{{ notifications|length }} unread{% else %}All caught up{% endif %}</span>
+            </span>
+            {% if notifications %}<span class="dash-quick-dot" aria-hidden="true"></span>{% endif %}
+        </a>
+
+        <a class="dash-quick-tile" href="{% url 'staff_profile_page' %}">
+            <span class="dash-quick-icon gold" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+            </span>
+            <span class="dash-quick-text">
+                <span class="dash-quick-label">My Profile</span>
+                <span class="dash-quick-sub">Account & security</span>
+            </span>
+        </a>
+
+    </div>
+</section>
+
+{# ================= CLASS TEACHER CLASSES ================= #}
+{% if class_teacher_classes %}
+<section class="dash-section">
+    <h3>
+        <span class="dash-h-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3z"/><path d="M4 6v9l8 4 8-4V6"/></svg>
+        </span>
+        Class Teacher
+    </h3>
+    {% for cls in class_teacher_classes %}
+        <a class="dash-class-item" href="{% url 'staff_class_students' class_id=cls.id %}">
+            <span class="dash-class-left">
+                <span class="dash-class-badge" aria-hidden="true">{{ cls.section|default:"–" }}</span>
+                <span class="dash-class-info">
+                    <span class="dash-class-name">{{ cls.name }} - {{ cls.section }}</span>
+                    <span class="dash-class-meta">{{ cls.student_count }} student{{ cls.student_count|pluralize }}</span>
+                </span>
+            </span>
+            <span class="dash-class-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+            </span>
+        </a>
+    {% endfor %}
+</section>
+{% endif %}
+
+{# ================= SUBJECT TEACHER CLASSES ================= #}
+{% if subject_teacher_classes %}
+<section class="dash-section">
+    <h3>
+        <span class="dash-h-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 19.5V7.5A2.5 2.5 0 0 1 6.5 5H20v14.5"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/><path d="M8 9h8M8 13h8"/></svg>
+        </span>
+        Subject Teacher
+    </h3>
+    {% for cls in subject_teacher_classes %}
+        <a class="dash-class-item" href="{% url 'staff_class_students' class_id=cls.id %}">
+            <span class="dash-class-left">
+                <span class="dash-class-badge" aria-hidden="true">{{ cls.section|default:"–" }}</span>
+                <span class="dash-class-info">
+                    <span class="dash-class-name">{{ cls.name }} - {{ cls.section }}</span>
+                    <span class="dash-class-meta">{{ cls.student_count }} student{{ cls.student_count|pluralize }}</span>
+                </span>
+            </span>
+            <span class="dash-class-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+            </span>
+        </a>
+    {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- Empty state when staff has NO classes at all ---------- #}
+{% if not class_teacher_classes and not subject_teacher_classes %}
+<section class="dash-section">
+    <h3>
+        <span class="dash-h-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3z"/><path d="M4 6v9l8 4 8-4V6"/></svg>
+        </span>
+        Your Classes
+    </h3>
+    <div class="dash-empty">You are not assigned to any classes yet.</div>
+</section>
+{% endif %}
+
+{# ================= RECENT NOTIFICATIONS ================= #}
+<section class="dash-section">
+    <h3>
+        <span class="dash-h-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+        </span>
+        Recent Notifications
+    </h3>
+    {% for notification in notifications %}
+        <div class="dash-notif">
+            <span class="dash-notif-dot" aria-hidden="true"></span>
+            <div class="dash-notif-body">
+                <div class="dash-notif-msg">{{ notification.message }}</div>
+                {% if notification.created_at %}
+                    <div class="dash-notif-time">{{ notification.created_at|date:"M j, Y · H:i" }}</div>
+                {% endif %}
             </div>
-            <a class="btn-primary" href="{% url 'staff_class_students' class_id=school_class.id %}" style="text-decoration:none; padding: 0.45rem 0.8rem; border-radius: 0.65rem; font-size: 0.8rem;">View</a>
         </div>
     {% empty %}
-        <p class="text-secondary">No assigned classes.</p>
+        <div class="dash-empty">No new notifications.</div>
     {% endfor %}
-</div>
+</section>
 
-<div class="card">
-    <h3 style="margin-bottom: 12px;">Recent Notifications</h3>
-    {% for notification in notifications %}
-        <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">{{ notification.message }}</div>
-    {% empty %}
-        <p class="text-secondary">No notifications.</p>
-    {% endfor %}
-</div>
+<script>
+(function () {
+    "use strict";
+
+    /* ---- Time-based greeting ---- */
+    var greetEl = document.getElementById("dashGreeting");
+    if (greetEl) {
+        var h = new Date().getHours();
+        var g = "Welcome back";
+        if (h < 12) g = "Good morning";
+        else if (h < 17) g = "Good afternoon";
+        else g = "Good evening";
+        greetEl.textContent = g;
+    }
+
+    /* ---- Today's date ---- */
+    var dateEl = document.getElementById("dashDate");
+    if (dateEl) {
+        try {
+            dateEl.textContent = new Date().toLocaleDateString(undefined, {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric"
+            });
+        } catch (e) {
+            dateEl.textContent = "Today";
+        }
+    }
+})();
+</script>
 {% endblock %}
