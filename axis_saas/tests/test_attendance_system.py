@@ -243,6 +243,18 @@ class AttendanceTestBase(TestCase):
                     data=json.dumps(data or {}),
                     content_type="application/json",
                 )
+            elif isinstance(data, (str, bytes)):
+                # ATTENDANCE_SYSTEM_BUGFIX_V2 (#A raw body):
+                # allow tests to send a deliberately malformed
+                # JSON body.  Passing a str to factory.post()
+                # without content_type made Django try to
+                # multipart-encode it and blow up with
+                # "'str' object has no attribute 'items'".
+                request = factory.post(
+                    path,
+                    data=data,
+                    content_type="application/json",
+                )
             else:
                 request = factory.post(path, data or {})
 
@@ -496,10 +508,13 @@ class HolidayDetectionAdminTests(AttendanceTestBase):
         self.assertTrue(is_hol)
         self.assertIn("Vacation", reason)
 
-    def test_historical_evidence_marks_holiday(self):
-        """A past date with a holiday status row is a holiday."""
+    def test_historical_evidence_does_not_flip_whole_day(self):
+        # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-4) intentionally removed
+        # the "any row with status='holiday' means the whole day is
+        # a holiday" check.  ATTENDANCE_SYSTEM_BUGFIX_V2 (#C)
+        # updates the test to match the new (correct) behaviour:
+        # a single stray row must NOT flip the entire day.
         with schema_context(self.schema):
-            # Create one row with status='holiday'.
             StudentAttendance.objects.create(
                 student=self.students[0],
                 school_class=self.class_obj,
@@ -509,7 +524,7 @@ class HolidayDetectionAdminTests(AttendanceTestBase):
                 source="admin",
             )
             is_hol, _ = admin_att._is_holiday(date(2020, 1, 1))
-        self.assertTrue(is_hol)
+        self.assertFalse(is_hol)
 
     def test_weekly_rule_created_after_date_does_not_apply(self):
         """If a WeeklyHoliday row was created AFTER the date, the date
@@ -1580,7 +1595,11 @@ class AdminDailyLogsAPITests(AttendanceTestBase):
         self.assertTrue(body["ok"])
         self.assertEqual(len(body["logs"]), 1)
         self.assertEqual(body["logs"][0]["action"], "create")
-        self.assertIn(self.students[0].id, body["student_names"])
+        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#B): json.dumps() converts
+        # integer dictionary keys to strings, so the parsed body
+        # contains "1", not 1.
+        self.assertIn(str(self.students[0].id),
+                      body["student_names"])
         self.assertIn("quota", body)
 
     def test_returns_quota_summary(self):
@@ -1628,12 +1647,18 @@ class StaffDashboardViewTests(AttendanceTestBase):
     """`staff_attendance_view` renders the class-teacher sections."""
 
     def test_class_teacher_sees_class_section(self):
+        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#E): the template uses
+        # `{{ class_teacher_classes_json|safe }}`, which Django
+        # substitutes with the actual JSON array.  After rendering,
+        # the literal string `class_teacher_classes_json` is NOT
+        # present — we must look for the JS variable name that
+        # the template assigns the JSON to.
         request = self._staff_request(self.class_teacher)
         response = staff_att.staff_attendance_view(request)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            b"class_teacher_classes_json", response.content,
-        )
+        self.assertIn(b"CT_CLASSES", response.content)
+        # And the actual class name must be present in the JSON.
+        self.assertIn(b"Grade 1", response.content)
 
     def test_page_renders_with_today_context(self):
         request = self._staff_request(self.class_teacher)
@@ -1800,29 +1825,49 @@ class StaffStudentsAPITests(AttendanceTestBase):
         self.assertTrue(body["is_holiday"])
         self.assertEqual(body["students"], [])
 
-    def test_locked_flag_when_marked(self):
-        today = timezone.localdate()
+    def test_locked_flag_when_quota_exhausted_on_past_date(self):
+        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#F): today is NEVER locked
+        # for the class teacher — they own the class and the
+        # backdate quota only applies to past dates.  The "locked"
+        # flag is True only when _compute_permission_payload()
+        # returns can_edit=False, which happens on a PAST date
+        # whose per-date quota has been exhausted.
+        target = timezone.localdate() - timedelta(days=2)
         with schema_context(self.schema):
-            self._mark_full_day(today)
-            # Turn on read_write so can_edit is possible in principle;
-            # but the frontend is locked because marks exist.
             perm = ClassTeacherAttendancePermission.for_class(
                 self.class_obj,
             )
             perm.backdate_access = "read_write"
-            perm.max_edits_per_date = 3
+            perm.max_edits_per_date = 1
             perm.view_history_days = 30
             perm.edit_history_days = 5
             perm.save()
+            # Exhaust the teacher's quota for the target date.
+            q = ClassTeacherEditQuota.for_class_date(
+                self.class_obj, target,
+            )
+            q.teacher_edit_count = 1
+            q.save()
+            # Mark a row so the API has data to return.
+            StudentAttendance.objects.create(
+                student=self.students[0],
+                school_class=self.class_obj,
+                date=target,
+                period_order=None,
+                status="present",
+                source="teacher",
+                teacher=self.class_teacher,
+                marked_by=self.class_teacher,
+            )
         request = self._staff_request(
             self.class_teacher,
             path=f"/?class_id={self.class_obj.id}"
-                 f"&date={today.isoformat()}",
+                 f"&date={target.isoformat()}",
         )
         response = staff_att.staff_attendance_students_api(request)
-        # lock_reason may be empty for today but the flag reflects marks.
         body = json.loads(response.content)
         self.assertTrue(body["locked"])
+        self.assertTrue(body["lock_reason"])
 
     def test_student_payload_has_expected_fields(self):
         today = timezone.localdate()
@@ -2087,12 +2132,15 @@ class StaffMarkAPITests(AttendanceTestBase):
         self.assertEqual(last.new_status, "absent")
 
     def test_invalid_json_400(self):
+        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#A): pass the malformed
+        # JSON body as a raw str.  The helper's str/bytes branch
+        # sends it with content_type=application/json so the view
+        # receives it verbatim and its json.loads() call fails.
         request = self._staff_request(
             self.class_teacher, method="POST",
             path="/mark/",
-            data="not-json", is_json=False,
+            data="not-json",
         )
-        request._body = b"not-json"
         response = staff_att.staff_attendance_mark_api(request)
         self.assertEqual(response.status_code, 400)
 
@@ -2498,6 +2546,19 @@ class MultiTenantIsolationTests(AttendanceTestBase):
         connection.set_schema_to_public()
         try:
             with schema_context("attendance-other"):
+                # ATTENDANCE_SYSTEM_BUGFIX_V2 (#D): PostgreSQL
+                # sequences are per-schema, so the very first
+                # class created in a fresh schema also has id=1
+                # — identical to the primary tenant's class_obj.
+                # That made the previous assertion return 200
+                # (the primary tenant's own class), not a leak.
+                # Pad the other schema with dummy classes so
+                # other_class.id cannot collide with any class
+                # id in the primary tenant.
+                for _i in range(20):
+                    SchoolClass.objects.create(
+                        name=f"Dummy-{_i}", section="X",
+                    )
                 other_class = SchoolClass.objects.create(
                     name="Other-Grade", section="Z",
                 )
@@ -2510,6 +2571,8 @@ class MultiTenantIsolationTests(AttendanceTestBase):
                 ),
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
             )
+            # other_class.id is > 20 and cannot exist in the primary
+            # tenant's schema, so the API must 404.
             self.assertEqual(response.status_code, 404)
         finally:
             connection.set_schema_to_public()
