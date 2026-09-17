@@ -42,6 +42,7 @@ from axis_saas.views.staff_attendence import (
 from axis_saas.views.staff_pwa import (
     staff_manifest,
     staff_service_worker,
+    staff_offline,
 )
 
 
@@ -51,6 +52,10 @@ urlpatterns = [
     # resolve unambiguously.
     path('manifest.json', staff_manifest, name='staff_manifest'),
     path('sw.js', staff_service_worker, name='staff_service_worker'),
+    # STAFF_PWA_V1_HOTFIX_2: self-contained offline fallback page.
+    # Precached by the staff service worker so users get a branded
+    # page instead of the browser's generic error when offline.
+    path('offline/', staff_offline, name='staff_offline'),
     path('', staff_dashboard, name='staff_dashboard_root'),
     path('login/', staff_login, name='staff_login'),
     path('logout/', staff_logout, name='staff_logout'),

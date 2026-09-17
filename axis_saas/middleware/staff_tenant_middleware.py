@@ -30,6 +30,21 @@ class StaffTenantMiddleware:
             '/portal/staff/biometric/registration-options/',
             '/portal/staff/biometric/register/',
             '/portal/staff/biometric/disable/',
+            # STAFF_PWA_V1_HOTFIX_2: the manifest, service worker,
+            # and offline page must be reachable WITHOUT a staff
+            # session. Browsers fetch the manifest and register the
+            # service worker on every page load, often before the
+            # staff member has logged in or completed the biometric
+            # setup redirect. Without these entries the manifest
+            # request received an HTML login redirect (Chrome then
+            # refused to install), and the service worker
+            # registration request was served an HTML redirect body
+            # with a JavaScript Content-Type — silently rejected by
+            # the browser. This was the root cause of the
+            # 'Install App' button never triggering a real install.
+            '/portal/staff/manifest.json',
+            '/portal/staff/sw.js',
+            '/portal/staff/offline/',
         }
         if request.path_info in public_staff_paths:
             connection.set_schema_to_public()

@@ -80,6 +80,16 @@ self.addEventListener('fetch', event => {
         return;
     }
 
+    // STAFF_PWA_V1_HOTFIX_2: never intercept anything under
+    // /portal/staff/. The staff portal has its own service worker
+    // scoped to /portal/staff/ and its own data-isolation rules.
+    // Without this exclusion, an admin PWA already installed at
+    // scope "/" would cache staff API responses and leak them
+    // across logout / login cycles on the same browser.
+    if (url.pathname.startsWith('/portal/staff/')) {
+        return;
+    }
+
     const isStudentManagement = /^\/portal\/[^\/]+\/students(?:\/add|\/edit\/[^/]+)?\/?$/.test(url.pathname) ||
                                  /^\/portal\/[^\/]+\/students\/mobile\/?$/.test(url.pathname) ||
                                  /^\/portal\/[^\/]+\/students\/add\/mobile\/?$/.test(url.pathname);

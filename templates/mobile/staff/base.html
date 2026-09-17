@@ -9,8 +9,11 @@
     <meta name="theme-color" content="#0b6e64">
     {# STAFF_PWA_V1_HEAD — staff-portal PWA metadata #}
     <link rel="manifest" href="/portal/staff/manifest.json">
+    {# STAFF_PWA_V1_HOTFIX_2: PNG icons for browser + iOS #}
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/staff-icon-192.png">
     <link rel="icon" type="image/svg+xml" href="/static/pwa/staff-icon-192.svg">
-    <link rel="apple-touch-icon" href="/static/pwa/staff-icon-192.svg">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/pwa/staff-icon-180.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/pwa/staff-icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="AXIS Staff">
@@ -577,6 +580,20 @@
     // STAFF_PWA_V1: install prompt + service worker registration.
     // Kept self-contained so it never touches the admin panel PWA.
     var HIDE_KEY = 'staff_pwa_install_hidden_v1';
+
+    // STAFF_PWA_V1_HOTFIX_2: wrap every localStorage access in
+    // try/catch. Safari private mode and some enterprise-managed
+    // browser profiles throw on getItem / setItem. Previously an
+    // unguarded localStorage.getItem() call aborted the whole PWA
+    // bootstrap before the service worker was registered.
+    function staffPwaIsHidden(key) {
+        try { return localStorage.getItem(key) === 'true'; }
+        catch (e) { return false; }
+    }
+    function staffPwaMarkHidden(key) {
+        try { localStorage.setItem(key, 'true'); } catch (e) {}
+    }
+
     var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
         || window.navigator.standalone === true;
 
@@ -587,7 +604,7 @@
 
     if (standalone) {
         if (container) container.style.display = 'none';
-    } else if (container && localStorage.getItem(HIDE_KEY) !== 'true') {
+    } else if (container && !staffPwaIsHidden(HIDE_KEY)) {
         container.style.display = 'block';
     }
 
