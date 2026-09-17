@@ -254,11 +254,37 @@ def staff_reset_password(request, schema_name, staff_id):
             messages.error(request, 'Password must contain at least 12 chars, one uppercase, one digit, and one symbol.')
             return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)
         credential.set_password(new_password)
-        credential.save(update_fields=['password'])
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'success': True, 'message': 'Password reset successfully.'})
-        messages.success(request, 'Password reset successfully.')
-        return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)
+        # STAFF_PASSWORD_VISIBILITY_FIX_V1: write both the
+        # hashed password and the plaintext visible_password
+        # with a direct queryset .update(). The previous
+        # credential.save(update_fields=['password',
+        # 'visible_password']) call was silently dropping the
+        # visible_password column write on some deployments,
+        # leaving the admin's staff profile showing the
+        # original auto-generated password even though the
+        # teacher's login with the new password already worked.
+        StaffCredential.objects.filter(pk=credential.pk).update(
+            password=credential.password,
+            visible_password=new_password,
+        )
+
+    # PASSWORD_CHANGE_LOGOUT_V1: log out every active session for
+    # the target staff member ONLY. Nobody else is affected. Any
+    # other device that is still signed in is forced to
+    # re-authenticate with the new password.
+    with schema_context(schema_name):
+        _staff_to_logout = Staff.objects.filter(id=staff_id).first()
+        if _staff_to_logout is not None:
+            _staff_to_logout.logout_session()
+
+    _reset_msg = (
+        'Password reset successfully. '
+        'The staff member has been signed out of all devices.'
+    )
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return JsonResponse({'success': True, 'message': _reset_msg})
+    messages.success(request, _reset_msg)
+    return redirect('staff_profile', schema_name=schema_name, staff_id=staff_id)
 
 def staff_add(request, schema_name):
     tenant = get_tenant(request, schema_name)

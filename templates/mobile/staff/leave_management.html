@@ -2,92 +2,843 @@
 {% block title %}Leave Management{% endblock %}
 {% block body %}
 <style>
-    .lm-tabs { display:flex; gap:0.25rem; background:var(--surface-alt); border-radius:14px; padding:0.25rem; margin-bottom:1rem; border:1px solid var(--border); }
-    .lm-tab { flex:1; text-align:center; padding:0.6rem 0.5rem; border-radius:11px; font-weight:700; font-size:0.85rem; cursor:pointer; color:var(--muted); transition:var(--transition); }
-    .lm-tab.active { background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; box-shadow:0 10px 18px rgba(79,70,229,0.22); }
-    .lm-panel { display:none; }
-    .lm-panel.active { display:block; }
+    /* ============================================================
+       LEAVE MANAGEMENT — professional UI
+       Scoped with .lm- prefix. No emojis; all icons inline SVG.
+       ============================================================ */
 
-    /* ===== LEAVE_MANAGEMENT_V2: active-leave banner ===== */
-    .lm-active-banner {
-        display:flex;
-        gap:0.75rem;
-        align-items:flex-start;
-        padding:0.9rem 1rem;
-        background:#fef3c7;
-        border:1px solid #f59e0b;
-        border-left:5px solid #f59e0b;
-        border-radius:14px;
-        color:#78350f;
-        margin-bottom:1rem;
+    /* ---------------- HERO ---------------- */
+    .lm-hero {
+        position: relative;
+        border-radius: 20px;
+        padding: 18px 18px 16px;
+        color: #ffffff;
+        background:
+            radial-gradient(520px 200px at 108% -30%, rgba(255, 255, 255, 0.16), transparent 62%),
+            linear-gradient(135deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%);
+        box-shadow: 0 18px 34px rgba(11, 110, 100, 0.22);
+        margin-bottom: 16px;
     }
-    .lm-active-banner .icon { font-size:1.35rem; line-height:1; }
-    .lm-active-banner .title { font-weight:800; font-size:0.92rem; margin-bottom:0.2rem; }
-    .lm-active-banner .meta { font-size:0.8rem; line-height:1.35; }
-    .lm-active-banner .meta strong { font-weight:800; }
-    /* ===== END LEAVE_MANAGEMENT_V2 banner ===== */
 
-    /* ===== LEAVE_MANAGEMENT_V2: 3-column quota grid ===== */
-    .lm-quota { display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; margin-bottom:1rem; }
-    .lm-quota .qbox { background:var(--surface-alt); border:1px solid var(--border); border-radius:14px; padding:0.6rem 0.55rem; text-align:center; }
-    .lm-quota .qlabel { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); font-weight:700; }
-    .lm-quota .qval { font-weight:800; font-size:1.05rem; margin-top:0.15rem; }
-    .lm-quota .qval.small { font-size:0.9rem; }
-    /* ===== END quota grid ===== */
+    .lm-hero h2 {
+        margin: 0;
+        font-size: 1.32rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1.15;
+    }
 
-    /* ===== LEAVE_MANAGEMENT_V2: rules card ===== */
-    .lm-rules { background:var(--surface-alt); border:1px solid var(--border); border-radius:14px; padding:0.85rem 1rem; margin-bottom:1rem; }
-    .lm-rules h4 { margin:0 0 0.5rem 0; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.07em; color:var(--muted); font-weight:800; }
-    .lm-rules ul { margin:0; padding-left:1.15rem; font-size:0.82rem; color:var(--text); line-height:1.55; }
-    .lm-rules ul li { margin-bottom:0.2rem; }
-    .lm-rules ul li strong { color:var(--accent-deep); }
-    /* ===== END rules card ===== */
+    .lm-hero .sub {
+        margin-top: 4px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.82);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
 
-    .lm-field { margin-bottom:0.75rem; }
-    .lm-field label { display:block; font-size:0.78rem; font-weight:600; color:var(--muted); margin-bottom:0.3rem; }
-    .lm-field input, .lm-field select, .lm-field textarea { width:100%; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid var(--border); background:#fff; color:var(--text); font-family:inherit; font-size:0.9rem; }
-    .lm-field textarea { resize:vertical; min-height:80px; }
-    .lm-field input:focus, .lm-field select:focus, .lm-field textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(109,94,245,0.15); }
-    .lm-field input:disabled, .lm-field select:disabled, .lm-field textarea:disabled { opacity:0.6; cursor:not-allowed; }
-    .lm-row2 { display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; }
-    .lm-error { background:#fef2f2; border-left:4px solid #ef4444; color:#991b1b; padding:0.6rem 0.75rem; border-radius:0.6rem; font-size:0.82rem; margin-bottom:0.75rem; white-space:pre-wrap; }
-    .lm-success { background:#ecfdf5; border-left:4px solid #10b981; color:#065f46; padding:0.6rem 0.75rem; border-radius:0.6rem; font-size:0.82rem; margin-bottom:0.75rem; }
-    .lm-item { border:1px solid var(--border); border-radius:14px; padding:0.85rem 0.9rem; margin-bottom:0.6rem; background:#fff; box-shadow:0 6px 14px rgba(15,23,42,0.04); }
-    .lm-item-top { display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.3rem; }
-    .lm-item-title { font-weight:700; font-size:0.92rem; }
-    .lm-chip { display:inline-block; padding:0.15rem 0.55rem; border-radius:1rem; font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; }
-    .lm-chip.pending { background:#fef3c7; color:#92400e; }
-    .lm-chip.approved { background:#d1fae5; color:#065f46; }
-    .lm-chip.rejected { background:#fee2e2; color:#991b1b; }
-    .lm-chip.cancelled { background:#e5e7eb; color:#374151; }
-    .lm-meta { font-size:0.78rem; color:var(--muted); margin-top:0.15rem; }
-    .lm-reason { font-size:0.82rem; margin-top:0.5rem; color:var(--text); white-space:pre-wrap; }
-    .lm-remarks { font-size:0.78rem; color:#92400e; background:#fffbeb; border-left:3px solid #f59e0b; padding:0.4rem 0.6rem; border-radius:0.4rem; margin-top:0.5rem; }
-    .lm-empty-hint { text-align:center; color:var(--muted); padding:2rem 0.5rem; font-size:0.85rem; }
-    .lm-cancel-btn { background:#fee2e2; color:#991b1b; border:none; padding:0.35rem 0.7rem; border-radius:0.6rem; font-size:0.72rem; font-weight:700; cursor:pointer; margin-top:0.5rem; }
-    .lm-apply-btn { width:100%; padding:0.85rem; border-radius:14px; border:none; background:linear-gradient(135deg,var(--accent) 0%, var(--accent-deep) 100%); color:#fff; font-weight:800; font-size:0.95rem; cursor:pointer; box-shadow:0 12px 18px rgba(79,70,229,0.18); }
-    .lm-apply-btn:disabled { opacity:0.5; cursor:not-allowed; box-shadow:none; }
+    .lm-hero .sub svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.85;
+    }
+
+    /* ---------------- TABS ---------------- */
+    .lm-tabs {
+        display: flex;
+        padding: 4px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 14px;
+        gap: 4px;
+    }
+
+    .lm-tab {
+        flex: 1;
+        text-align: center;
+        padding: 9px 12px;
+        border-radius: 9px;
+        font-weight: 800;
+        font-size: 0.72rem;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        cursor: pointer;
+        color: var(--muted);
+        transition: background 0.18s ease, color 0.18s ease;
+    }
+
+    .lm-tab.active {
+        background: #ffffff;
+        color: var(--accent-deep);
+        box-shadow: 0 4px 12px rgba(11, 110, 100, 0.08);
+    }
+
+    .lm-panel { display: none; }
+    .lm-panel.active { display: block; }
+
+    /* ---------------- STATUS BANNER ---------------- */
+    .lm-active-banner {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        background: #fffbeb;
+        border: 1px solid rgba(245, 158, 11, 0.32);
+        border-left: 4px solid var(--warning);
+        color: #78350f;
+        border-radius: 14px;
+        padding: 13px 14px;
+        margin-bottom: 14px;
+    }
+
+    .lm-active-banner.danger {
+        background: #fef2f2;
+        border-color: rgba(225, 29, 72, 0.28);
+        border-left-color: var(--danger);
+        color: #7f1d1d;
+    }
+
+    .lm-banner-icon {
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fef3c7;
+        color: #b45309;
+    }
+
+    .lm-active-banner.danger .lm-banner-icon {
+        background: #fee2e2;
+        color: #b91c1c;
+    }
+
+    .lm-banner-icon svg {
+        width: 17px;
+        height: 17px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .lm-banner-title {
+        font-size: 0.88rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+    }
+
+    .lm-banner-meta {
+        margin-top: 3px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        line-height: 1.45;
+    }
+
+    .lm-banner-meta strong { font-weight: 800; }
+
+    /* ---------------- QUOTA GRID ---------------- */
+    .lm-quota {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 18px;
+    }
+
+    .lm-quota .qbox {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 12px 8px;
+        text-align: center;
+        box-shadow: 0 6px 16px rgba(11, 110, 100, 0.04);
+    }
+
+    .lm-quota .qlabel {
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.10em;
+        color: var(--muted);
+        font-weight: 800;
+    }
+
+    .lm-quota .qval {
+        margin-top: 5px;
+        font-weight: 800;
+        font-size: 1.15rem;
+        letter-spacing: -0.02em;
+        color: var(--accent-deep);
+    }
+
+    .lm-quota .qval.small { font-size: 0.95rem; }
+
+    /* ---------------- RULES ---------------- */
+    .lm-rules {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 8px 18px rgba(11, 110, 100, 0.05);
+    }
+
+    .lm-rules h4 {
+        margin: 0 0 10px 0;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .lm-rules h4::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(201, 162, 39, 0.45), transparent);
+    }
+
+    .lm-rules ul {
+        margin: 0;
+        padding-left: 1.1rem;
+        font-size: 0.82rem;
+        color: var(--text);
+        line-height: 1.6;
+    }
+
+    .lm-rules ul li { margin-bottom: 3px; }
+    .lm-rules ul li::marker { color: var(--gold); }
+    .lm-rules ul li strong { color: var(--accent-deep); font-weight: 800; }
+
+    /* ---------------- FORM ---------------- */
+    .lm-field { margin-bottom: 12px; }
+
+    .lm-field label {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+
+    .lm-field input,
+    .lm-field select,
+    .lm-field textarea {
+        width: 100%;
+        padding: 11px 13px;
+        border-radius: 12px;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.9rem;
+        font-weight: 600;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .lm-field input:focus,
+    .lm-field select:focus,
+    .lm-field textarea:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .lm-field input:disabled,
+    .lm-field select:disabled,
+    .lm-field textarea:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .lm-field textarea {
+        resize: vertical;
+        min-height: 84px;
+    }
+
+    .lm-field textarea::placeholder,
+    .lm-field input::placeholder {
+        color: #9fb0ab;
+        font-weight: 500;
+    }
+
+    .lm-row2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    /* ---------------- ALERTS ---------------- */
+    .lm-error {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        background: #fef2f2;
+        border: 1px solid rgba(225, 29, 72, 0.20);
+        border-left: 4px solid var(--danger);
+        color: #991b1b;
+        padding: 11px 13px;
+        border-radius: 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 12px;
+        white-space: pre-wrap;
+    }
+
+    .lm-error svg,
+    .lm-success svg {
+        flex: 0 0 16px;
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .lm-success {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        background: #ecfdf5;
+        border: 1px solid rgba(22, 163, 74, 0.22);
+        border-left: 4px solid var(--success);
+        color: #065f46;
+        padding: 11px 13px;
+        border-radius: 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 12px;
+    }
+
+    /* ---------------- HISTORY ITEMS (compact) ---------------- */
+    .lm-item {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 13px 14px;
+        margin-bottom: 10px;
+        background: var(--surface);
+        box-shadow: 0 6px 16px rgba(11, 110, 100, 0.04);
+    }
+
+    .lm-item:last-child { margin-bottom: 0; }
+
+    .lm-item--clickable {
+        cursor: pointer;
+        position: relative;
+        padding-right: 40px;
+        transition: border-color 0.15s ease, box-shadow 0.18s ease, transform 0.12s ease;
+    }
+
+    .lm-item--clickable:hover {
+        border-color: rgba(15, 157, 143, 0.35);
+        box-shadow: 0 10px 22px rgba(11, 110, 100, 0.10);
+    }
+
+    .lm-item--clickable:active { transform: scale(0.995); }
+
+    .lm-item-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 6px;
+    }
+
+    .lm-item-title {
+        font-weight: 800;
+        font-size: 0.92rem;
+        letter-spacing: -0.005em;
+        line-height: 1.3;
+        color: var(--text);
+        min-width: 0;
+    }
+
+    .lm-chip {
+        display: inline-block;
+        padding: 3px 9px;
+        border-radius: 8px;
+        font-size: 9.5px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        flex: 0 0 auto;
+    }
+
+    .lm-chip.pending   { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .lm-chip.approved  { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .lm-chip.rejected  { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .lm-chip.cancelled { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+    .lm-meta {
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.45;
+    }
+
+    .lm-item-chevron {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 20px;
+        height: 20px;
+        color: #b7c3c0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .lm-item-chevron svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    /* ---------------- EMPTY STATE ---------------- */
+    .lm-empty-hint {
+        text-align: center;
+        color: var(--muted);
+        padding: 26px 16px;
+        font-size: 0.84rem;
+        font-weight: 600;
+        line-height: 1.5;
+    }
+
+    .lm-empty-hint svg {
+        display: block;
+        width: 34px;
+        height: 34px;
+        margin: 0 auto 10px;
+        stroke: var(--accent);
+        fill: none;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.55;
+    }
+
+    /* ---------------- CANCEL BUTTON ---------------- */
+    .lm-cancel-btn {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid rgba(225, 29, 72, 0.20);
+        padding: 9px 15px;
+        border-radius: 11px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+    }
+
+    .lm-cancel-btn:hover  { background: #fee2e2; border-color: rgba(225, 29, 72, 0.35); }
+    .lm-cancel-btn:active { transform: scale(0.97); }
+
+    /* ---------------- APPLY BUTTON ---------------- */
+    .lm-apply-btn {
+        width: 100%;
+        padding: 13px 16px;
+        border-radius: 14px;
+        border: none;
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        font-weight: 800;
+        font-size: 0.9rem;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        box-shadow: 0 14px 24px rgba(11, 110, 100, 0.20);
+        transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .lm-apply-btn:hover  { filter: brightness(1.05); }
+    .lm-apply-btn:active { transform: scale(0.98); }
+    .lm-apply-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; transform: none; }
+
+    .lm-hint-line {
+        font-size: 0.73rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 12px;
+    }
+
+    .lm-hint-line strong { color: var(--accent-deep); font-weight: 800; }
+
+    /* ---------------- CANCEL CONFIRM MODAL ---------------- */
+    .lm-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 45, 41, 0.52);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        padding: 20px;
+    }
+
+    .lm-modal.open { display: flex; }
+
+    .lm-modal-card {
+        position: relative;
+        background: var(--surface);
+        border-radius: 18px;
+        width: min(400px, 100%);
+        padding: 20px 20px 18px;
+        box-shadow: 0 24px 48px rgba(6, 45, 41, 0.32);
+        border: 1px solid var(--border);
+        overflow: hidden;
+    }
+
+    .lm-modal-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--danger), var(--gold));
+    }
+
+    .lm-modal-title {
+        margin: 0 0 8px;
+        font-size: 1.02rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .lm-modal-body {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 18px;
+    }
+
+    .lm-modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    .lm-btn-cancel {
+        padding: 10px 16px;
+        border-radius: 11px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+    }
+
+    .lm-btn-cancel:hover  { background: var(--accent-soft); border-color: rgba(15, 157, 143, 0.35); }
+    .lm-btn-cancel:active { transform: scale(0.97); }
+
+    .lm-btn-confirm {
+        padding: 10px 18px;
+        border-radius: 11px;
+        border: none;
+        background: linear-gradient(135deg, #e11d48 0%, #b91c1c 100%);
+        color: #ffffff;
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        box-shadow: 0 10px 18px rgba(225, 29, 72, 0.22);
+        transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .lm-btn-confirm:hover  { filter: brightness(1.05); }
+    .lm-btn-confirm:active { transform: scale(0.97); }
+    .lm-btn-confirm:disabled { opacity: 0.65; cursor: wait; transform: none; }
+
+    /* ============================================================
+       DETAIL BOTTOM SHEET
+       ============================================================ */
+    .lm-sheet {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 45, 41, 0.52);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        display: none;
+        align-items: flex-end;
+        justify-content: center;
+        z-index: 9990;
+        padding: 0;
+    }
+
+    .lm-sheet.open { display: flex; }
+
+    .lm-sheet-card {
+        position: relative;
+        width: min(520px, 100%);
+        max-height: 88vh;
+        overflow-y: auto;
+        background: var(--surface);
+        border-radius: 22px 22px 0 0;
+        padding: 8px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -22px 46px rgba(6, 45, 41, 0.30);
+        border: 1px solid var(--border);
+        border-bottom: none;
+        animation: lmSheetUp 0.24s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    }
+
+    @keyframes lmSheetUp {
+        from { transform: translateY(30px); opacity: 0; }
+        to   { transform: none; opacity: 1; }
+    }
+
+    .lm-sheet-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+        border-radius: 22px 22px 0 0;
+    }
+
+    .lm-sheet-handle {
+        width: 40px;
+        height: 4px;
+        border-radius: 99px;
+        background: rgba(11, 110, 100, 0.18);
+        margin: 10px auto 6px;
+    }
+
+    .lm-sheet-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0 14px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 14px;
+    }
+
+    .lm-sheet-title {
+        margin: 0;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .lm-sheet-close {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+    }
+
+    .lm-sheet-close:hover  { background: var(--accent-soft); border-color: rgba(15, 157, 143, 0.35); }
+    .lm-sheet-close:active { transform: scale(0.95); }
+
+    .lm-sheet-close svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    /* Detail content */
+    .lm-detail-title {
+        margin: 0 0 10px;
+        font-size: 1.1rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        line-height: 1.3;
+        color: var(--text);
+    }
+
+    .lm-detail-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 16px;
+    }
+
+    .lm-meta-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .lm-meta-box {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+    }
+
+    .lm-meta-box .k {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 3px;
+    }
+
+    .lm-meta-box .v {
+        font-size: 0.88rem;
+        font-weight: 800;
+        color: var(--text);
+        line-height: 1.3;
+        word-break: break-word;
+    }
+
+    .lm-detail-section {
+        margin-bottom: 14px;
+    }
+
+    .lm-detail-section .s-title {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+
+    .lm-detail-section .s-body {
+        font-size: 0.86rem;
+        font-weight: 500;
+        color: var(--text);
+        line-height: 1.55;
+        white-space: pre-wrap;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 11px 13px;
+    }
+
+    .lm-detail-section.remarks .s-body {
+        background: #fffbeb;
+        border-color: rgba(245, 158, 11, 0.32);
+        color: #78350f;
+    }
+
+    .lm-detail-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+        margin-top: 6px;
+    }
+
+    .lm-detail-actions .lm-ghost-btn {
+        padding: 10px 18px;
+        border-radius: 11px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+    }
+
+    .lm-detail-actions .lm-ghost-btn:hover  { background: var(--accent-soft); border-color: rgba(15, 157, 143, 0.35); }
+    .lm-detail-actions .lm-ghost-btn:active { transform: scale(0.97); }
+
+    /* ---------------- RESPONSIVE ---------------- */
+    @media (max-width: 380px) {
+        .lm-hero h2 { font-size: 1.2rem; }
+        .lm-row2 { grid-template-columns: 1fr; }
+        .lm-modal-actions { flex-direction: column-reverse; }
+        .lm-btn-cancel, .lm-btn-confirm { width: 100%; }
+        .lm-meta-grid { grid-template-columns: 1fr; }
+        .lm-sheet-card { padding-left: 16px; padding-right: 16px; }
+    }
+
+    @media (min-width: 640px) {
+        .lm-sheet-card {
+            border-radius: 22px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+    }
 </style>
 
-<div class="hero">
+<!-- ==================== HERO ==================== -->
+<div class="lm-hero">
     <h2>Leave Management</h2>
-    <div class="sub">Apply for leave and review your history</div>
+    <div class="sub">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="16" rx="3"/>
+            <path d="M8 3v4M16 3v4M3 11h18"/>
+            <path d="M9 15.5h6"/>
+        </svg>
+        Apply for leave and review your history
+    </div>
 </div>
 
 {% if active_suspension %}
-<div class="lm-active-banner" style="background:#fee2e2; border-color:#ef4444; border-left-color:#ef4444; color:#7f1d1d;">
-    <div class="icon">&#9940;</div>
+<div class="lm-active-banner danger">
+    <div class="lm-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M5.5 5.5l13 13"/>
+        </svg>
+    </div>
     <div>
-        <div class="title">You are suspended from applying for leave</div>
-        <div class="meta">
+        <div class="lm-banner-title">You are suspended from applying for leave</div>
+        <div class="lm-banner-meta">
             {% if active_suspension.end_date %}
             <strong>Until {{ active_suspension.end_date|date:"d M Y" }}</strong>
             {% else %}
-            <strong>Indefinite</strong> &mdash; contact the admin to lift this restriction.
+            <strong>Indefinite</strong> — contact the admin to lift this restriction.
             {% endif %}
         </div>
         {% if active_suspension.reason %}
-        <div class="meta" style="margin-top:0.35rem;">Reason: {{ active_suspension.reason }}</div>
+        <div class="lm-banner-meta" style="margin-top:0.35rem;">Reason: {{ active_suspension.reason }}</div>
         {% endif %}
     </div>
 </div>
@@ -95,15 +846,20 @@
 
 {% if active_leave %}
 <div class="lm-active-banner">
-    <div class="icon">&#9208;</div>
+    <div class="lm-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M12 7v5l3 2"/>
+        </svg>
+    </div>
     <div>
-        <div class="title">You are currently on leave</div>
-        <div class="meta">
-            <strong>{{ active_leave.get_leave_type_display }}</strong> &mdash;
+        <div class="lm-banner-title">You are currently on leave</div>
+        <div class="lm-banner-meta">
+            <strong>{{ active_leave.get_leave_type_display }}</strong> —
             {{ active_leave.start_date|date:"d M Y" }} to {{ active_leave.end_date|date:"d M Y" }}
             ({{ active_leave.total_days }} day{% if active_leave.total_days > 1 %}s{% endif %})
         </div>
-        <div class="meta" style="margin-top:0.35rem;">
+        <div class="lm-banner-meta" style="margin-top:0.35rem;">
             You cannot submit a new leave request until this one ends.
         </div>
     </div>
@@ -120,7 +876,7 @@
         <div class="qval small">{{ used_week }} / {{ policy.max_leaves_per_week }}</div>
     </div>
     <div class="qbox">
-        <div class="qlabel">Left</div>
+        <div class="qlabel">Remaining</div>
         <div class="qval">{{ remaining_month }}</div>
     </div>
 </div>
@@ -151,22 +907,24 @@
         <div id="applyAlert"></div>
         {% if active_suspension %}
         <div class="lm-error">
-            You cannot apply for leave right now. You are suspended
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+            <span>You cannot apply for leave right now. You are suspended
             {% if active_suspension.end_date %}
             until <strong>{{ active_suspension.end_date|date:"d M Y" }}</strong>.
             {% else %}
             indefinitely. Please contact the admin.
-            {% endif %}
+            {% endif %}</span>
         </div>
         {% endif %}
         {% if active_leave %}
         <div class="lm-error">
-            You are currently on an approved leave until
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+            <span>You are currently on an approved leave until
             <strong>{{ active_leave.end_date|date:"d M Y" }}</strong>.
-            The apply form is disabled until this leave ends.
+            The apply form is disabled until this leave ends.</span>
         </div>
         {% endif %}
-        {% if active_suspension or active_leave %}disabled-all{% endif %}
+
         <div class="lm-field">
             <label for="lvTitle">Title / Subject</label>
             <input type="text" id="lvTitle" maxlength="200"
@@ -186,10 +944,7 @@
             <textarea id="lvReason" placeholder="Please describe why you need this leave…"
                       {% if active_suspension or active_leave %}disabled{% endif %}></textarea>
         </div>
-        <!-- LEAVE_MANAGEMENT_HARDENING_V3 (#10): `min` on the start
-             date is only applied when the policy forbids backdated
-             leaves. Previously it was hard-coded to `today`, which
-             silently disabled the admin's allow_backdated setting. -->
+
         <div class="lm-row2">
             <div class="lm-field">
                 <label for="lvStart">Start Date</label>
@@ -202,11 +957,13 @@
                        {% if active_suspension or active_leave %}disabled{% endif %}>
             </div>
         </div>
-        <p style="font-size:0.75rem; color:var(--muted); margin-bottom:0.75rem;">
-            Max consecutive days: <strong>{{ policy.max_consecutive_days }}</strong> •
-            Max/month: <strong>{{ policy.max_leaves_per_month }}</strong> •
+
+        <p class="lm-hint-line">
+            Max consecutive: <strong>{{ policy.max_consecutive_days }}</strong> &middot;
+            Max/month: <strong>{{ policy.max_leaves_per_month }}</strong> &middot;
             Max/week: <strong>{{ policy.max_leaves_per_week }}</strong>
         </p>
+
         <button class="lm-apply-btn" id="lvSubmit"
                 {% if active_suspension or active_leave %}disabled{% endif %}>
             {% if active_suspension %}
@@ -224,6 +981,34 @@
 <div class="lm-panel" id="panel-history">
     <div class="card">
         <div id="historyList"><div class="lm-empty-hint">Loading…</div></div>
+    </div>
+</div>
+
+<!-- ==================== CANCEL CONFIRM MODAL ==================== -->
+<div id="lmCancelModal" class="lm-modal" role="dialog" aria-modal="true" aria-labelledby="lmCancelTitle">
+    <div class="lm-modal-card">
+        <div class="lm-modal-title" id="lmCancelTitle">Cancel this leave request?</div>
+        <div class="lm-modal-body">
+            The request will be withdrawn. This action cannot be undone.
+        </div>
+        <div class="lm-modal-actions">
+            <button type="button" class="lm-btn-cancel" id="lmCancelNo">Keep Request</button>
+            <button type="button" class="lm-btn-confirm" id="lmCancelYes">Yes, Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== DETAIL BOTTOM SHEET ==================== -->
+<div id="lmDetailSheet" class="lm-sheet" role="dialog" aria-modal="true" aria-labelledby="lmDetailTitle">
+    <div class="lm-sheet-card">
+        <div class="lm-sheet-handle" aria-hidden="true"></div>
+        <div class="lm-sheet-head">
+            <h3 class="lm-sheet-title" id="lmDetailTitle">Leave Request</h3>
+            <button type="button" class="lm-sheet-close" id="lmDetailClose" aria-label="Close">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+        </div>
+        <div id="lmDetailBody"></div>
     </div>
 </div>
 
@@ -252,6 +1037,27 @@
     }
     function getCsrf() {
         return CSRF || (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    }
+
+    /* inline svg helpers used inside JS-rendered alerts/empty states */
+    function svgAlert() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<circle cx="12" cy="12" r="9"/>'
+             + '<path d="M12 8v5M12 16h.01"/>'
+             + '</svg>';
+    }
+    function svgTick() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<circle cx="12" cy="12" r="9"/>'
+             + '<path d="m8.5 12.3 2.4 2.4 4.6-4.9"/>'
+             + '</svg>';
+    }
+    function svgEmpty() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<rect x="3" y="5" width="18" height="16" rx="3"/>'
+             + '<path d="M8 3v4M16 3v4M3 11h18"/>'
+             + '<path d="M9 15.5h6"/>'
+             + '</svg>';
     }
 
     // ----- tabs -----
@@ -285,11 +1091,13 @@
             const alertBox = document.getElementById('applyAlert');
             alertBox.innerHTML = '';
             if (HAS_ACTIVE_SUSPENSION) {
-                alertBox.innerHTML = '<div class="lm-error">You are suspended from applying for leave.</div>';
+                alertBox.innerHTML = '<div class="lm-error">' + svgAlert()
+                    + '<span>You are suspended from applying for leave.</span></div>';
                 return;
             }
             if (HAS_ACTIVE_LEAVE) {
-                alertBox.innerHTML = '<div class="lm-error">You cannot apply while on an active leave.</div>';
+                alertBox.innerHTML = '<div class="lm-error">' + svgAlert()
+                    + '<span>You cannot apply while on an active leave.</span></div>';
                 return;
             }
             const title = document.getElementById('lvTitle').value.trim();
@@ -298,7 +1106,8 @@
             const start = startEl.value;
             const end = endEl.value;
             if (!title || !reason || !start || !end) {
-                alertBox.innerHTML = '<div class="lm-error">Please fill in all fields.</div>';
+                alertBox.innerHTML = '<div class="lm-error">' + svgAlert()
+                    + '<span>Please fill in all fields.</span></div>';
                 return;
             }
             const btn = this;
@@ -309,7 +1118,8 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCsrf()
+                    'X-CSRFToken': getCsrf(),
+                    'X-Requested-With': 'XMLHttpRequest',
                 },
                 body: JSON.stringify({
                     title: title, reason: reason, leave_type: type,
@@ -323,10 +1133,12 @@
                     const errs = (res.data.errors && res.data.errors.length)
                         ? res.data.errors.join('\n')
                         : (res.data.error || 'Failed to submit.');
-                    alertBox.innerHTML = '<div class="lm-error">' + esc(errs) + '</div>';
+                    alertBox.innerHTML = '<div class="lm-error">' + svgAlert()
+                        + '<span>' + esc(errs) + '</span></div>';
                     return;
                 }
-                alertBox.innerHTML = '<div class="lm-success">Leave request submitted successfully.</div>';
+                alertBox.innerHTML = '<div class="lm-success">' + svgTick()
+                    + '<span>Leave request submitted successfully.</span></div>';
                 document.getElementById('lvTitle').value = '';
                 document.getElementById('lvReason').value = '';
                 loadHistory();
@@ -334,31 +1146,34 @@
             }).catch(function() {
                 btn.disabled = false;
                 btn.textContent = 'Submit Application';
-                alertBox.innerHTML = '<div class="lm-error">Network error. Please try again.</div>';
+                alertBox.innerHTML = '<div class="lm-error">' + svgAlert()
+                    + '<span>Network error. Please try again.</span></div>';
             });
         });
     }
 
-    // ----- history -----
+    // ----- cached leave objects for the detail sheet -----
+    var _leavesById = {};
+
+    // ----- history (compact cards) -----
     function loadHistory() {
         const box = document.getElementById('historyList');
         box.innerHTML = '<div class="lm-empty-hint">Loading…</div>';
         fetch(API_HISTORY, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(r => r.json())
             .then(function(res) {
+                _leavesById = {};
                 if (!res.ok || !res.leaves || !res.leaves.length) {
-                    box.innerHTML = '<div class="lm-empty-hint">No leave requests yet.</div>';
+                    box.innerHTML = '<div class="lm-empty-hint">' + svgEmpty()
+                        + 'No leave requests yet.</div>';
                     return;
                 }
                 box.innerHTML = res.leaves.map(function(lv) {
-                    const cancelBtn = (lv.status === 'pending' || lv.status === 'approved')
-                        ? '<button class="lm-cancel-btn" onclick="cancelLeave(' + lv.id + ')">Cancel</button>'
-                        : '';
-                    const remarks = lv.admin_remarks
-                        ? '<div class="lm-remarks"><strong>Admin:</strong> ' + esc(lv.admin_remarks) + '</div>'
-                        : '';
+                    _leavesById[lv.id] = lv;
                     return ''
-                        + '<div class="lm-item">'
+                        + '<div class="lm-item lm-item--clickable" '
+                        +      'onclick="openLeaveDetail(' + lv.id + ')" '
+                        +      'role="button" tabindex="0">'
                         +   '<div class="lm-item-top">'
                         +     '<div class="lm-item-title">' + esc(lv.title) + '</div>'
                         +     '<span class="lm-chip ' + esc(lv.status) + '">' + esc(lv.status_display) + '</span>'
@@ -368,9 +1183,9 @@
                         +     ' • ' + lv.total_days + ' day' + (lv.total_days > 1 ? 's' : '')
                         +     ' • ' + esc(lv.leave_type_display)
                         +   '</div>'
-                        +   '<div class="lm-reason">' + esc(lv.reason) + '</div>'
-                        +   remarks
-                        +   cancelBtn
+                        +   '<span class="lm-item-chevron" aria-hidden="true">'
+                        +     '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>'
+                        +   '</span>'
                         + '</div>';
                 }).join('');
             })
@@ -379,13 +1194,159 @@
             });
     }
 
-    window.cancelLeave = function(id) {
-        if (!confirm('Cancel this leave request?')) return;
+    // ----- detail bottom sheet -----
+    var _detailSheet = document.getElementById('lmDetailSheet');
+    var _detailBody  = document.getElementById('lmDetailBody');
+    var _detailClose = document.getElementById('lmDetailClose');
+    var _detailLastFocus = null;
+
+    function closeDetailSheet() {
+        if (!_detailSheet) return;
+        _detailSheet.classList.remove('open');
+        if (_detailLastFocus && typeof _detailLastFocus.focus === 'function') {
+            _detailLastFocus.focus();
+        }
+    }
+
+    function openDetailSheet() {
+        if (!_detailSheet) return;
+        _detailLastFocus = document.activeElement;
+        _detailSheet.classList.add('open');
+        setTimeout(function () {
+            if (_detailClose) _detailClose.focus();
+        }, 30);
+    }
+
+    if (_detailClose) _detailClose.addEventListener('click', closeDetailSheet);
+    if (_detailSheet) {
+        _detailSheet.addEventListener('click', function (e) {
+            if (e.target === _detailSheet) closeDetailSheet();
+        });
+    }
+
+    function buildDetailHtml(lv) {
+        var canCancel = (lv.status === 'pending' || lv.status === 'approved');
+        var parts = [];
+
+        parts.push('<h2 class="lm-detail-title">' + esc(lv.title) + '</h2>');
+        parts.push(
+            '<div class="lm-detail-chip-row">'
+            +   '<span class="lm-chip ' + esc(lv.status) + '">' + esc(lv.status_display) + '</span>'
+            +   '<span class="lm-chip cancelled" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;">'
+            +      esc(lv.leave_type_display)
+            +   '</span>'
+            + '</div>'
+        );
+
+        parts.push(
+            '<div class="lm-meta-grid">'
+            +   '<div class="lm-meta-box">'
+            +     '<div class="k">Start</div>'
+            +     '<div class="v">' + fmtDate(lv.start_date) + '</div>'
+            +   '</div>'
+            +   '<div class="lm-meta-box">'
+            +     '<div class="k">End</div>'
+            +     '<div class="v">' + fmtDate(lv.end_date) + '</div>'
+            +   '</div>'
+            +   '<div class="lm-meta-box">'
+            +     '<div class="k">Total Days</div>'
+            +     '<div class="v">' + lv.total_days + ' day' + (lv.total_days > 1 ? 's' : '') + '</div>'
+            +   '</div>'
+            +   '<div class="lm-meta-box">'
+            +     '<div class="k">Status</div>'
+            +     '<div class="v">' + esc(lv.status_display) + '</div>'
+            +   '</div>'
+            + '</div>'
+        );
+
+        parts.push(
+            '<div class="lm-detail-section">'
+            +   '<div class="s-title">Reason</div>'
+            +   '<div class="s-body">' + esc(lv.reason || '—') + '</div>'
+            + '</div>'
+        );
+
+        if (lv.admin_remarks) {
+            parts.push(
+                '<div class="lm-detail-section remarks">'
+                +   '<div class="s-title">Admin Remarks</div>'
+                +   '<div class="s-body">' + esc(lv.admin_remarks) + '</div>'
+                + '</div>'
+            );
+        }
+
+        parts.push('<div class="lm-detail-actions">');
+        parts.push(
+            '<button type="button" class="lm-ghost-btn" '
+            + 'onclick="closeLeaveDetail()">Close</button>'
+        );
+        if (canCancel) {
+            parts.push(
+                '<button type="button" class="lm-cancel-btn" '
+                + 'onclick="cancelLeave(' + lv.id + ')">Cancel Request</button>'
+            );
+        }
+        parts.push('</div>');
+
+        return parts.join('');
+    }
+
+    window.openLeaveDetail = function(id) {
+        var lv = _leavesById[id];
+        if (!lv || !_detailBody) return;
+        _detailBody.innerHTML = buildDetailHtml(lv);
+        openDetailSheet();
+    };
+
+    window.closeLeaveDetail = closeDetailSheet;
+
+    // esc key closes both overlays
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        if (_cancelModal && _cancelModal.classList.contains('open')) {
+            closeCancelModal();
+            return;
+        }
+        if (_detailSheet && _detailSheet.classList.contains('open')) {
+            closeDetailSheet();
+        }
+    });
+
+    // ----- cancel confirm modal -----
+    var _pendingCancelId = null;
+    var _cancelModal = document.getElementById('lmCancelModal');
+    var _cancelYes = document.getElementById('lmCancelYes');
+    var _cancelNo  = document.getElementById('lmCancelNo');
+    var _cancelLastFocus = null;
+
+    function openCancelModal() {
+        if (!_cancelModal) return;
+        _cancelLastFocus = document.activeElement;
+        _cancelModal.classList.add('open');
+        setTimeout(function () { if (_cancelNo) _cancelNo.focus(); }, 30);
+    }
+    function closeCancelModal() {
+        if (!_cancelModal) return;
+        _cancelModal.classList.remove('open');
+        _pendingCancelId = null;
+        if (_cancelLastFocus && typeof _cancelLastFocus.focus === 'function') {
+            _cancelLastFocus.focus();
+        }
+    }
+    if (_cancelNo)  _cancelNo.addEventListener('click', closeCancelModal);
+    if (_cancelModal) {
+        _cancelModal.addEventListener('click', function (e) {
+            if (e.target === _cancelModal) closeCancelModal();
+        });
+    }
+
+    function performCancel(id) {
         fetch(API_CANCEL + id + '/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrf()
+                'X-CSRFToken': getCsrf(),
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: '{}'
         }).then(r => r.json().then(d => ({ ok: r.ok, data: d })))
@@ -394,10 +1355,31 @@
                 alert(res.data.error || 'Failed to cancel.');
                 return;
             }
+            // Sheet is stale now that the status changed — close it
+            closeDetailSheet();
             loadHistory();
             refreshQuota();
         });
+    }
+
+    window.cancelLeave = function(id) {
+        _pendingCancelId = id;
+        openCancelModal();
     };
+
+    if (_cancelYes) {
+        _cancelYes.addEventListener('click', function() {
+            var id = _pendingCancelId;
+            _cancelYes.disabled = true;
+            _cancelYes.textContent = 'Cancelling…';
+            closeCancelModal();
+            if (id) performCancel(id);
+            setTimeout(function () {
+                _cancelYes.disabled = false;
+                _cancelYes.textContent = 'Yes, Cancel';
+            }, 400);
+        });
+    }
 
     function refreshQuota() {
         fetch(API_POLICY, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -410,9 +1392,6 @@
                     qboxes[1].textContent = res.used_week + ' / ' + res.max_leaves_per_week;
                     qboxes[2].textContent = res.remaining_month;
                 }
-                // If the server now reports an active leave or an active
-                // suspension that we didn't render on page load, reload
-                // so the UI matches.
                 if ((res.active_leave && !HAS_ACTIVE_LEAVE) ||
                     (res.active_suspension && !HAS_ACTIVE_SUSPENSION)) {
                     location.reload();

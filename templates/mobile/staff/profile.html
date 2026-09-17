@@ -2,72 +2,958 @@
 {% load static %}
 {% block title %}My Profile{% endblock %}
 {% block extra_head %}
-\1<style>\n#biometricConsentModal:not([hidden]) {\n    display: grid;\n    place-items: center;\n}\n</style>\n<script src="{% static 'js/staff_biometric.js' %}" defer></script>
+<style>
+    /* Modal visibility: hidden wins over any display style. */
+    #biometricConsentModal[hidden] { display: none !important; }
+    #biometricConsentModal:not([hidden]) {
+        display: grid;
+        place-items: center;
+    }
+</style>
+<script src="{% static 'js/staff_biometric.js' %}" defer></script>
 {% endblock %}
 {% block body %}
-<div class="card">
-    <h2 style="margin:0 0 6px;">{{ staff.full_name }}</h2>
-    <div class="subtle">{{ staff.job_title }} · {{ staff.get_role_display }}</div>
-</div>
-<div class="card">
-    <p><strong>Email:</strong> {{ staff.email|default:'N/A' }}</p>
-    <p><strong>Phone:</strong> {{ staff.phone|default:'N/A' }}</p>
-    <p><strong>Department:</strong> {{ staff.get_department_display }}</p>
-</div>
-{% if credential %}
-<div class="card">
-    <h3>Portal Access</h3>
-    <div class="stack">
-        <div>
-            <div class="subtle" style="font-size:12px; margin-bottom:4px;">Username</div>
-            <div style="font-weight:700;">{{ credential.username }}</div>
+<style>
+    /* ============================================================
+       PROFILE PAGE — professional redesign
+       Scoped with .pf- prefix. No emojis; all icons inline SVG.
+       ============================================================ */
+
+    /* ---------------- HERO ---------------- */
+    .pf-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 22px;
+        padding: 20px 18px 18px;
+        color: #ffffff;
+        background:
+            radial-gradient(520px 200px at 108% -30%, rgba(255, 255, 255, 0.16), transparent 62%),
+            linear-gradient(135deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%);
+        box-shadow: 0 18px 34px rgba(11, 110, 100, 0.22);
+        margin-bottom: 16px;
+    }
+
+    .pf-hero-top {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .pf-avatar {
+        flex: 0 0 56px;
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        color: #0b6e64;
+        background: linear-gradient(140deg, #fff8e1 0%, #ffd97a 100%);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
+    }
+
+    .pf-hero-text {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .pf-name {
+        margin: 0;
+        font-size: 1.24rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .pf-job {
+        margin-top: 3px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.82);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .pf-role {
+        display: inline-block;
+        margin-top: 7px;
+        padding: 3px 10px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #fff8e1;
+    }
+
+    /* ---------------- SECTION TITLES ---------------- */
+    .pf-section-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 4px 10px;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .pf-section-title::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(201, 162, 39, 0.45), transparent);
+    }
+
+    /* ---------------- CARDS ---------------- */
+    .pf-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 20px rgba(11, 110, 100, 0.05);
+    }
+
+    /* ---------------- INFO ROWS ---------------- */
+    .pf-info-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .pf-info-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .pf-info-row:first-child { padding-top: 0; }
+
+    .pf-info-icon {
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+    }
+
+    .pf-info-icon svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .pf-info-body {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .pf-info-label {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 3px;
+    }
+
+    .pf-info-value {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--text);
+        line-height: 1.3;
+        word-break: break-word;
+    }
+
+    .pf-info-value.muted {
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    .pf-info-value.mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.88rem;
+        letter-spacing: 0.01em;
+    }
+
+    /* ---------------- BIOMETRIC STATUS ---------------- */
+    .pf-bio-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+
+    .pf-bio-status-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .pf-bio-dot {
+        flex: 0 0 10px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--muted);
+    }
+
+    .pf-bio-dot.on {
+        background: var(--success);
+        box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.16);
+    }
+
+    .pf-bio-dot.off {
+        background: var(--muted);
+        box-shadow: 0 0 0 4px rgba(107, 128, 122, 0.14);
+    }
+
+    .pf-bio-status-text {
+        font-size: 0.9rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .pf-bio-desc {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 12px;
+    }
+
+    .pf-bio-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    /* ---------------- BUTTONS ---------------- */
+    .pf-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border-radius: 12px;
+        border: none;
+        font-family: inherit;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        transition: transform 0.12s ease, filter 0.15s ease,
+                    background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .pf-btn:active { transform: scale(0.97); }
+
+    .pf-btn-primary {
+        background: linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%);
+        color: #ffffff;
+        box-shadow: 0 10px 20px rgba(11, 110, 100, 0.20);
+    }
+    .pf-btn-primary:hover { filter: brightness(1.05); }
+
+    .pf-btn-secondary {
+        background: var(--surface-alt);
+        color: var(--accent-deep);
+        border: 1px solid var(--border);
+    }
+    .pf-btn-secondary:hover {
+        background: var(--accent-soft);
+        border-color: rgba(15, 157, 143, 0.35);
+    }
+
+    .pf-btn-danger {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid rgba(225, 29, 72, 0.22);
+    }
+    .pf-btn-danger:hover { background: #fee2e2; border-color: rgba(225, 29, 72, 0.38); }
+
+    /* ---------------- FORM ---------------- */
+    .pf-field { margin-bottom: 12px; }
+
+    .pf-field label {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+
+    .pf-field input {
+        width: 100%;
+        padding: 11px 13px;
+        border-radius: 12px;
+        border: 1.5px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.9rem;
+        font-weight: 600;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .pf-field input:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .pf-field input::placeholder {
+        color: #9fb0ab;
+        font-weight: 500;
+    }
+
+    /* Password field with toggle */
+    .pf-pw-wrap {
+        position: relative;
+    }
+
+    .pf-pw-wrap input {
+        padding-right: 48px;
+    }
+
+    .pf-pw-toggle {
+        position: absolute;
+        top: 50%;
+        right: 6px;
+        transform: translateY(-50%);
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .pf-pw-toggle:hover {
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+    }
+
+    .pf-pw-toggle:active { transform: translateY(-50%) scale(0.94); }
+
+    .pf-pw-toggle svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .pf-row2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .pf-note {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        background: #fffbeb;
+        border: 1px solid rgba(245, 158, 11, 0.32);
+        border-left: 4px solid var(--warning);
+        color: #78350f;
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 0.76rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 12px;
+    }
+
+    .pf-note svg {
+        flex: 0 0 15px;
+        width: 15px;
+        height: 15px;
+        margin-top: 2px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    /* ---------------- INLINE ALERTS ---------------- */
+    .pf-alert {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 11px 13px;
+        border-radius: 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.45;
+        margin-bottom: 12px;
+        white-space: pre-wrap;
+    }
+
+    .pf-alert svg {
+        flex: 0 0 16px;
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .pf-alert-error {
+        background: #fef2f2;
+        border: 1px solid rgba(225, 29, 72, 0.20);
+        border-left: 4px solid var(--danger);
+        color: #991b1b;
+    }
+
+    .pf-alert-ok {
+        background: #ecfdf5;
+        border: 1px solid rgba(22, 163, 74, 0.22);
+        border-left: 4px solid var(--success);
+        color: #065f46;
+    }
+
+    /* ---------------- CONSENT MODAL ---------------- */
+    .pf-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 45, 41, 0.52);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 10000;
+        padding: 20px;
+        /* display handled by the ID rule in the extra_head block */
+    }
+
+    .pf-modal-card {
+        position: relative;
+        background: var(--surface);
+        border-radius: 18px;
+        width: min(420px, 100%);
+        padding: 20px 20px 18px;
+        box-shadow: 0 24px 48px rgba(6, 45, 41, 0.32);
+        border: 1px solid var(--border);
+        overflow: hidden;
+    }
+
+    .pf-modal-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+    }
+
+    .pf-modal-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        margin-bottom: 12px;
+    }
+
+    .pf-modal-icon svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .pf-modal-title {
+        margin: 0 0 10px;
+        font-size: 1.02rem;
+        font-weight: 800;
+        letter-spacing: -0.005em;
+        color: var(--text);
+    }
+
+    .pf-modal-body {
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 10px;
+    }
+
+    .pf-modal-body:last-of-type { margin-bottom: 18px; }
+
+    .pf-modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    /* ---------------- RESPONSIVE ---------------- */
+    @media (max-width: 380px) {
+        .pf-name { font-size: 1.1rem; }
+        .pf-avatar { width: 50px; height: 50px; flex-basis: 50px; border-radius: 16px; font-size: 1.25rem; }
+        .pf-row2 { grid-template-columns: 1fr; }
+        .pf-modal-actions { flex-direction: column-reverse; }
+        .pf-modal-actions .pf-btn { width: 100%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+    }
+</style>
+
+<!-- ==================== HERO ==================== -->
+<section class="pf-hero">
+    <div class="pf-hero-top">
+        <div class="pf-avatar" aria-hidden="true">
+            {% if staff.full_name %}{{ staff.full_name|slice:":1"|upper }}{% else %}A{% endif %}
         </div>
-        <div>
-            <div class="subtle" style="font-size:12px; margin-bottom:4px;">Password</div>
-            <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; color:var(--muted);">Hidden for security. Use the change-password form below.</div>
+        <div class="pf-hero-text">
+            <h1 class="pf-name">{{ staff.full_name }}</h1>
+            {% if staff.job_title %}
+            <div class="pf-job">{{ staff.job_title }}</div>
+            {% endif %}
+            <span class="pf-role">{{ staff.get_role_display }}</span>
+        </div>
+    </div>
+</section>
+
+<!-- ==================== CONTACT ==================== -->
+<div class="pf-section-title">Contact</div>
+<div class="pf-card">
+    <div class="pf-info-row">
+        <span class="pf-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3.5 6.5 8.5 6 8.5-6"/></svg>
+        </span>
+        <div class="pf-info-body">
+            <div class="pf-info-label">Email</div>
+            <div class="pf-info-value {% if not staff.email %}muted{% endif %}">
+                {{ staff.email|default:'Not provided' }}
+            </div>
+        </div>
+    </div>
+
+    <div class="pf-info-row">
+        <span class="pf-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 5.5h4l2 5-2.5 1.5a12 12 0 0 0 5 5L14 14.5l5 2v4a1.5 1.5 0 0 1-1.6 1.5A16 16 0 0 1 2.5 7.1 1.5 1.5 0 0 1 4 5.5Z"/></svg>
+        </span>
+        <div class="pf-info-body">
+            <div class="pf-info-label">Phone</div>
+            <div class="pf-info-value {% if not staff.phone %}muted{% endif %}">
+                {{ staff.phone|default:'Not provided' }}
+            </div>
+        </div>
+    </div>
+
+    <div class="pf-info-row">
+        <span class="pf-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M3 21V9l9-5 9 5v12"/><path d="M9 21v-6h6v6"/></svg>
+        </span>
+        <div class="pf-info-body">
+            <div class="pf-info-label">Department</div>
+            <div class="pf-info-value">{{ staff.get_department_display }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== PORTAL ACCESS ==================== -->
+{% if credential %}
+<div class="pf-section-title">Portal Access</div>
+<div class="pf-card">
+    <div class="pf-info-row">
+        <span class="pf-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+        </span>
+        <div class="pf-info-body">
+            <div class="pf-info-label">Username</div>
+            <div class="pf-info-value mono">{{ credential.username }}</div>
+        </div>
+    </div>
+
+    <div class="pf-info-row">
+        <span class="pf-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+        </span>
+        <div class="pf-info-body">
+            <div class="pf-info-label">Password</div>
+            <div class="pf-info-value muted">Hidden for security — use the form below.</div>
         </div>
     </div>
 </div>
 {% endif %}
-<div class="card">
-    <h3>Biometric Access</h3>
-    <div class="stack">
-        <div class="row">
-            <div>
-                <div class="subtle" style="font-size:12px; margin-bottom:4px;">Status</div>
-                <div id="biometricStatus" style="font-weight:700;">{% if biometric_enabled %}Enabled{% else %}Disabled{% endif %}</div>
-            </div>
-            {% if biometric_enabled %}
-            <button id="disableBiometricBtn" type="button" class="btn-secondary">Disable Biometric</button>
-            {% else %}
-            <button id="enableBiometricBtn" type="button" class="btn-primary">Enable Biometric</button>
-            {% endif %}
+
+<!-- ==================== BIOMETRIC ==================== -->
+<div class="pf-section-title">Biometric Access</div>
+<div class="pf-card">
+    <div class="pf-bio-head">
+        <div class="pf-bio-status-wrap">
+            <span class="pf-bio-dot {% if biometric_enabled %}on{% else %}off{% endif %}" aria-hidden="true"></span>
+            <span class="pf-bio-status-text" id="biometricStatus">
+                {% if biometric_enabled %}Enabled{% else %}Disabled{% endif %}
+            </span>
         </div>
-        <div class="subtle" style="font-size:12px; line-height:1.5;">This device will use its fingerprint, Face ID, or screen lock. On another device, sign in to the same Google, Apple, or Microsoft account that syncs this passkey.</div>
+    </div>
+
+    <p class="pf-bio-desc">
+        This device will use its fingerprint, Face ID, or screen lock. On another device,
+        sign in to the same Google, Apple, or Microsoft account that syncs this passkey.
+    </p>
+
+    <div class="pf-bio-actions">
+        {% if biometric_enabled %}
+        <button id="disableBiometricBtn" type="button" class="pf-btn pf-btn-danger">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+                <rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/>
+                <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>
+            </svg>
+            Disable Biometric
+        </button>
+        {% else %}
+        <button id="enableBiometricBtn" type="button" class="pf-btn pf-btn-primary">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+                <path d="M12 3.5s-6 3.4-6 8.2v5.3L12 21l6-4V11.7c0-4.8-6-8.2-6-8.2Z"/>
+                <path d="m9 12.6 2.1 2.1L15 10.8"/>
+            </svg>
+            Enable Biometric
+        </button>
+        {% endif %}
     </div>
 </div>
-<div class="card">
-    <h3>Change Password</h3>
-    <form method="post" action="{% url 'staff_change_password' %}" class="stack">
+
+<!-- ==================== CHANGE PASSWORD ==================== -->
+<div class="pf-section-title">Change Password</div>
+<div class="pf-card">
+    <div class="pf-note">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M12 8v5M12 16h.01"/>
+        </svg>
+        <span>New password must be at least 8 characters with one uppercase letter, one digit, and one symbol.</span>
+    </div>
+
+    {# Inline alert slot — JS writes success/error messages here. #}
+    <div id="pfPwAlert" style="display:none;"></div>
+
+    <form method="post" action="{% url 'staff_change_password' %}" id="pfPwForm" novalidate>
         {% csrf_token %}
-        <input type="text" name="cnic" placeholder="CNIC" required>
-        <input type="date" name="date_of_birth" required>
-        <input type="password" name="old_password" placeholder="Current password" required>
-        <input type="password" name="new_password" placeholder="New password" required>
-        <input type="password" name="confirm_password" placeholder="Confirm new password" required>
+
+        <div class="pf-row2">
+            <div class="pf-field">
+                <label for="pfCnic">CNIC</label>
+                <input id="pfCnic" type="text" name="cnic" placeholder="e.g. 35202-1234567-1"
+                       autocomplete="off" inputmode="numeric" required>
+            </div>
+            <div class="pf-field">
+                <label for="pfDob">Date of Birth</label>
+                <input id="pfDob" type="date" name="date_of_birth" autocomplete="bday" required>
+            </div>
+        </div>
+
+        <div class="pf-field">
+            <label for="pfNewPw">New Password</label>
+            <div class="pf-pw-wrap">
+                <input id="pfNewPw" type="password" name="new_password"
+                       placeholder="At least 8 characters"
+                       autocomplete="new-password" required>
+                <button type="button" class="pf-pw-toggle" id="pfPwToggle1"
+                        aria-label="Show passwords" aria-pressed="false" tabindex="-1">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/>
+                        <circle cx="12" cy="12" r="2.8"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="pf-field">
+            <label for="pfConfirmPw">Confirm New Password</label>
+            <div class="pf-pw-wrap">
+                <input id="pfConfirmPw" type="password" name="confirm_password"
+                       placeholder="Re-enter your new password"
+                       autocomplete="new-password" required>
+                <button type="button" class="pf-pw-toggle" id="pfPwToggle2"
+                        aria-label="Show passwords" aria-pressed="false" tabindex="-1">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/>
+                        <circle cx="12" cy="12" r="2.8"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
         <input type="hidden" name="verify_type" value="self_reset">
-        <button type="submit" class="btn-primary">Update</button>
+
+        <button type="submit" class="pf-btn pf-btn-primary" id="pfPwSubmit"
+                style="width:100%;margin-top:6px;">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+                <path d="M5 12l5 5L20 7"/>
+            </svg>
+            Update Password
+        </button>
     </form>
 </div>
-<div id="biometricConsentModal" hidden role="dialog" aria-modal="true" aria-labelledby="biometricConsentTitle" style="position:fixed; inset:0; z-index:100; place-items:center; padding:20px; background:rgba(15,23,42,.48);">
-    <div style="width:min(100%,420px); padding:22px; border-radius:16px; background:#fff; box-shadow:0 20px 50px rgba(15,23,42,.25);">
-        <h3 id="biometricConsentTitle" style="margin:0 0 10px;">Before enabling biometric access</h3>
-        <p class="subtle" style="line-height:1.5;">Your device will verify you with fingerprint, Face ID, or screen lock. The portal receives a secure passkey proof, not your biometric data.</p>
-        <p class="subtle" style="line-height:1.5;">This passkey is normally available on this device. To use it elsewhere, the same Google, Apple, or Microsoft account must sync it. Never register a passkey on a shared device.</p>
-        <div class="row" style="margin-top:16px;">
-            <button id="biometricConsentCancel" type="button" class="btn-secondary">Cancel</button>
-            <button id="biometricConsentAgree" type="button" class="btn-primary">I Agree &amp; Enable</button>
+
+<!-- ==================== BIOMETRIC CONSENT MODAL ==================== -->
+<div id="biometricConsentModal" hidden role="dialog" aria-modal="true" aria-labelledby="biometricConsentTitle"
+     class="pf-modal">
+    <div class="pf-modal-card">
+        <div class="pf-modal-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 3.5s-6 3.4-6 8.2v5.3L12 21l6-4V11.7c0-4.8-6-8.2-6-8.2Z"/>
+                <path d="m9 12.6 2.1 2.1L15 10.8"/>
+            </svg>
+        </div>
+        <h3 class="pf-modal-title" id="biometricConsentTitle">Before enabling biometric access</h3>
+        <p class="pf-modal-body">
+            Your device will verify you with fingerprint, Face ID, or screen lock.
+            The portal receives a secure passkey proof, not your biometric data.
+        </p>
+        <p class="pf-modal-body">
+            This passkey is normally available on this device. To use it elsewhere, the same
+            Google, Apple, or Microsoft account must sync it. Never register a passkey on a
+            shared device.
+        </p>
+        <div class="pf-modal-actions">
+            <button id="biometricConsentCancel" type="button" class="pf-btn pf-btn-secondary">Cancel</button>
+            <button id="biometricConsentAgree" type="button" class="pf-btn pf-btn-primary">I Agree &amp; Enable</button>
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    "use strict";
+
+    var form = document.getElementById("pfPwForm");
+    if (!form) return;
+
+    var alertBox  = document.getElementById("pfPwAlert");
+    var submitBtn = document.getElementById("pfPwSubmit");
+    var newPw     = form.querySelector('input[name="new_password"]');
+    var confirmPw = form.querySelector('input[name="confirm_password"]');
+    var csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
+
+    /* ---- password show/hide toggles (single state for both fields) ---- */
+    var eyeOpen =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">'
+      + '<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/>'
+      + '<circle cx="12" cy="12" r="2.8"/>'
+      + '</svg>';
+    var eyeClosed =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">'
+      + '<path d="M3 3l18 18"/>'
+      + '<path d="M10.6 6.2A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a17.4 17.4 0 0 1-3.3 3.9"/>'
+      + '<path d="M6.4 6.6A16.6 16.6 0 0 0 2.5 12s3.5 6 9.5 6a10.4 10.4 0 0 0 3.4-.55"/>'
+      + '<path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/>'
+      + '</svg>';
+
+    var toggle1 = document.getElementById("pfPwToggle1");
+    var toggle2 = document.getElementById("pfPwToggle2");
+
+    function setPasswordVisibility(show) {
+        var type = show ? "text" : "password";
+        if (newPw)     newPw.type = type;
+        if (confirmPw) confirmPw.type = type;
+        [toggle1, toggle2].forEach(function (btn) {
+            if (!btn) return;
+            btn.setAttribute("aria-pressed", show ? "true" : "false");
+            btn.setAttribute("aria-label", show ? "Hide passwords" : "Show passwords");
+            btn.innerHTML = show ? eyeClosed : eyeOpen;
+        });
+    }
+
+    if (toggle1) {
+        toggle1.addEventListener("click", function () {
+            setPasswordVisibility(newPw && newPw.type === "password");
+        });
+    }
+    if (toggle2) {
+        toggle2.addEventListener("click", function () {
+            setPasswordVisibility(newPw && newPw.type === "password");
+        });
+    }
+
+    /* ---- inline svg icons for the alert box ---- */
+    function svgError() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<circle cx="12" cy="12" r="9"/>'
+             + '<path d="M12 8v5M12 16h.01"/>'
+             + '</svg>';
+    }
+    function svgOk() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+             + '<circle cx="12" cy="12" r="9"/>'
+             + '<path d="m8.5 12.3 2.4 2.4 4.6-4.9"/>'
+             + '</svg>';
+    }
+    function esc(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function showAlert(kind, message) {
+        if (!alertBox) return;
+        var cls = (kind === "ok") ? "pf-alert pf-alert-ok" : "pf-alert pf-alert-error";
+        var icon = (kind === "ok") ? svgOk() : svgError();
+        alertBox.className = cls;
+        alertBox.innerHTML = icon + '<span>' + esc(message) + '</span>';
+        alertBox.style.display = "flex";
+    }
+    function hideAlert() {
+        if (!alertBox) return;
+        alertBox.style.display = "none";
+        alertBox.innerHTML = "";
+    }
+
+    function setLoading(on) {
+        if (!submitBtn) return;
+        if (on) {
+            submitBtn.disabled = true;
+            submitBtn.dataset.originalLabel = submitBtn.dataset.originalLabel
+                || submitBtn.textContent.trim();
+            submitBtn.textContent = "Updating…";
+        } else {
+            submitBtn.disabled = false;
+            submitBtn.textContent = submitBtn.dataset.originalLabel || "Update Password";
+        }
+    }
+
+    function getCsrf() {
+        if (csrfInput && csrfInput.value) return csrfInput.value;
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute("content")) return m.getAttribute("content");
+        return "";
+    }
+
+    /* Lightweight client-side check — the server is the source of truth. */
+    function clientValidate() {
+        if (!newPw.value) {
+            showAlert("error", "Please enter a new password.");
+            newPw.focus();
+            return false;
+        }
+        if (!confirmPw.value) {
+            showAlert("error", "Please confirm your new password.");
+            confirmPw.focus();
+            return false;
+        }
+        if (newPw.value !== confirmPw.value) {
+            showAlert("error", "New passwords do not match.");
+            confirmPw.focus();
+            return false;
+        }
+        return true;
+    }
+
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+
+        hideAlert();
+        if (!clientValidate()) return;
+
+        setLoading(true);
+
+        var fd = new FormData(form);
+
+        fetch(form.action, {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": getCsrf(),
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            body: fd,
+            credentials: "same-origin",
+        })
+        .then(function (r) {
+            return r.json().then(function (data) {
+                return { ok: r.ok, data: data };
+            }).catch(function () {
+                return { ok: false, data: { success: false,
+                    message: "Unexpected server response. Please refresh the page and try again." } };
+            });
+        })
+        .then(function (res) {
+            setLoading(false);
+            var data = res.data || {};
+            var success = res.ok && data.success;
+            var message = data.message || (success
+                ? "Password updated successfully."
+                : "Could not update password.");
+
+            if (!success) {
+                showAlert("error", message);
+                return;
+            }
+
+            /* SUCCESS — clear only the password fields; keep CNIC / DOB
+               so the user doesn't have to retype them if they change
+               their mind and want to try again later. */
+            newPw.value = "";
+            confirmPw.value = "";
+            setPasswordVisibility(false);
+            showAlert("ok", message);
+            /* PASSWORD_CHANGE_LOGOUT_V1: the backend has just
+               flushed every session for this staff member.
+               Follow the redirect hint it returns so the user
+               lands on the login page. */
+            if (data && data.redirect) {
+                setTimeout(function () {
+                    window.location.href = data.redirect;
+                }, 1200);
+            }
+        })
+        .catch(function () {
+            setLoading(false);
+            showAlert("error", "Network error. Please check your connection and try again.");
+        });
+    });
+
+    /* Clear the alert once the user starts typing again. */
+    form.addEventListener("input", function () {
+        if (alertBox && alertBox.style.display !== "none") hideAlert();
+    });
+})();
+</script>
 {% endblock %}

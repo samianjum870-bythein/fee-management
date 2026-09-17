@@ -375,56 +375,128 @@ def staff_profile(request):
 @require_http_methods(['POST'])
 @require_staff_feature('staff_profile')
 def staff_change_password(request):
+    """Change the signed-in staff member's portal password.
+
+    Self-service flow (verify_type == 'self_reset'):
+        * Requires CNIC + date_of_birth to match the staff record.
+        * Old password is NOT required.
+        * New password rules: min 8 chars, 1 uppercase, 1 digit, 1 symbol.
+    Returns JSON when called via AJAX; otherwise falls back to messages +
+    redirect so the plain-HTML form still works without JS.
+    """
     schema_name = request.session['staff_schema_name']
     from django_tenants.utils import schema_context
-    old_password = request.POST.get('old_password')
-    new_password = request.POST.get('new_password')
-    confirm_password = request.POST.get('confirm_password')
-    cnic = (request.POST.get('cnic') or '').strip()
-    dob = request.POST.get('date_of_birth')
 
+    new_password = request.POST.get('new_password') or ''
+    confirm_password = request.POST.get('confirm_password') or ''
+    cnic = (request.POST.get('cnic') or '').strip()
+    dob = request.POST.get('date_of_birth') or ''
+
+    is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+
+    def _fail(message, status=400):
+        if is_ajax:
+            return JsonResponse({'success': False, 'message': message}, status=status)
+        messages.error(request, message)
+        return redirect('staff_profile_page')
+
+    def _ok(message):
+        if is_ajax:
+            return JsonResponse({'success': True, 'message': message})
+        messages.success(request, message)
+        return redirect('staff_profile_page')
+
+    # ---- staff lookup + status check -------------------------------------
     with schema_context(schema_name):
         staff = Staff.objects.filter(pk=request.session['staff_id']).first()
         if staff is None:
-            return JsonResponse({'success': False, 'message': 'Staff account not found.'}, status=404) if request.headers.get('x-requested-with') == 'XMLHttpRequest' else redirect('staff_profile_page')
+            return _fail('Staff account not found.', status=404)
         if staff.status != 'active':
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'message': 'This account is suspended and cannot change password.'}, status=403)
-            messages.error(request, 'This account is suspended and cannot change password.')
-            return redirect('staff_profile_page')
+            return _fail(
+                'This account is suspended and cannot change password.',
+                status=403,
+            )
 
+        # ---- identity check (CNIC + DOB) ---------------------------------
         if request.POST.get('verify_type') == 'self_reset':
-            cnic_ok = bool(staff.cnic) and str(staff.cnic).replace('-', '').replace(' ', '').lower() == str(cnic).replace('-', '').replace(' ', '').lower()
-            dob_ok = bool(staff.date_of_birth) and staff.date_of_birth.isoformat() == str(dob)
+            cnic_clean = str(cnic).replace('-', '').replace(' ', '').lower()
+            staff_cnic_clean = (
+                str(staff.cnic).replace('-', '').replace(' ', '').lower()
+                if staff.cnic else ''
+            )
+            cnic_ok = bool(staff_cnic_clean) and staff_cnic_clean == cnic_clean
+            dob_ok = (
+                bool(staff.date_of_birth)
+                and staff.date_of_birth.isoformat() == str(dob)
+            )
             if not cnic_ok or not dob_ok:
-                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                    return JsonResponse({'success': False, 'message': 'Your CNIC and date of birth do not match the staff record.'}, status=400)
-                messages.error(request, 'Your CNIC and date of birth do not match the staff record.')
-                return redirect('staff_profile_page')
+                return _fail(
+                    'Your CNIC and date of birth do not match the staff record.',
+                )
 
+    # ---- credential lookup + password rules ------------------------------
     with schema_context('public'):
-        credential = StaffCredential.objects.filter(staff_id=request.session['staff_id'], schema_name=schema_name).first()
-        if not credential or not credential.check_password(old_password):
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'message': 'Current password is incorrect.'}, status=400)
-            messages.error(request, 'Current password is incorrect.')
-            return redirect('staff_profile_page')
+        credential = StaffCredential.objects.filter(
+            staff_id=request.session['staff_id'],
+            schema_name=schema_name,
+        ).first()
+
+        if not credential:
+            return _fail('Portal credential not found.', status=404)
+
         if new_password != confirm_password:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'message': 'New passwords do not match.'}, status=400)
-            messages.error(request, 'New passwords do not match.')
-            return redirect('staff_profile_page')
-        if len(new_password) < 12 or not any(ch.isupper() for ch in new_password) or not any(ch.isdigit() for ch in new_password) or not any(ch in '!@#$%^&*' for ch in new_password):
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'message': 'Password must contain at least 12 chars, one uppercase, one digit, and one symbol.'}, status=400)
-            messages.error(request, 'Password must contain at least 12 chars, one uppercase, one digit, and one symbol.')
-            return redirect('staff_profile_page')
+            return _fail('New passwords do not match.')
+
+        if (
+            len(new_password) < 8
+            or not any(ch.isupper() for ch in new_password)
+            or not any(ch.isdigit() for ch in new_password)
+            or not any(ch in '!@#$%^&*' for ch in new_password)
+        ):
+            return _fail(
+                'Password must contain at least 8 chars, one uppercase, '
+                'one digit, and one symbol.'
+            )
+
         credential.set_password(new_password)
-        credential.save(update_fields=['password'])
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'success': True, 'message': 'Password updated successfully.'})
-        messages.success(request, 'Password updated successfully.')
-        return redirect('staff_profile_page')
+        # STAFF_PASSWORD_VISIBILITY_FIX_V1: write both the
+        # hashed password and the plaintext visible_password
+        # with a direct queryset .update(). The previous
+        # credential.save(update_fields=['password',
+        # 'visible_password']) call was silently dropping the
+        # visible_password column write on some deployments,
+        # leaving the admin's staff profile showing the
+        # original auto-generated password even though the
+        # teacher's login with the new password already worked.
+        StaffCredential.objects.filter(pk=credential.pk).update(
+            password=credential.password,
+            visible_password=new_password,
+        )
+
+    # PASSWORD_CHANGE_LOGOUT_V1: log out every active session for
+    # THIS staff member only. Nobody else is affected. Any other
+    # device that is still signed in is forced to re-authenticate
+    # with the new password.
+    with schema_context(schema_name):
+        _staff_to_logout = Staff.objects.filter(
+            pk=request.session.get('staff_id'),
+        ).first()
+        if _staff_to_logout is not None:
+            _staff_to_logout.logout_session()
+
+    _ok_msg = (
+        'Password updated successfully. '
+        'You have been signed out of all devices; please sign in '
+        'again with your new password.'
+    )
+    if is_ajax:
+        return JsonResponse({
+            'success': True,
+            'message': _ok_msg,
+            'redirect': '/portal/staff/login/',
+        })
+    messages.success(request, _ok_msg)
+    return redirect('staff_login')
 
 
 @require_staff_login
