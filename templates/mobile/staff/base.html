@@ -7,6 +7,14 @@
     <title>{% block title %}AXIS Staff Portal{% endblock %}</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="theme-color" content="#0b6e64">
+    {# STAFF_PWA_V1_HEAD — staff-portal PWA metadata #}
+    <link rel="manifest" href="/portal/staff/manifest.json">
+    <link rel="icon" type="image/svg+xml" href="/static/pwa/staff-icon-192.svg">
+    <link rel="apple-touch-icon" href="/static/pwa/staff-icon-192.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AXIS Staff">
+    <meta name="mobile-web-app-capable" content="yes">
     <style>
         :root {
             --bg: #f2f7f6;
@@ -527,6 +535,129 @@
         </a>
     </nav>
     {% endif %}
+
+{% if request.session.staff_id and request.session.staff_schema_name %}
+<!-- STAFF_PWA_V1: floating install button -->
+<div id="staffPwaInstallContainer" style="display:none; position:fixed; bottom:calc(120px + var(--bottom-safe, env(safe-area-inset-bottom, 0px))); right:16px; z-index:9998;">
+    <button id="staffPwaInstallBtn" type="button" aria-label="Install AXIS Staff app"
+            style="display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%); color:#ffffff; border:none; border-radius:99px; padding:12px 18px; font-family:inherit; font-weight:800; font-size:0.85rem; letter-spacing:0.02em; cursor:pointer; box-shadow:0 14px 28px rgba(11, 110, 100, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.28); transition: transform 0.15s ease, box-shadow 0.2s ease;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"/>
+            <path d="m7 10 5 5 5-5"/>
+            <path d="M5 21h14"/>
+        </svg>
+        <span>Install App</span>
+    </button>
+</div>
+
+<!-- STAFF_PWA_V1: fallback instructions modal -->
+<div id="staffPwaFallback" role="dialog" aria-modal="true" aria-labelledby="staffPwaFallbackTitle"
+     style="display:none; position:fixed; inset:0; background:rgba(13, 31, 28, 0.6); z-index:10000; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);">
+    <div style="background:#ffffff; border-radius:22px; padding:22px 20px; max-width:400px; width:100%; box-shadow:0 26px 48px rgba(11, 110, 100, 0.32); border:1px solid #e2ebe8;">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+            <div style="width:44px; height:44px; border-radius:14px; background:linear-gradient(140deg, #12b3a2 0%, #0b6e64 60%, #084c46 100%); display:flex; align-items:center; justify-content:center; color:#ffffff; font-weight:800; font-size:1.1rem; box-shadow:0 10px 20px rgba(11, 110, 100, 0.28);">A</div>
+            <div>
+                <h3 id="staffPwaFallbackTitle" style="margin:0; font-size:1.05rem; color:#0d1f1c;">Install AXIS Staff</h3>
+                <p style="margin:2px 0 0; font-size:0.78rem; color:#6b807a;">Add the staff portal to your home screen</p>
+            </div>
+        </div>
+        <p style="margin:0 0 10px; font-size:0.85rem; color:#0d1f1c; line-height:1.5;">To install manually, use your browser menu:</p>
+        <ul style="margin:0 0 16px; padding-left:20px; font-size:0.82rem; color:#0d1f1c; line-height:1.7;">
+            <li><strong>Chrome / Edge:</strong> &#8942; menu &rarr; <em>Install app</em> or <em>Add to Home screen</em>.</li>
+            <li><strong>Firefox:</strong> menu &rarr; <em>Install</em>.</li>
+            <li><strong>Safari (iOS):</strong> Share &rarr; <em>Add to Home Screen</em>.</li>
+        </ul>
+        <button id="staffPwaFallbackClose" type="button"
+                style="width:100%; background:linear-gradient(135deg, #12b3a2 0%, #0b6e64 100%); color:#ffffff; border:none; border-radius:14px; padding:12px 16px; font-family:inherit; font-weight:800; font-size:0.9rem; cursor:pointer; box-shadow:0 12px 22px rgba(11, 110, 100, 0.24);">Got it</button>
+    </div>
+</div>
+
+<script>
+(function () {
+    // STAFF_PWA_V1: install prompt + service worker registration.
+    // Kept self-contained so it never touches the admin panel PWA.
+    var HIDE_KEY = 'staff_pwa_install_hidden_v1';
+    var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+        || window.navigator.standalone === true;
+
+    var container = document.getElementById('staffPwaInstallContainer');
+    var installBtn = document.getElementById('staffPwaInstallBtn');
+    var fallback = document.getElementById('staffPwaFallback');
+    var fallbackClose = document.getElementById('staffPwaFallbackClose');
+
+    if (standalone) {
+        if (container) container.style.display = 'none';
+    } else if (container && localStorage.getItem(HIDE_KEY) !== 'true') {
+        container.style.display = 'block';
+    }
+
+    var deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (container && !standalone) container.style.display = 'block';
+    });
+
+    window.addEventListener('appinstalled', function () {
+        if (container) container.style.display = 'none';
+        deferredPrompt = null;
+        try { localStorage.setItem(HIDE_KEY, 'true'); } catch (err) {}
+    });
+
+    function showFallback() {
+        if (fallback) fallback.style.display = 'flex';
+    }
+    function hideFallback() {
+        if (fallback) fallback.style.display = 'none';
+    }
+
+    if (installBtn) {
+        installBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function (choice) {
+                    if (choice && choice.outcome === 'accepted') {
+                        if (container) container.style.display = 'none';
+                        try { localStorage.setItem(HIDE_KEY, 'true'); } catch (err) {}
+                    } else {
+                        showFallback();
+                    }
+                    deferredPrompt = null;
+                }).catch(function () {
+                    showFallback();
+                    deferredPrompt = null;
+                });
+            } else {
+                // No install prompt available (e.g. iOS Safari, or
+                // browser already dismissed it) — show manual steps.
+                showFallback();
+            }
+        });
+    }
+
+    if (fallbackClose) {
+        fallbackClose.addEventListener('click', hideFallback);
+    }
+    if (fallback) {
+        fallback.addEventListener('click', function (e) {
+            if (e.target === fallback) hideFallback();
+        });
+    }
+
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker
+                .register('/portal/staff/sw.js', { scope: '/portal/staff/' })
+                .catch(function (err) {
+                    console.warn('[AXIS Staff PWA] SW registration failed:', err);
+                });
+        });
+    }
+})();
+</script>
+{% endif %}
 
 </body>
 </html>

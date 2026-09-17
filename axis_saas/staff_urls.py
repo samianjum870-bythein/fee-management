@@ -36,8 +36,21 @@ from axis_saas.views.staff_attendence import (
     staff_attendance_dates_api,
 )
 
+# STAFF_PWA_V1: staff portal PWA manifest + service worker.
+# These are schema-independent endpoints — the staff session
+# carries the tenant, so the URLs are stable across tenants.
+from axis_saas.views.staff_pwa import (
+    staff_manifest,
+    staff_service_worker,
+)
+
 
 urlpatterns = [
+    # STAFF_PWA_V1: staff portal PWA endpoints. Served before
+    # the dashboard root so the manifest and service worker
+    # resolve unambiguously.
+    path('manifest.json', staff_manifest, name='staff_manifest'),
+    path('sw.js', staff_service_worker, name='staff_service_worker'),
     path('', staff_dashboard, name='staff_dashboard_root'),
     path('login/', staff_login, name='staff_login'),
     path('logout/', staff_logout, name='staff_logout'),
