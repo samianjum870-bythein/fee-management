@@ -411,6 +411,10 @@ window.AXIS_ATT = (function() {
     function back() {
         q('#attHomeView').style.display = 'block';
         q('#attDetailView').style.display = 'none';
+        // ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-5): re-enable the date
+        // picker; it is disabled while viewing a single subject
+        // period, but the next view may be a class-teacher view.
+        q('#attDatePicker').disabled = false;
         currentClass = null;
         currentPeriod = null;
         currentStudents = [];
@@ -439,6 +443,10 @@ window.AXIS_ATT = (function() {
         q('#attDetailTitle').textContent = c.name;
         q('#attDetailSub').textContent = c.student_count + ' students · Class Teacher';
         q('#attDatePicker').value = TODAY;
+        // ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-5): subject-period
+        // view disables this input; class-teacher view needs it
+        // enabled again.
+        q('#attDatePicker').disabled = false;
         q('#attHomeView').style.display = 'none';
         q('#attDetailView').style.display = 'block';
         switchTab('today');

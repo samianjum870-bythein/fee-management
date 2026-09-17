@@ -46,6 +46,12 @@ logger = logging.getLogger(__name__)
 ATTENDANCE_STATUSES = (
     'present', 'absent', 'late', 'half_day', 'excused', 'holiday',
 )
+# ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-8): class teachers may only
+# set one of these statuses on an individual student.  'holiday'
+# is reserved for whole-class calendar marks.
+MARKABLE_STATUSES = (
+    'present', 'absent', 'late', 'half_day', 'excused',
+)
 
 
 # ------------------------------------------------------------------ helpers
@@ -77,7 +83,10 @@ def _is_holiday(on_date):
     try:
         for wh in WeeklyHoliday.objects.filter(day_of_week=dow):
             ca = getattr(wh, 'created_at', None)
-            if ca is None or ca.date() <= on_date:
+            # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-6): created_at is
+            # stored in UTC; compare in local time.
+            ca_local = timezone.localtime(ca).date() if ca else None
+            if ca_local is None or ca_local <= on_date:
                 return True, f"Weekly holiday ({wh.label or 'Weekend'})"
     except Exception:
         pass
@@ -86,7 +95,9 @@ def _is_holiday(on_date):
             month=on_date.month, day=on_date.day,
         ):
             ca = getattr(ah, 'created_at', None)
-            if ca is None or ca.date() <= on_date:
+            # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-6): UTC -> local.
+            ca_local = timezone.localtime(ca).date() if ca else None
+            if ca_local is None or ca_local <= on_date:
                 return True, f"Annual holiday ({ah.label})"
     except Exception:
         pass
@@ -96,13 +107,6 @@ def _is_holiday(on_date):
         ).first()
         if vac:
             return True, f"Vacation ({vac.name})"
-    except Exception:
-        pass
-    try:
-        if StudentAttendance.objects.filter(
-            date=on_date, status='holiday',
-        ).exists():
-            return True, "Marked as holiday in records"
     except Exception:
         pass
     return False, ''
@@ -497,7 +501,7 @@ def staff_attendance_students_api(request):
             )
 
         is_ct = _is_class_teacher_of(staff, school_class)
-        is_period_teacher = True
+        is_period_teacher = False
         if period_order is not None:
             is_period_teacher = PeriodTeacherAssignment.objects.filter(
                 teacher=staff,
@@ -659,7 +663,7 @@ def staff_attendance_mark_api(request):
             )
 
         is_ct = _is_class_teacher_of(staff, school_class)
-        is_period_teacher = True
+        is_period_teacher = False
         if period_order is not None:
             is_period_teacher = PeriodTeacherAssignment.objects.filter(
                 teacher=staff,
@@ -692,7 +696,9 @@ def staff_attendance_mark_api(request):
                 if sid not in student_ids:
                     continue
                 status = (rec.get('status') or 'present').strip().lower()
-                if status not in ATTENDANCE_STATUSES:
+                # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-8): reject
+                # 'holiday' from a per-student mark.
+                if status not in MARKABLE_STATUSES:
                     status = 'present'
                 remarks = (rec.get('remarks') or '')[:500]
 
@@ -740,18 +746,33 @@ def staff_attendance_mark_api(request):
                     )
                 saved += 1
 
-        if is_ct:
-            quota = ClassTeacherEditQuota.for_class_date(
-                school_class, att_date,
-            )
-            quota.teacher_edit_count = (
-                quota.teacher_edit_count or 0
-            ) + 1
-            quota.last_teacher_edit_at = timezone.now()
-            quota.last_teacher_edit_by_id = staff.pk
-            quota.last_teacher_edit_by_name = staff.full_name
-            quota.save()
-
+        # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-2 + BUG-3 + BUG-7):
+        # Consume a backdate edit only when the caller is the
+        # class teacher, at least one row was actually written,
+        # AND the target date is strictly in the past.  Today's
+        # attendance is always editable regardless of the backdate
+        # quota and must NOT create or increment a quota row.
+        #
+        # The row is locked with select_for_update() inside an
+        # atomic block so two concurrent saves cannot both read
+        # the same pre-increment value and both write count+1.
+        today = _today()
+        if is_ct and saved > 0 and att_date < today:
+            with transaction.atomic():
+                quota, _ = (
+                    ClassTeacherEditQuota.objects
+                    .select_for_update()
+                    .get_or_create(
+                        school_class=school_class, date=att_date,
+                    )
+                )
+                quota.teacher_edit_count = (
+                    quota.teacher_edit_count or 0
+                ) + 1
+                quota.last_teacher_edit_at = timezone.now()
+                quota.last_teacher_edit_by_id = staff.pk
+                quota.last_teacher_edit_by_name = staff.full_name
+                quota.save()
             permission = _compute_permission_payload(
                 staff, school_class, att_date,
             )

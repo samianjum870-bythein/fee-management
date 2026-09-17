@@ -44,6 +44,16 @@ logger = logging.getLogger(__name__)
 ATTENDANCE_STATUSES = (
     'present', 'absent', 'late', 'half_day', 'excused', 'holiday',
 )
+# ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-4 + BUG-8):
+# 'holiday' is only ever set on a whole class by the calendar /
+# cron jobs.  A single student's mark must NEVER be able to flip
+# the entire day into a holiday.  The mark APIs therefore accept
+# only MARKABLE_STATUSES; the records/filter APIs keep the full
+# ATTENDANCE_STATUSES list so 'holiday' rows can still be
+# queried explicitly.
+MARKABLE_STATUSES = (
+    'present', 'absent', 'late', 'half_day', 'excused',
+)
 
 
 # ------------------------------------------------------------------ helpers
@@ -88,7 +98,12 @@ def _is_holiday(on_date):
     try:
         for wh in WeeklyHoliday.objects.filter(day_of_week=dow):
             ca = getattr(wh, 'created_at', None)
-            if ca is None or ca.date() <= on_date:
+            # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-6): created_at is
+            # stored in UTC.  Compare in the project's local
+            # timezone so a rule created at 23:00 PKT does not
+            # land on the wrong local date.
+            ca_local = timezone.localtime(ca).date() if ca else None
+            if ca_local is None or ca_local <= on_date:
                 return True, f"Weekly holiday ({wh.label or 'Weekend'})"
     except Exception:
         pass
@@ -99,7 +114,9 @@ def _is_holiday(on_date):
             month=on_date.month, day=on_date.day,
         ):
             ca = getattr(ah, 'created_at', None)
-            if ca is None or ca.date() <= on_date:
+            # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-6): UTC -> local.
+            ca_local = timezone.localtime(ca).date() if ca else None
+            if ca_local is None or ca_local <= on_date:
                 return True, f"Annual holiday ({ah.label})"
     except Exception:
         pass
@@ -114,14 +131,6 @@ def _is_holiday(on_date):
     except Exception:
         pass
 
-    # Historical evidence: any attendance row marked as holiday.
-    try:
-        if StudentAttendance.objects.filter(
-            date=on_date, status='holiday',
-        ).exists():
-            return True, "Marked as holiday in records"
-    except Exception:
-        pass
 
     return False, ''
 
@@ -665,7 +674,10 @@ def admin_attendance_mark_api(request, schema_name):
                 if sid not in student_ids:
                     continue
                 status = (rec.get('status') or 'present').strip().lower()
-                if status not in ATTENDANCE_STATUSES:
+                # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-4 + BUG-8):
+                # never accept 'holiday' from a single-student
+                # mark — that would flip the whole day.
+                if status not in MARKABLE_STATUSES:
                     status = 'present'
                 remarks = (rec.get('remarks') or '')[:500]
 
@@ -731,7 +743,9 @@ def admin_attendance_bulk_mark_api(request, schema_name):
         return JsonResponse(
             {'ok': False, 'error': 'class_id and date required'}, status=400,
         )
-    if status not in ATTENDANCE_STATUSES:
+    # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-4 + BUG-8):
+    # 'holiday' is reserved for whole-class calendar marks.
+    if status not in MARKABLE_STATUSES:
         return JsonResponse({'ok': False, 'error': 'Invalid status'},
                             status=400)
 
