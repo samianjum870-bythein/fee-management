@@ -1,44 +1,39 @@
 #!/usr/bin/env python3
 """
-axis_patcher.py — ATTENDANCE_PERMS_UNIVERSAL_V1
-=================================================
+axis_patcher.py — ATTENDANCE_DATE_ANALYTICS_V1
+================================================
 
-Adds a "Universal Class Teacher Permissions" block to the top of the
-existing Class Teacher Permissions modal, so the admin can set the
-same default attendance authority for EVERY class in one click, while
-still being able to override individual classes below.
+Enhances the admin "Mark & History" modal so that:
 
-What this patcher does
-----------------------
-1.  Adds a new bulk-save endpoint to `axis_saas/views/admin_attendence.py`:
+  * The modal panel is noticeably WIDER (1200px on desktop).
+  * A per-date ANALYTICS panel sits directly above the student list,
+    showing every KPI for the currently-loaded date: total students,
+    marked / unmarked, present / absent / late / half day / excused,
+    completion %, attendance %, auto-marked count, and whether the
+    date is locked.
+  * A horizontal "RECENT DATES" strip lets the admin see at a glance
+    how complete each of the last 14 days is.  Each pill shows a mini
+    progress bar and is colour-coded by completion state.  Clicking a
+    pill loads that date's roster + analytics in one shot.
 
-        POST /portal/<schema>/api/attendance/class-teacher-permissions/bulk-save/
+Implementation
+--------------
+1.  Adds a new backend endpoint
+        GET /portal/<schema>/api/attendance/recent-summary/
+            ?class_id=<id>&days=<1..90>
+    which returns per-day KPI rows for the class.
 
-    Body:
-        {
-          "backdate_access":     "none" | "read" | "read_write",
-          "max_edits_per_date":  int,
-          "view_history_days":   int,
-          "edit_history_days":   int
-        }
+2.  Wires the new endpoint into public_urls.py.
 
-    It applies the same permission row to every active class that has
-    an assigned class teacher, and creates the row when one does not
-    exist yet.  Returns {ok, updated, classes: [...ids]}.
+3.  Extends templates/tenant/attendence.html with:
+      - new CSS for the analytics panel + recent-dates strip
+      - new HTML blocks inside #attTabMark
+      - new JS functions (loadRecentDates, renderRecentDates,
+        renderDateAnalytics, markActivePill, gotoDate) plus a small
+        hook inside reloadStudents() and openMark().
 
-2.  Registers the URL route in `axis_saas/public_urls.py`.
-
-3.  Enhances `templates/tenant/attendence.html`:
-
-        * Inserts a "Universal / Default Settings" card ABOVE the
-          per-class table inside the existing `attPermModal`.
-        * The card has the four fields + an
-          "Apply to All Classes" primary button + a
-          "Copy from an existing class" quick-fill (dropdown).
-        * The card is collapsible so the admin can still jump straight
-          to the per-class overrides.
-
-Idempotent. Safe to re-run. Never deletes or overwrites unrelated code.
+Idempotent.  Safe to re-run.  Never deletes or overwrites unrelated
+code.
 
 Usage
 -----
@@ -54,7 +49,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-MARKER = "ATTENDANCE_PERMS_UNIVERSAL_V1"
+MARKER = "ATTENDANCE_DATE_ANALYTICS_V1"
 
 
 # ------------------------------------------------------------------ utils
@@ -87,123 +82,240 @@ def write_file(path, content, dry_run=False, label=""):
         return False
 
 
-def replace_once(content, old, new, label=""):
-    """Replace the first occurrence of `old`. Returns (new_content, ok)."""
-    if old not in content:
-        return content, False
-    return content.replace(old, new, 1), True
-
-
 # =====================================================================
-# 1. admin_attendence.py — add bulk-save endpoint
+# 1. admin_attendence.py — new recent-summary API
 # =====================================================================
 
-BULK_SAVE_VIEW = '''
+ADMIN_VIEWS_APPEND = '''
 
-@require_http_methods(['POST'])
+# =====================================================================
+# ATTENDANCE_DATE_ANALYTICS_V1
+# ---------------------------------------------------------------------
+# Per-day KPI rows for the last N days of a class.  Powers the
+# "Recent Dates" strip and the analytics panel inside the admin's
+# Mark & History modal.
+# =====================================================================
+
+
+@require_http_methods(['GET'])
 @require_tenant_type(['school', 'wing_school', 'single_small_school'])
 @require_school_feature('attendance_management')
-def admin_attendance_class_teacher_permissions_bulk_save_api(
-    request, schema_name,
-):
-    """ATTENDANCE_PERMS_UNIVERSAL_V1
+def admin_attendance_recent_summary_api(request, schema_name):
+    """GET per-day analytics for the last N days of one class.
 
-    Apply the same attendance permission settings to EVERY active
-    class that has an assigned class teacher, in one shot.
+    Query params:
+        class_id  (required)
+        days      int 1..90 (default 14)
 
-    Body:
-        {
-          "backdate_access":    "none" | "read" | "read_write",
-          "max_edits_per_date": int,
-          "view_history_days":  int,
-          "edit_history_days":  int
-        }
+    Response::
 
-    Returns:
         {
           "ok": True,
-          "updated":  N,
-          "classes":  [class_id, class_id, ...]
+          "class_id": 7,
+          "class_name": "Grade 1 - A",
+          "total_students": 32,
+          "days": 14,
+          "rows": [
+            {
+              "date": "2026-09-17",
+              "day_name": "Wed",
+              "day_full": "Wednesday",
+              "is_today": True,
+              "is_holiday": False,
+              "holiday_reason": "",
+              "total_students": 32,
+              "marked": 30,
+              "present": 28, "absent": 2, "late": 0,
+              "half_day": 0, "excused": 0, "holiday": 0,
+              "completion_pct": 93.8,
+              "attendance_pct": 93.3,
+              "status": "partial",          # completed|partial|pending|holiday
+              "period_marked": 40,
+              "sources": {"teacher": 30, "auto_system": 0}
+            },
+            ...
+          ]
         }
-
-    Individual per-class overrides are still possible through the
-    existing `/save/` endpoint; this endpoint only writes the universal
-    default that the admin chooses.
     """
-    from ..models import ClassTeacherAttendancePermission
-
+    class_id = _parse_int(request.GET.get('class_id'))
+    if not class_id:
+        return JsonResponse(
+            {'ok': False, 'error': 'class_id required'}, status=400,
+        )
     try:
-        body = json.loads(request.body.decode('utf-8') or '{}')
-    except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+        days = int(request.GET.get('days', '14') or 14)
+    except (TypeError, ValueError):
+        days = 14
+    days = max(1, min(90, days))
 
-    def _int(key, default, lo=0, hi=None):
-        try:
-            v = int(body.get(key, default))
-        except (TypeError, ValueError):
-            v = default
-        v = max(lo, v)
-        if hi is not None:
-            v = min(hi, v)
-        return v
-
-    backdate_access = (body.get('backdate_access') or 'none').strip()
-    if backdate_access not in ('none', 'read', 'read_write'):
-        backdate_access = 'none'
-
-    admin_name = request.session.get('school_admin_username', 'admin')
+    today = _today()
 
     with schema_context(schema_name):
-        with transaction.atomic():
-            classes = list(
-                SchoolClass.objects
-                .filter(is_active=True, class_teacher__isnull=False)
-                .only('id')
+        school_class = SchoolClass.objects.filter(
+            id=class_id, is_active=True,
+        ).first()
+        if not school_class:
+            return JsonResponse(
+                {'ok': False, 'error': 'Class not found'}, status=404,
             )
-            updated_ids = []
-            for cls in classes:
-                p = ClassTeacherAttendancePermission.for_class(cls)
-                p.backdate_access = backdate_access
-                p.max_edits_per_date = _int(
-                    'max_edits_per_date', p.max_edits_per_date, 0, 50,
-                )
-                p.view_history_days = _int(
-                    'view_history_days', p.view_history_days, 0, 730,
-                )
-                p.edit_history_days = _int(
-                    'edit_history_days', p.edit_history_days, 0, 730,
-                )
-                p.updated_by = admin_name
-                p.save()
-                updated_ids.append(cls.id)
 
-    return JsonResponse({
-        'ok': True,
-        'updated': len(updated_ids),
-        'classes': updated_ids,
-        'backdate_access': backdate_access,
-    })
+        total_students = Student.objects.filter(
+            school_class=school_class, status='active',
+        ).count()
+
+        start = today - timedelta(days=days - 1)
+
+        # ---- batch-load holiday context (2-3 queries total) ----
+        try:
+            holiday_dows = set(
+                WeeklyHoliday.objects.values_list('day_of_week', flat=True)
+            )
+        except Exception:
+            holiday_dows = set()
+        try:
+            annual_pairs = set(
+                AnnualHoliday.objects.values_list('month', 'day')
+            )
+        except Exception:
+            annual_pairs = set()
+        try:
+            vacations = list(
+                Vacation.objects.values_list('start_date', 'end_date')
+            )
+        except Exception:
+            vacations = []
+
+        def _is_hol(d):
+            if d.weekday() in holiday_dows:
+                return True, 'Weekly holiday'
+            if (d.month, d.day) in annual_pairs:
+                return True, 'Annual holiday'
+            for s, e in vacations:
+                if s <= d <= e:
+                    return True, 'Vacation'
+            return False, ''
+
+        # ---- full-day rows for the window ----
+        rows_qs = (
+            StudentAttendance.objects
+            .filter(
+                school_class=school_class,
+                date__gte=start,
+                date__lte=today,
+                period_order__isnull=True,
+            )
+            .values('date', 'status', 'source')
+        )
+
+        from collections import defaultdict
+        buckets = defaultdict(lambda: {
+            'total_marked': 0,
+            'statuses': defaultdict(int),
+            'sources': defaultdict(int),
+        })
+        for r in rows_qs:
+            b = buckets[r['date']]
+            b['total_marked'] += 1
+            st = r['status'] or 'present'
+            b['statuses'][st] += 1
+            src = r['source'] or 'teacher'
+            b['sources'][src] += 1
+
+        # ---- period-wise counts for the window ----
+        period_rows_qs = (
+            StudentAttendance.objects
+            .filter(
+                school_class=school_class,
+                date__gte=start,
+                date__lte=today,
+                period_order__isnull=False,
+            )
+            .values('date')
+            .annotate(n=Count('id'))
+        )
+        period_by_date = {r['date']: r['n'] for r in period_rows_qs}
+
+        # ---- build rows, newest first ----
+        out = []
+        for i in range(days):
+            d = today - timedelta(days=i)
+            is_hol, hol_reason = _is_hol(d)
+            b = buckets.get(d)
+            marked = b['total_marked'] if b else 0
+            statuses = b['statuses'] if b else {}
+            sources = b['sources'] if b else {}
+
+            if is_hol:
+                status = 'holiday'
+            elif total_students and marked >= total_students:
+                status = 'completed'
+            elif marked > 0:
+                status = 'partial'
+            else:
+                status = 'pending'
+
+            completion_pct = (
+                round((marked / total_students) * 100, 1)
+                if total_students else 0.0
+            )
+            present = statuses.get('present', 0) if statuses else 0
+            late = statuses.get('late', 0) if statuses else 0
+            present_like = present + late
+            att_pct = (
+                round((present_like / marked) * 100, 1)
+                if marked else 0.0
+            )
+
+            out.append({
+                'date': d.isoformat(),
+                'day_name': d.strftime('%a'),
+                'day_full': d.strftime('%A'),
+                'is_today': d == today,
+                'is_holiday': is_hol,
+                'holiday_reason': hol_reason,
+                'total_students': total_students,
+                'marked': marked,
+                'present': present,
+                'absent': statuses.get('absent', 0) if statuses else 0,
+                'late': late,
+                'half_day': statuses.get('half_day', 0) if statuses else 0,
+                'excused': statuses.get('excused', 0) if statuses else 0,
+                'holiday': statuses.get('holiday', 0) if statuses else 0,
+                'completion_pct': completion_pct,
+                'attendance_pct': att_pct,
+                'status': status,
+                'period_marked': period_by_date.get(d, 0),
+                'sources': dict(sources) if sources else {},
+            })
+
+        return JsonResponse({
+            'ok': True,
+            'class_id': school_class.id,
+            'class_name': str(school_class),
+            'total_students': total_students,
+            'days': days,
+            'rows': out,
+        })
 '''
 
 
-def patch_admin_attendance(root, args):
+def patch_admin_views(root, args):
     path = root / "axis_saas" / "views" / "admin_attendence.py"
     content = read_file(path)
     if content is None:
         return False
 
-    if "admin_attendance_class_teacher_permissions_bulk_save_api" in content:
-        log(f"  SKIP (already applied): bulk-save view in {path}")
+    if "admin_attendance_recent_summary_api" in content:
+        log(f"  SKIP (already applied): recent-summary API in {path}")
         return True
 
-    # Append at end of file (after the last view).
-    content = content.rstrip() + "\n" + BULK_SAVE_VIEW
+    content = content.rstrip() + "\n" + ADMIN_VIEWS_APPEND
     return write_file(path, content, args.dry_run,
-                      "add bulk-save endpoint")
+                      "add recent-summary API")
 
 
 # =====================================================================
-# 2. public_urls.py — register the new route
+# 2. public_urls.py — register the new endpoint
 # =====================================================================
 
 def patch_public_urls(root, args):
@@ -212,414 +324,674 @@ def patch_public_urls(root, args):
     if content is None:
         return False
 
-    if "admin_attendance_class_teacher_permissions_bulk_save_api" in content:
-        log(f"  SKIP (already applied): bulk-save route in {path}")
+    if "admin_attendance_recent_summary_api" in content:
+        log(f"  SKIP (already applied): recent-summary route in {path}")
         return True
 
-    # --- extend the import block -------------------------------------
-    old_import = (
-        "    admin_attendance_class_teacher_permissions_save_api,\n"
-        "    admin_attendance_daily_logs_api,\n"
-    )
-    new_import = (
-        "    admin_attendance_class_teacher_permissions_save_api,\n"
-        "    # ATTENDANCE_PERMS_UNIVERSAL_V1\n"
-        "    admin_attendance_class_teacher_permissions_bulk_save_api,\n"
-        "    admin_attendance_daily_logs_api,\n"
-    )
-    content, ok = replace_once(content, old_import, new_import,
-                               label="import block")
-    if not ok:
-        log(f"  WARN: could not extend import block in {path}")
-        return False
+    changes = []
 
-    # --- add the route ------------------------------------------------
+    # ---- import ----
+    old_import = "    admin_attendance_daily_logs_api,\n"
+    new_import = (
+        "    admin_attendance_daily_logs_api,\n"
+        "    # ATTENDANCE_DATE_ANALYTICS_V1\n"
+        "    admin_attendance_recent_summary_api,\n"
+    )
+    if old_import in content:
+        content = content.replace(old_import, new_import, 1)
+        changes.append("import")
+    else:
+        log(f"  WARN: daily_logs import anchor not found in {path}")
+
+    # ---- route ----
     old_route = (
-        "    path('portal/<slug:schema_name>/api/attendance/"
-        "class-teacher-permissions/save/', "
-        "portal_wrapper(login_required_for_schema("
-        "admin_attendance_class_teacher_permissions_save_api)), "
-        "name='admin_attendance_class_teacher_permissions_save_api'),\n"
+        "    path('portal/<slug:schema_name>/api/attendance/daily-logs/', "
+        "portal_wrapper(login_required_for_schema(admin_attendance_daily_logs_api)), "
+        "name='admin_attendance_daily_logs_api'),\n"
     )
     new_route = old_route + (
-        "    # ATTENDANCE_PERMS_UNIVERSAL_V1\n"
-        "    path('portal/<slug:schema_name>/api/attendance/"
-        "class-teacher-permissions/bulk-save/', "
-        "portal_wrapper(login_required_for_schema("
-        "admin_attendance_class_teacher_permissions_bulk_save_api)), "
-        "name='admin_attendance_class_teacher_permissions_bulk_save_api'),\n"
+        "    # ATTENDANCE_DATE_ANALYTICS_V1\n"
+        "    path('portal/<slug:schema_name>/api/attendance/recent-summary/', "
+        "portal_wrapper(login_required_for_schema(admin_attendance_recent_summary_api)), "
+        "name='admin_attendance_recent_summary_api'),\n"
     )
-    content, ok = replace_once(content, old_route, new_route,
-                               label="route block")
-    if not ok:
-        log(f"  WARN: could not add route block in {path}")
-        return False
+    if old_route in content:
+        content = content.replace(old_route, new_route, 1)
+        changes.append("route")
+    else:
+        log(f"  WARN: daily_logs route anchor not found in {path}")
+
+    if not changes:
+        return True
 
     return write_file(path, content, args.dry_run,
-                      "register bulk-save route")
+                      f"wire recent-summary ({', '.join(changes)})")
 
 
 # =====================================================================
-# 3. templates/tenant/attendence.html — universal block in modal
+# 3. templates/tenant/attendence.html
 # =====================================================================
 
-# ---------------------------------------------------------------------
-# The universal block markup that gets injected just above the
-# `#attPermList` container.  Uses the existing modal CSS classes so
-# the look is consistent.
-# ---------------------------------------------------------------------
+NEW_CSS = r'''
+    /* ============ ATTENDANCE_DATE_ANALYTICS_V1 ============
+       Wider modal + per-date analytics + recent-dates strip. */
 
-UNIVERSAL_BLOCK = r'''
-            <!-- ============ ATTENDANCE_PERMS_UNIVERSAL_V1 ============ -->
-            <div id="attPermUniversal"
-                 style="border-bottom:1px solid var(--border);
-                        background:var(--surface-alt);">
-                <div style="display:flex; justify-content:space-between;
-                            align-items:center; gap:.5rem;
-                            padding:.85rem 1.2rem; cursor:pointer;"
-                     onclick="AXIS_ADMIN_ATT_PERMS.toggleUniversal()">
-                    <div>
-                        <div style="font-weight:800; font-size:.95rem;">
-                            🌐 Universal Settings
-                            <span style="font-weight:600; color:var(--muted);
-                                         font-size:.75rem; margin-left:.4rem;">
-                                (Apply the same defaults to every class)
-                            </span>
-                        </div>
-                        <div style="font-size:.72rem; color:var(--muted);
-                                    margin-top:.15rem;">
-                            Set once here, then override individual classes
-                            below if you need to.
-                        </div>
-                    </div>
-                    <button type="button" id="attPermUniversalToggle"
-                            style="background:transparent; border:1px solid var(--border);
-                                   color:var(--text); border-radius:.5rem;
-                                   padding:.35rem .7rem; font-weight:700;
-                                   font-size:.78rem; cursor:pointer;">
-                        Show ▾
-                    </button>
-                </div>
+    /* Widen ONLY the mark & history modal. */
+    #attMarkModal .att-modal-panel {
+        width: min(1200px, 100%);
+    }
+    #attMarkModal .att-modal-body {
+        max-height: 66vh;
+    }
 
-                <div id="attPermUniversalBody" style="display:none;
-                        padding:.4rem 1.2rem 1.1rem;">
-                    <div style="display:grid;
-                                grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
-                                gap:.75rem; align-items:end;">
-                        <div>
-                            <div style="font-size:.7rem; font-weight:800;
-                                        color:var(--muted); text-transform:uppercase;
-                                        letter-spacing:.05em; margin-bottom:.25rem;">
-                                Backdate Access
-                            </div>
-                            <select id="attPermUniBackdate"
-                                    style="width:100%; padding:.5rem .6rem;
-                                           border-radius:.5rem;
-                                           border:1px solid var(--border);
-                                           background:var(--surface);
-                                           color:var(--text);">
-                                <option value="none">Today only</option>
-                                <option value="read">Read only</option>
-                                <option value="read_write">Read &amp; Write</option>
-                            </select>
-                        </div>
-                        <div>
-                            <div style="font-size:.7rem; font-weight:800;
-                                        color:var(--muted); text-transform:uppercase;
-                                        letter-spacing:.05em; margin-bottom:.25rem;">
-                                Max Edits / Date
-                            </div>
-                            <input type="number" id="attPermUniMaxEdits"
-                                   min="0" max="50" value="1"
-                                   style="width:100%; padding:.5rem .6rem;
-                                          border-radius:.5rem;
-                                          border:1px solid var(--border);
-                                          background:var(--surface);
-                                          color:var(--text);">
-                        </div>
-                        <div>
-                            <div style="font-size:.7rem; font-weight:800;
-                                        color:var(--muted); text-transform:uppercase;
-                                        letter-spacing:.05em; margin-bottom:.25rem;">
-                                View History Days
-                            </div>
-                            <input type="number" id="attPermUniViewDays"
-                                   min="0" max="730" value="30"
-                                   style="width:100%; padding:.5rem .6rem;
-                                          border-radius:.5rem;
-                                          border:1px solid var(--border);
-                                          background:var(--surface);
-                                          color:var(--text);">
-                        </div>
-                        <div>
-                            <div style="font-size:.7rem; font-weight:800;
-                                        color:var(--muted); text-transform:uppercase;
-                                        letter-spacing:.05em; margin-bottom:.25rem;">
-                                Edit History Days
-                            </div>
-                            <input type="number" id="attPermUniEditDays"
-                                   min="0" max="730" value="5"
-                                   style="width:100%; padding:.5rem .6rem;
-                                          border-radius:.5rem;
-                                          border:1px solid var(--border);
-                                          background:var(--surface);
-                                          color:var(--text);">
-                        </div>
-                    </div>
+    /* --- per-date analytics panel --- */
+    .att-day-analytics {
+        padding: .9rem 1.2rem;
+        background: var(--surface-alt);
+        border-bottom: 1px solid var(--border);
+    }
+    .att-day-analytics .hero-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem .9rem;
+        align-items: center;
+        margin-bottom: .7rem;
+    }
+    .att-day-analytics .date-big {
+        font-size: 1.1rem;
+        font-weight: 800;
+    }
+    .att-day-analytics .date-day {
+        font-size: .78rem;
+        color: var(--muted);
+        font-weight: 700;
+    }
+    .att-day-analytics .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .4rem;
+        font-size: .72rem;
+        color: var(--muted);
+        margin-left: auto;
+    }
+    .att-day-analytics .meta-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .45rem;
+        padding: .25rem .55rem;
+        font-weight: 600;
+    }
+    .att-day-analytics .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+        gap: .5rem;
+    }
+    .att-day-kpi {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .6rem;
+        padding: .55rem .65rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .att-day-kpi::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 3px;
+        background: var(--primary);
+    }
+    .att-day-kpi.k-present::after  { background: #10b981; }
+    .att-day-kpi.k-absent::after   { background: #ef4444; }
+    .att-day-kpi.k-late::after     { background: #f59e0b; }
+    .att-day-kpi.k-halfday::after  { background: #8b5cf6; }
+    .att-day-kpi.k-excused::after  { background: #0ea5e9; }
+    .att-day-kpi.k-pct::after      { background: #6366f1; }
+    .att-day-kpi.k-total::after    { background: #0ea5e9; }
+    .att-day-kpi.k-auto::after     { background: #1e40af; }
+    .att-day-kpi .k {
+        font-size: .6rem;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--muted);
+        font-weight: 800;
+    }
+    .att-day-kpi .v {
+        font-size: 1.2rem;
+        font-weight: 800;
+        color: var(--text);
+        line-height: 1.1;
+        margin-top: .1rem;
+    }
+    .att-day-kpi .sub {
+        font-size: .64rem;
+        color: var(--muted);
+        margin-top: .1rem;
+    }
 
-                    <div style="display:flex; flex-wrap:wrap; gap:.5rem;
-                                align-items:center; margin-top:.9rem;">
-                        <label style="font-size:.72rem; font-weight:800;
-                                      color:var(--muted); text-transform:uppercase;
-                                      letter-spacing:.05em;">
-                            Copy from
-                        </label>
-                        <select id="attPermUniCopyFrom"
-                                style="padding:.4rem .55rem;
-                                       border-radius:.5rem;
-                                       border:1px solid var(--border);
-                                       background:var(--surface);
-                                       color:var(--text); font-size:.82rem;
-                                       min-width:180px;">
-                            <option value="">— pick an existing class —</option>
-                        </select>
-                        <button type="button"
-                                onclick="AXIS_ADMIN_ATT_PERMS.fillFromClass()"
-                                style="background:var(--surface-alt);
-                                       color:var(--text);
-                                       border:1px solid var(--border);
-                                       border-radius:.5rem;
-                                       padding:.4rem .8rem;
-                                       font-weight:700; font-size:.78rem;
-                                       cursor:pointer;">
-                            Fill
-                        </button>
-                        <span style="flex:1;"></span>
-                        <button type="button"
-                                onclick="AXIS_ADMIN_ATT_PERMS.resetUniversal()"
-                                style="background:var(--surface);
-                                       color:var(--text);
-                                       border:1px solid var(--border);
-                                       border-radius:.55rem;
-                                       padding:.55rem 1rem;
-                                       font-weight:700; font-size:.82rem;
-                                       cursor:pointer;">
-                            Reset
-                        </button>
-                        <button type="button"
-                                onclick="AXIS_ADMIN_ATT_PERMS.applyUniversal()"
-                                style="background:var(--primary);
-                                       color:#fff;
-                                       border:1px solid var(--primary);
-                                       border-radius:.55rem;
-                                       padding:.55rem 1.1rem;
-                                       font-weight:700; font-size:.82rem;
-                                       cursor:pointer;">
-                            ✔ Apply to All Classes
-                        </button>
-                    </div>
+    /* --- recent dates strip --- */
+    .att-recent-dates {
+        display: flex;
+        gap: .4rem;
+        padding: .7rem 1.2rem;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+    .att-recent-dates::-webkit-scrollbar { height: 6px; }
+    .att-recent-dates::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+    }
+    .att-date-pill {
+        position: relative;
+        flex: 0 0 auto;
+        min-width: 72px;
+        padding: .45rem .5rem .4rem;
+        border-radius: .55rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        cursor: pointer;
+        text-align: center;
+        transition: all .12s ease;
+        font-size: .68rem;
+        user-select: none;
+    }
+    .att-date-pill:hover {
+        border-color: var(--primary);
+        transform: translateY(-1px);
+    }
+    .att-date-pill.active {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(99,102,241,.35);
+    }
+    .att-date-pill.status-holiday {
+        opacity: .6;
+        filter: grayscale(.5);
+    }
+    .att-date-pill .dp-day {
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        font-size: .58rem;
+        opacity: .85;
+    }
+    .att-date-pill .dp-num {
+        font-weight: 800;
+        font-size: .95rem;
+        line-height: 1.05;
+        margin: .1rem 0 0;
+    }
+    .att-date-pill .dp-month {
+        font-size: .56rem;
+        opacity: .75;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+    }
+    .att-date-pill .dp-bar {
+        height: 3px;
+        margin-top: .3rem;
+        border-radius: 999px;
+        background: var(--border);
+        overflow: hidden;
+    }
+    .att-date-pill .dp-bar > span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: #10b981;
+        transition: width .2s ease;
+    }
+    .att-date-pill.active .dp-bar {
+        background: rgba(255,255,255,.35);
+    }
+    .att-date-pill.active .dp-bar > span { background: #fff; }
+    .att-date-pill.status-partial .dp-bar > span  { background: #f59e0b; }
+    .att-date-pill.status-pending .dp-bar > span  { background: #ef4444; }
+    .att-date-pill.status-holiday .dp-bar > span  { background: #0ea5e9; }
+    .att-date-pill.is-today {
+        border-color: #10b981;
+    }
+    .att-date-pill.is-today::after {
+        content: '●';
+        color: #10b981;
+        position: absolute;
+        top: 1px;
+        right: 3px;
+        font-size: .5rem;
+        line-height: 1;
+    }
+    .att-date-pill.active.is-today::after { color: #fff; }
 
-                    <div id="attPermUniMsg"
-                         style="margin-top:.6rem; font-size:.82rem;
-                                color:var(--muted); min-height:1.1rem;">
-                    </div>
-                </div>
-            </div>
-            <!-- ============ /ATTENDANCE_PERMS_UNIVERSAL_V1 ============ -->
-
+    .att-recent-empty {
+        width: 100%;
+        text-align: center;
+        font-size: .78rem;
+        color: var(--muted);
+        padding: .5rem 0;
+    }
+    /* ============ /ATTENDANCE_DATE_ANALYTICS_V1 ============ */
 '''
 
-# The JS hooks that get appended to the existing AXIS_ADMIN_ATT_PERMS
-# IIFE.  They are inserted just before the `return { ... };` line so
-# they share the same SCHEMA / q / esc / csrf closures.
-PERMS_JS_HOOKS = r'''
-    // ---------- ATTENDANCE_PERMS_UNIVERSAL_V1 ----------
 
-    function toggleUniversal() {
-        var body = q('#attPermUniversalBody');
-        var btn  = q('#attPermUniversalToggle');
-        if (!body) return;
-        var isHidden = body.style.display === 'none' ||
-                       body.style.display === '';
-        body.style.display = isHidden ? 'block' : 'none';
-        if (btn) btn.textContent = isHidden ? 'Hide ▴' : 'Show ▾';
+NEW_HTML = r'''            <!-- ============ ATTENDANCE_DATE_ANALYTICS_V1 ============ -->
+            <div id="attRecentDates" class="att-recent-dates" style="display:none;"></div>
+            <div id="attDateAnalytics" class="att-day-analytics" style="display:none;"></div>
+            <!-- ============ /ATTENDANCE_DATE_ANALYTICS_V1 ============ -->
+'''
+
+
+NEW_JS_FUNCTIONS = r'''    // ================= ATTENDANCE_DATE_ANALYTICS_V1 =================
+    // Per-date analytics panel + recent-dates strip.  Purely additive:
+    // no existing function is modified in a destructive way.
+
+    var recentDatesCache = [];
+
+    function fmtDateParts(dateStr) {
+        // Returns { num, monthShort, dayShort, dayFull }
+        try {
+            var parts = dateStr.split('-');
+            var d = new Date(
+                parseInt(parts[0], 10),
+                parseInt(parts[1], 10) - 1,
+                parseInt(parts[2], 10),
+            );
+            var dayShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+            var dayFull  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()];
+            var monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+            return {
+                num: parts[2],
+                monthShort: monthShort,
+                dayShort: dayShort,
+                dayFull: dayFull,
+            };
+        } catch (e) {
+            return { num: dateStr, monthShort: '', dayShort: '', dayFull: '' };
+        }
     }
 
-    function resetUniversal() {
-        q('#attPermUniBackdate').value  = 'none';
-        q('#attPermUniMaxEdits').value  = 1;
-        q('#attPermUniViewDays').value  = 30;
-        q('#attPermUniEditDays').value  = 5;
-        setUniMsg('', '');
-    }
-
-    function setUniMsg(text, cls) {
-        var m = q('#attPermUniMsg');
-        if (!m) return;
-        m.textContent = text || '';
-        m.style.color = cls === 'ok'  ? '#10b981'
-                      : cls === 'err' ? '#ef4444'
-                      : 'var(--muted)';
-        m.style.fontWeight = (cls === 'ok' || cls === 'err') ? 700 : 400;
-    }
-
-    function populateUniversalCopyFrom() {
-        var sel = q('#attPermUniCopyFrom');
-        if (!sel) return;
-        // Keep the first option
-        while (sel.options.length > 1) sel.remove(1);
-        permCache.forEach(function(p) {
-            var o = document.createElement('option');
-            o.value = p.class_id;
-            o.textContent = p.class_display || ('Class #' + p.class_id);
-            sel.appendChild(o);
-        });
-    }
-
-    function fillFromClass() {
-        var sel = q('#attPermUniCopyFrom');
-        if (!sel) return;
-        var cid = sel.value;
-        if (!cid) { setUniMsg('Pick a class first.', 'err'); return; }
-        var row = permCache.filter(function(p) {
-            return String(p.class_id) === String(cid);
-        })[0];
-        if (!row) { setUniMsg('Class not found in list.', 'err'); return; }
-        q('#attPermUniBackdate').value = row.backdate_access || 'none';
-        q('#attPermUniMaxEdits').value = row.max_edits_per_date;
-        q('#attPermUniViewDays').value = row.view_history_days;
-        q('#attPermUniEditDays').value = row.edit_history_days;
-        setUniMsg('Copied from ' + (row.class_display || cid) + '.', 'ok');
-    }
-
-    function applyUniversal() {
-        var payload = {
-            backdate_access:    q('#attPermUniBackdate').value,
-            max_edits_per_date: parseInt(q('#attPermUniMaxEdits').value, 10) || 0,
-            view_history_days:  parseInt(q('#attPermUniViewDays').value, 10) || 0,
-            edit_history_days:  parseInt(q('#attPermUniEditDays').value, 10) || 0,
-        };
-        if (!confirm(
-            'Apply these settings to ALL classes that have a class teacher?\n\n' +
-            'This will overwrite any per-class overrides you have saved.'
-        )) { return; }
-
-        setUniMsg('Applying to all classes…', '');
-        fetch('/portal/' + SCHEMA +
-              '/api/attendance/class-teacher-permissions/bulk-save/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrf(),
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify(payload),
-        })
+    function loadRecentDates() {
+        if (!modalClassId) return;
+        var strip = q('#attRecentDates');
+        if (strip) {
+            strip.style.display = 'flex';
+            strip.innerHTML = '<div class="att-recent-empty">Loading recent dates…</div>';
+        }
+        var url = '/portal/' + SCHEMA
+                + '/api/attendance/recent-summary/?class_id=' + modalClassId
+                + '&days=14';
+        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
             .then(function(r) { return r.json(); })
             .then(function(j) {
                 if (!j.ok) {
-                    setUniMsg(j.error || 'Failed.', 'err');
+                    if (strip) {
+                        strip.innerHTML = '<div class="att-recent-empty">'
+                            + esc(j.error || 'Failed to load recent dates.') + '</div>';
+                    }
                     return;
                 }
-                setUniMsg('Applied to ' + j.updated + ' class(es). Refreshing…', 'ok');
-                // Refresh the per-class table so the numbers match.
-                setTimeout(function() { loadPermissions(); }, 400);
+                recentDatesCache = j.rows || [];
+                renderRecentDates(j);
+                markActivePill(q('#attModalDate').value);
             })
             .catch(function() {
-                setUniMsg('Network error.', 'err');
+                if (strip) {
+                    strip.innerHTML = '<div class="att-recent-empty">Network error.</div>';
+                }
             });
     }
 
+    function renderRecentDates(j) {
+        var strip = q('#attRecentDates');
+        if (!strip) return;
+        var rows = j.rows || [];
+        if (!rows.length) {
+            strip.innerHTML = '<div class="att-recent-empty">No recent dates.</div>';
+            return;
+        }
+        // Newest first -> render oldest-left, today-right?  We want
+        // today on the far right so the eye lands there.  rows comes
+        // newest-first, so reverse for display.
+        var disp = rows.slice().reverse();
+        var h = '';
+        disp.forEach(function(r) {
+            var p = fmtDateParts(r.date);
+            var cls = 'att-date-pill status-' + r.status
+                    + (r.is_today ? ' is-today' : '');
+            var barPct = Math.max(4, r.completion_pct || 0);
+            var titleBits = [];
+            titleBits.push(r.date + ' (' + r.day_full + ')');
+            if (r.is_holiday) {
+                titleBits.push('Holiday');
+            } else {
+                titleBits.push('Marked ' + r.marked + '/' + r.total_students);
+                titleBits.push('P' + r.present + ' A' + r.absent
+                             + ' L' + r.late + ' H' + r.half_day
+                             + ' Lv' + r.excused);
+                titleBits.push(r.completion_pct + '% done');
+            }
+            h += '<div class="' + cls + '"'
+               + ' data-date="' + esc(r.date) + '"'
+               + ' title="' + esc(titleBits.join('  ·  ')) + '"'
+               + ' onclick="AXIS_ADMIN_ATT.gotoDate(\'' + esc(r.date) + '\')">'
+               +   '<div class="dp-day">' + esc(p.dayShort) + '</div>'
+               +   '<div class="dp-num">' + esc(p.num) + '</div>'
+               +   '<div class="dp-month">' + esc(p.monthShort) + '</div>'
+               +   '<div class="dp-bar"><span style="width:' + barPct + '%;"></span></div>'
+               + '</div>';
+        });
+        strip.innerHTML = h;
+    }
+
+    function markActivePill(dateStr) {
+        var strip = q('#attRecentDates');
+        if (!strip) return;
+        qa('.att-date-pill', strip).forEach(function(p) {
+            if (p.getAttribute('data-date') === dateStr) {
+                p.classList.add('active');
+            } else {
+                p.classList.remove('active');
+            }
+        });
+    }
+
+    function gotoDate(dateStr) {
+        if (!modalClassId) return;
+        var dp = q('#attModalDate');
+        if (dp) dp.value = dateStr;
+        var pp = q('#attModalPeriod');
+        if (pp) pp.value = '';
+        markActivePill(dateStr);
+        reloadStudents();
+    }
+
+    function renderDateAnalytics(j) {
+        // `j` is the payload from /api/attendance/students/.
+        // We compute counts from the current roster.  Only rows that
+        // are ALREADY marked count as present/absent/etc.; unmarked
+        // students default to 'present' in the API response but are
+        // not real marks.
+        var panel = q('#attDateAnalytics');
+        if (!panel) return;
+
+        if (j.is_holiday) {
+            var dpH = fmtDateParts(j.date || '');
+            panel.style.display = 'block';
+            panel.innerHTML =
+                '<div class="hero-row">'
+                + '<div><span class="date-big">' + esc(j.date || '') + '</span>'
+                +   ' <span class="date-day">' + esc(dpH.dayFull || '') + '</span></div>'
+                + '<div class="meta-row">'
+                +   '<span class="meta-chip">🎉 Holiday'
+                +   (j.holiday_reason ? ' — ' + esc(j.holiday_reason) : '')
+                +   '</span></div>'
+                + '</div>';
+            return;
+        }
+
+        var rows = j.students || [];
+        var total = rows.length;
+        if (!total) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        var marked = 0, present = 0, absent = 0, late = 0,
+            halfDay = 0, excused = 0, autoCount = 0;
+        rows.forEach(function(s) {
+            if (s.already_marked) {
+                marked++;
+                if (s.status === 'present') present++;
+                else if (s.status === 'absent') absent++;
+                else if (s.status === 'late') late++;
+                else if (s.status === 'half_day') halfDay++;
+                else if (s.status === 'excused') excused++;
+            }
+            if (s.is_auto) autoCount++;
+        });
+
+        var completionPct = total
+            ? Math.round((marked / total) * 100) : 0;
+        var presentLike = present + late;
+        var attPct = marked
+            ? Math.round((presentLike / marked) * 100) : 0;
+
+        var dp = fmtDateParts(j.date || '');
+        var periodLabel = (j.period_order !== null &&
+                           j.period_order !== undefined)
+                          ? 'Period ' + j.period_order
+                          : 'Full day';
+
+        // Meta chips: status, auto, lock
+        var statusChip;
+        if (j.locked) {
+            statusChip = '🔒 Already marked';
+        } else {
+            statusChip = '⏳ Not yet marked';
+        }
+        var autoChip = autoCount > 0
+            ? '<span class="meta-chip" style="background:#dbeafe;color:#1e40af;">'
+              + '🤖 ' + autoCount + ' auto</span>'
+            : '';
+        var percentChip = marked > 0
+            ? '<span class="meta-chip" style="background:#d1fae5;color:#065f46;">'
+              + '📊 ' + completionPct + '% done</span>'
+            : '';
+
+        var html = '';
+        html += '<div class="hero-row">';
+        html +=   '<div>'
+               +    '<span class="date-big">' + esc(j.date || '') + '</span>'
+               +    ' <span class="date-day">' + esc(dp.dayFull || '') + '</span>'
+               +  '</div>';
+        html +=   '<div class="meta-row">'
+               +    '<span class="meta-chip">' + esc(periodLabel) + '</span>'
+               +    '<span class="meta-chip">' + statusChip + '</span>'
+               +    autoChip
+               +    percentChip
+               +  '</div>';
+        html += '</div>';
+
+        html += '<div class="kpi-grid">';
+        html +=   '<div class="att-day-kpi k-total">'
+               +    '<div class="k">Total</div>'
+               +    '<div class="v">' + total + '</div>'
+               +    '<div class="sub">active students</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-present">'
+               +    '<div class="k">Present</div>'
+               +    '<div class="v">' + present + '</div>'
+               +    '<div class="sub">' + (marked ? Math.round(present/marked*100) : 0) + '% of marked</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-absent">'
+               +    '<div class="k">Absent</div>'
+               +    '<div class="v">' + absent + '</div>'
+               +    '<div class="sub">' + (marked ? Math.round(absent/marked*100) : 0) + '% of marked</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-late">'
+               +    '<div class="k">Late</div>'
+               +    '<div class="v">' + late + '</div>'
+               +    '<div class="sub">arrived late</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-halfday">'
+               +    '<div class="k">Half day</div>'
+               +    '<div class="v">' + halfDay + '</div>'
+               +    '<div class="sub">partial</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-excused">'
+               +    '<div class="k">Excused</div>'
+               +    '<div class="v">' + excused + '</div>'
+               +    '<div class="sub">on leave</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-pct">'
+               +    '<div class="k">Attendance</div>'
+               +    '<div class="v">' + attPct + '%</div>'
+               +    '<div class="sub">of marked</div>'
+               +  '</div>';
+        html +=   '<div class="att-day-kpi k-auto">'
+               +    '<div class="k">Auto-marked</div>'
+               +    '<div class="v">' + autoCount + '</div>'
+               +    '<div class="sub">by system</div>'
+               +  '</div>';
+        html += '</div>';
+
+        panel.innerHTML = html;
+        panel.style.display = 'block';
+    }
+
+    // ================ /ATTENDANCE_DATE_ANALYTICS_V1 =================
 '''
 
 
-def patch_admin_template(root, args):
+def patch_template(root, args):
     path = root / "templates" / "tenant" / "attendence.html"
     content = read_file(path)
     if content is None:
         return False
 
-    if "ATTENDANCE_PERMS_UNIVERSAL_V1" in content:
-        log(f"  SKIP (already applied): universal block in {path}")
+    if MARKER in content:
+        log(f"  SKIP (already applied): {path}")
         return True
 
-    # ---- 1. Insert the universal block just above #attPermList ------
-    anchor = (
-        '        <div class="att-modal-body" id="attPermList" '
-        'style="padding:1rem 1.2rem;">'
-    )
-    if anchor not in content:
-        log(f"  WARN: could not find #attPermList anchor in {path}")
-        return False
+    changes = []
 
-    content = content.replace(
-        anchor,
-        UNIVERSAL_BLOCK + anchor,
-        1,
+    # ------------------------------------------------------------- CSS
+    old_css_anchor = (
+        "    /* ============== /ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */\n"
+        "</style>"
     )
-    log(f"  Inserted universal block before #attPermList")
-
-    # ---- 2. Call populateUniversalCopyFrom when permissions load ----
-    #         (permCache is populated inside loadPermissions() right
-    #          before renderPermissions() is called).
-    old_load = (
-        "                permCache = j.permissions || [];\n"
-        "                renderPermissions();"
+    new_css_block = (
+        "    /* ============== /ADMIN_ATTENDANCE_DASHBOARD_V1 ============== */\n"
+        + NEW_CSS + "\n</style>"
     )
-    new_load = (
-        "                permCache = j.permissions || [];\n"
-        "                renderPermissions();\n"
-        "                // ATTENDANCE_PERMS_UNIVERSAL_V1\n"
-        "                if (typeof populateUniversalCopyFrom === 'function') {\n"
-        "                    populateUniversalCopyFrom();\n"
-        "                }"
-    )
-    if old_load in content:
-        content = content.replace(old_load, new_load, 1)
-        log(f"  Hooked populateUniversalCopyFrom into loadPermissions")
+    if old_css_anchor in content:
+        content = content.replace(old_css_anchor, new_css_block, 1)
+        changes.append("css")
     else:
-        log(f"  WARN: loadPermissions body not matched; universal copy-"
-            f"from dropdown will be empty until modal is re-opened")
+        log(f"  WARN: CSS anchor not found in {path}")
 
-    # ---- 3. Insert JS hooks just before the return statement --------
-    return_anchor = (
-        "    return {\n"
-        "        openPermissions: openPermissions,\n"
-        "        closePermissions: closePermissions,\n"
-        "        savePermission: savePermission,\n"
-        "        openLogs: openLogs,\n"
-        "        closeLogs: closeLogs,\n"
-        "    };"
-    )
-    new_return = (
-        "    // ---------- ATTENDANCE_PERMS_UNIVERSAL_V1 exports ----------\n"
-        "    return {\n"
-        "        openPermissions: openPermissions,\n"
-        "        closePermissions: closePermissions,\n"
-        "        savePermission: savePermission,\n"
-        "        openLogs: openLogs,\n"
-        "        closeLogs: closeLogs,\n"
-        "        toggleUniversal: toggleUniversal,\n"
-        "        resetUniversal: resetUniversal,\n"
-        "        applyUniversal: applyUniversal,\n"
-        "        fillFromClass: fillFromClass,\n"
-        "    };"
-    )
-    if return_anchor not in content:
-        log(f"  WARN: return-anchor not found in {path}; "
-            f"could not add JS hooks cleanly")
-        return False
+    # ------------------------------------------------------------ HTML
+    old_html_anchor = '<div class="att-modal-body" id="attModalBody">'
+    if old_html_anchor in content:
+        content = content.replace(
+            old_html_anchor,
+            NEW_HTML + old_html_anchor,
+            1,
+        )
+        changes.append("html")
+    else:
+        log(f"  WARN: HTML anchor not found in {path}")
 
-    # Insert the JS hooks just before the return statement.
-    content = content.replace(
-        return_anchor,
-        PERMS_JS_HOOKS + new_return,
-        1,
+    # -------------------------------------------------------------- JS
+    # (a) state variable for the recent-dates cache
+    old_state = "    var modalIsHoliday = false;\n"
+    new_state = (
+        "    var modalIsHoliday = false;\n"
+        "    // ATTENDANCE_DATE_ANALYTICS_V1\n"
+        "    var recentDatesCache = [];\n"
     )
-    log(f"  Inserted universal JS hooks before IIFE return")
+    if old_state in content:
+        content = content.replace(old_state, new_state, 1)
+        changes.append("state var")
+    else:
+        log(f"  WARN: modal state anchor not found in {path}")
+
+    # (b) openMark(): trigger the recent-dates strip load.
+    old_openmark = (
+        "        modalClassId = classId;\n"
+        "        q('#attModalTitle').textContent"
+    )
+    new_openmark = (
+        "        modalClassId = classId;\n"
+        "        // ATTENDANCE_DATE_ANALYTICS_V1\n"
+        "        loadRecentDates();\n"
+        "        q('#attModalTitle').textContent"
+    )
+    if old_openmark in content:
+        content = content.replace(old_openmark, new_openmark, 1)
+        changes.append("openMark hook")
+    else:
+        log(f"  WARN: openMark anchor not found in {path}")
+
+    # (c) reloadStudents(): after a successful load, render analytics
+    #     and highlight the active pill.  Insert right before the
+    #     closing of the successful `.then(...)` in reloadStudents.
+    old_reload = (
+        "                if (modalLocked) {\n"
+        "                    q('#attLockedBanner').style.display = 'flex';\n"
+        "                }\n"
+        "            })\n"
+        "            .catch(function() {\n"
+        "                q('#attModalBody').innerHTML =\n"
+        "                    '<div class=\"att-modal-empty\">Network error.</div>';\n"
+        "            });\n"
+        "    }\n"
+    )
+    new_reload = (
+        "                if (modalLocked) {\n"
+        "                    q('#attLockedBanner').style.display = 'flex';\n"
+        "                }\n"
+        "                // ATTENDANCE_DATE_ANALYTICS_V1\n"
+        "                renderDateAnalytics(j);\n"
+        "                markActivePill(q('#attModalDate').value);\n"
+        "            })\n"
+        "            .catch(function() {\n"
+        "                q('#attModalBody').innerHTML =\n"
+        "                    '<div class=\"att-modal-empty\">Network error.</div>';\n"
+        "            });\n"
+        "    }\n"
+    )
+    if old_reload in content:
+        content = content.replace(old_reload, new_reload, 1)
+        changes.append("reloadStudents hook")
+    else:
+        log(f"  WARN: reloadStudents anchor not found in {path}")
+
+    # (d) insert the new JS functions before the init block.
+    old_init_anchor = "    // ---------------- init ----------------"
+    if old_init_anchor in content:
+        content = content.replace(
+            old_init_anchor,
+            NEW_JS_FUNCTIONS + "\n" + old_init_anchor,
+            1,
+        )
+        changes.append("js functions")
+    else:
+        log(f"  WARN: init anchor not found in {path}")
+
+    # (e) expose gotoDate + loadRecentDates on the AXIS_ADMIN_ATT API.
+    old_exports = (
+        "        openClass: openClass,\n"
+        "        // ATTENDANCE_LOGS_ANY_DATE_V1\n"
+        "        openCurrentLogs: openCurrentLogs\n"
+    )
+    new_exports = (
+        "        openClass: openClass,\n"
+        "        // ATTENDANCE_LOGS_ANY_DATE_V1\n"
+        "        openCurrentLogs: openCurrentLogs,\n"
+        "        // ATTENDANCE_DATE_ANALYTICS_V1\n"
+        "        gotoDate: gotoDate,\n"
+        "        loadRecentDates: loadRecentDates\n"
+    )
+    if old_exports in content:
+        content = content.replace(old_exports, new_exports, 1)
+        changes.append("exports")
+    else:
+        log(f"  WARN: exports anchor not found in {path}")
+
+    if not changes:
+        log(f"  NO CHANGES for {path}")
+        return True
 
     return write_file(path, content, args.dry_run,
-                      "insert universal block + JS")
+                      ", ".join(changes))
 
 
 # =====================================================================
@@ -629,10 +1001,8 @@ def patch_admin_template(root, args):
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            f"{MARKER} — add a Universal Settings block to the Class "
-            f"Teacher Permissions modal so the admin can apply the same "
-            f"attendance authority to every class in one click, while "
-            f"still overriding individual classes below."
+            f"{MARKER} — adds a per-date analytics panel and a "
+            f"recent-dates strip to the admin Mark & History modal."
         )
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -650,9 +1020,9 @@ def main():
     log(f"Patch:  {MARKER}")
 
     steps = [
-        ("Admin views: bulk-save endpoint",  patch_admin_attendance),
-        ("URLs: register bulk-save route",   patch_public_urls),
-        ("Template: universal block + JS",   patch_admin_template),
+        ("Admin views: recent-summary API", patch_admin_views),
+        ("URLs: register recent-summary route", patch_public_urls),
+        ("Template: analytics panel + strip", patch_template),
     ]
 
     results = []
@@ -675,16 +1045,10 @@ def main():
         if args.dry_run:
             log("Re-run without --dry-run to apply.")
         else:
-            log("Restart the Django server to pick up the new endpoint.")
-            log("")
-            log("What you get:")
-            log("  • The Class Teacher Permissions modal now opens with a")
-            log("    collapsible 🌐 Universal Settings card at the top.")
-            log("  • Fill the four fields (or 'Copy from' an existing")
-            log("    class) and click 'Apply to All Classes' to set every")
-            log("    class at once.")
-            log("  • The per-class table below is unchanged — individual")
-            log("    overrides still work exactly as before.")
+            log("Next steps:")
+            log("  1. Restart the Django server / WSGI workers.")
+            log("  2. Open /portal/<schema>/attendance/ and click "
+                "\"Mark & History\" on any class.")
         return 0
     log("One or more steps failed. See messages above.")
     return 2

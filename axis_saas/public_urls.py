@@ -51,6 +51,8 @@ from .views.admin_attendence import (
     admin_attendance_records_api,
     admin_attendance_summary_api,
     admin_attendance_student_history_api,
+    # STUDENT_PROFILE_ATTENDANCE_MANAGER_V1
+    admin_attendance_student_history_paginated_api,
     admin_attendance_bulk_mark_api,
     admin_attendance_compliance_api,
     admin_attendance_audit_api,
@@ -66,6 +68,8 @@ from .views.admin_attendence import (
     # ATTENDANCE_PERMS_UNIVERSAL_V1
     admin_attendance_class_teacher_permissions_bulk_save_api,
     admin_attendance_daily_logs_api,
+    # ATTENDANCE_DATE_ANALYTICS_V1
+    admin_attendance_recent_summary_api,
 )
 from .views.leave_management import (
     leave_management, leave_detail_api, leave_approve, leave_reject,
@@ -413,6 +417,8 @@ urlpatterns = [
     path('portal/<slug:schema_name>/api/attendance/records/', portal_wrapper(login_required_for_schema(admin_attendance_records_api)), name='admin_attendance_records_api'),
     path('portal/<slug:schema_name>/api/attendance/summary/', portal_wrapper(login_required_for_schema(admin_attendance_summary_api)), name='admin_attendance_summary_api'),
     path('portal/<slug:schema_name>/api/attendance/student/<int:student_id>/history/', portal_wrapper(login_required_for_schema(admin_attendance_student_history_api)), name='admin_attendance_student_history_api'),
+    # STUDENT_PROFILE_ATTENDANCE_MANAGER_V1
+    path('portal/<slug:schema_name>/api/attendance/student/<int:student_id>/history-paginated/', portal_wrapper(login_required_for_schema(admin_attendance_student_history_paginated_api)), name='admin_attendance_student_history_paginated_api'),
     # ===== ATTENDANCE_PRODUCTION_V2 =====
     path('portal/<slug:schema_name>/api/attendance/bulk-mark/', portal_wrapper(login_required_for_schema(admin_attendance_bulk_mark_api)), name='admin_attendance_bulk_mark_api'),
     path('portal/<slug:schema_name>/api/attendance/compliance/', portal_wrapper(login_required_for_schema(admin_attendance_compliance_api)), name='admin_attendance_compliance_api'),
@@ -429,6 +435,8 @@ urlpatterns = [
     # ATTENDANCE_PERMS_UNIVERSAL_V1
     path('portal/<slug:schema_name>/api/attendance/class-teacher-permissions/bulk-save/', portal_wrapper(login_required_for_schema(admin_attendance_class_teacher_permissions_bulk_save_api)), name='admin_attendance_class_teacher_permissions_bulk_save_api'),
     path('portal/<slug:schema_name>/api/attendance/daily-logs/', portal_wrapper(login_required_for_schema(admin_attendance_daily_logs_api)), name='admin_attendance_daily_logs_api'),
+    # ATTENDANCE_DATE_ANALYTICS_V1
+    path('portal/<slug:schema_name>/api/attendance/recent-summary/', portal_wrapper(login_required_for_schema(admin_attendance_recent_summary_api)), name='admin_attendance_recent_summary_api'),
     # ===== LEAVE MANAGEMENT =====
     path('portal/<slug:schema_name>/leave/', portal_wrapper(login_required_for_schema(leave_management)), name='leave_management'),
     path('portal/<slug:schema_name>/leave/<int:leave_id>/detail/', portal_wrapper(login_required_for_schema(leave_detail_api)), name='leave_detail_api'),

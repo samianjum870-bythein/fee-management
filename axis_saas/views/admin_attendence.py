@@ -1602,3 +1602,390 @@ def admin_attendance_class_teacher_permissions_bulk_save_api(
         'classes': updated_ids,
         'backdate_access': backdate_access,
     })
+
+
+# =====================================================================
+# STUDENT_PROFILE_ATTENDANCE_MANAGER_V1
+# ---------------------------------------------------------------------
+# Paginated, filterable attendance history for a SINGLE student.
+# Powers the "Manage Attendance" overlay on the student profile page.
+# The admin can page through thousands of records, filter by date
+# range or status, and edit any single date on the spot (edits go
+# through the standard /api/attendance/mark/ endpoint so they inherit
+# the existing audit logging, MARKABLE_STATUSES gate, and future-date
+# check).
+# =====================================================================
+
+
+@require_http_methods(['GET'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_student_history_paginated_api(
+    request, schema_name, student_id,
+):
+    """GET: paginated attendance history for one student.
+
+    Query params:
+        page        1-based page number (default 1)
+        page_size   records per page (default 30, capped at 200)
+        start_date  ISO date, inclusive (optional)
+        end_date    ISO date, inclusive (optional)
+        status      one of ATTENDANCE_STATUSES (optional)
+        period_order  int (optional)
+    """
+    try:
+        page = max(1, int(request.GET.get('page', '1') or 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = min(
+            200, max(1, int(request.GET.get('page_size', '30') or 30)),
+        )
+    except (TypeError, ValueError):
+        page_size = 30
+
+    start_date = _parse_date(request.GET.get('start_date'))
+    end_date = _parse_date(request.GET.get('end_date'))
+    status = (request.GET.get('status') or '').strip()
+    period_order = _parse_int(request.GET.get('period_order'))
+
+    with schema_context(schema_name):
+        student = (
+            Student.objects
+            .filter(id=student_id)
+            .select_related('school_class')
+            .first()
+        )
+        if not student:
+            return JsonResponse(
+                {'ok': False, 'error': 'Student not found'}, status=404,
+            )
+
+        base_qs = (
+            StudentAttendance.objects
+            .filter(student=student)
+            .select_related('teacher', 'marked_by', 'modified_by')
+        )
+
+        # ---------- full-history summary (unfiltered) ----------
+        agg = base_qs.aggregate(
+            present=Count('id', filter=Q(status='present')),
+            absent=Count('id', filter=Q(status='absent')),
+            late=Count('id', filter=Q(status='late')),
+            half_day=Count('id', filter=Q(status='half_day')),
+            excused=Count('id', filter=Q(status='excused')),
+            holiday=Count('id', filter=Q(status='holiday')),
+        )
+        total_all = sum(v or 0 for v in agg.values())
+        present_like = (
+            (agg.get('present', 0) or 0)
+            + (agg.get('late', 0) or 0)
+        )
+        pct = (
+            round((present_like / total_all) * 100, 2)
+            if total_all else 0.0
+        )
+
+        # ---------- filtered query ----------
+        qs = base_qs.order_by('-date', '-period_order')
+        if start_date:
+            qs = qs.filter(date__gte=start_date)
+        if end_date:
+            qs = qs.filter(date__lte=end_date)
+        if status in ATTENDANCE_STATUSES:
+            qs = qs.filter(status=status)
+        if period_order is not None:
+            qs = qs.filter(period_order=period_order)
+
+        total = qs.count()
+        offset = (page - 1) * page_size
+        rows = list(qs[offset:offset + page_size])
+        num_pages = (
+            (total + page_size - 1) // page_size if page_size else 1
+        )
+
+        records = []
+        for r in rows:
+            records.append({
+                'id': r.id,
+                'date': r.date.isoformat(),
+                'day_name': r.date.strftime('%A'),
+                'period_order': r.period_order,
+                'status': r.status,
+                'status_label': r.get_status_display(),
+                'remarks': r.remarks or '',
+                'source': r.source,
+                'marked_by': (
+                    r.marked_by.full_name if r.marked_by
+                    else (r.teacher.full_name if r.teacher else '')
+                ),
+                'marked_at': (
+                    r.marked_at.isoformat() if r.marked_at else ''
+                ),
+                'modified_by': (
+                    r.modified_by.full_name if r.modified_by else ''
+                ),
+                'modified_at': (
+                    r.modified_at.isoformat() if r.modified_at else ''
+                ),
+            })
+
+        try:
+            class_display = get_class_display_name(
+                student.school_class,
+                getattr(get_tenant(request, schema_name),
+                        'tenant_type', 'single_small_school'),
+            ) if student.school_class else ''
+        except Exception:
+            class_display = (
+                str(student.school_class) if student.school_class else ''
+            )
+
+        return JsonResponse({
+            'ok': True,
+            'student': {
+                'id': student.id,
+                'name': student.name,
+                'roll_number': student.roll_number or '',
+                'father_name': student.father_name or '',
+                'class_id': student.school_class_id or 0,
+                'class_name': class_display,
+            },
+            'records': records,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+                'num_pages': num_pages,
+            },
+            'summary': {
+                'present': agg.get('present', 0) or 0,
+                'absent': agg.get('absent', 0) or 0,
+                'late': agg.get('late', 0) or 0,
+                'half_day': agg.get('half_day', 0) or 0,
+                'excused': agg.get('excused', 0) or 0,
+                'holiday': agg.get('holiday', 0) or 0,
+                'total': total_all,
+                'attendance_percentage': pct,
+            },
+            # MARKABLE statuses only — 'holiday' is a whole-class
+            # marker and must not be offered as a per-student edit
+            # (BUG-4 / BUG-8 of ATTENDANCE_SYSTEM_BUGFIX_V1).
+            'markable_statuses': [
+                {'value': 'present',  'label': 'Present'},
+                {'value': 'absent',   'label': 'Absent'},
+                {'value': 'late',     'label': 'Late'},
+                {'value': 'half_day', 'label': 'Half Day'},
+                {'value': 'excused',  'label': 'Excused / Leave'},
+            ],
+        })
+
+
+# =====================================================================
+# ATTENDANCE_DATE_ANALYTICS_V1
+# ---------------------------------------------------------------------
+# Per-day KPI rows for the last N days of a class.  Powers the
+# "Recent Dates" strip and the analytics panel inside the admin's
+# Mark & History modal.
+# =====================================================================
+
+
+@require_http_methods(['GET'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_recent_summary_api(request, schema_name):
+    """GET per-day analytics for the last N days of one class.
+
+    Query params:
+        class_id  (required)
+        days      int 1..90 (default 14)
+
+    Response::
+
+        {
+          "ok": True,
+          "class_id": 7,
+          "class_name": "Grade 1 - A",
+          "total_students": 32,
+          "days": 14,
+          "rows": [
+            {
+              "date": "2026-09-17",
+              "day_name": "Wed",
+              "day_full": "Wednesday",
+              "is_today": True,
+              "is_holiday": False,
+              "holiday_reason": "",
+              "total_students": 32,
+              "marked": 30,
+              "present": 28, "absent": 2, "late": 0,
+              "half_day": 0, "excused": 0, "holiday": 0,
+              "completion_pct": 93.8,
+              "attendance_pct": 93.3,
+              "status": "partial",          # completed|partial|pending|holiday
+              "period_marked": 40,
+              "sources": {"teacher": 30, "auto_system": 0}
+            },
+            ...
+          ]
+        }
+    """
+    class_id = _parse_int(request.GET.get('class_id'))
+    if not class_id:
+        return JsonResponse(
+            {'ok': False, 'error': 'class_id required'}, status=400,
+        )
+    try:
+        days = int(request.GET.get('days', '14') or 14)
+    except (TypeError, ValueError):
+        days = 14
+    days = max(1, min(90, days))
+
+    today = _today()
+
+    with schema_context(schema_name):
+        school_class = SchoolClass.objects.filter(
+            id=class_id, is_active=True,
+        ).first()
+        if not school_class:
+            return JsonResponse(
+                {'ok': False, 'error': 'Class not found'}, status=404,
+            )
+
+        total_students = Student.objects.filter(
+            school_class=school_class, status='active',
+        ).count()
+
+        start = today - timedelta(days=days - 1)
+
+        # ---- batch-load holiday context (2-3 queries total) ----
+        try:
+            holiday_dows = set(
+                WeeklyHoliday.objects.values_list('day_of_week', flat=True)
+            )
+        except Exception:
+            holiday_dows = set()
+        try:
+            annual_pairs = set(
+                AnnualHoliday.objects.values_list('month', 'day')
+            )
+        except Exception:
+            annual_pairs = set()
+        try:
+            vacations = list(
+                Vacation.objects.values_list('start_date', 'end_date')
+            )
+        except Exception:
+            vacations = []
+
+        def _is_hol(d):
+            if d.weekday() in holiday_dows:
+                return True, 'Weekly holiday'
+            if (d.month, d.day) in annual_pairs:
+                return True, 'Annual holiday'
+            for s, e in vacations:
+                if s <= d <= e:
+                    return True, 'Vacation'
+            return False, ''
+
+        # ---- full-day rows for the window ----
+        rows_qs = (
+            StudentAttendance.objects
+            .filter(
+                school_class=school_class,
+                date__gte=start,
+                date__lte=today,
+                period_order__isnull=True,
+            )
+            .values('date', 'status', 'source')
+        )
+
+        from collections import defaultdict
+        buckets = defaultdict(lambda: {
+            'total_marked': 0,
+            'statuses': defaultdict(int),
+            'sources': defaultdict(int),
+        })
+        for r in rows_qs:
+            b = buckets[r['date']]
+            b['total_marked'] += 1
+            st = r['status'] or 'present'
+            b['statuses'][st] += 1
+            src = r['source'] or 'teacher'
+            b['sources'][src] += 1
+
+        # ---- period-wise counts for the window ----
+        period_rows_qs = (
+            StudentAttendance.objects
+            .filter(
+                school_class=school_class,
+                date__gte=start,
+                date__lte=today,
+                period_order__isnull=False,
+            )
+            .values('date')
+            .annotate(n=Count('id'))
+        )
+        period_by_date = {r['date']: r['n'] for r in period_rows_qs}
+
+        # ---- build rows, newest first ----
+        out = []
+        for i in range(days):
+            d = today - timedelta(days=i)
+            is_hol, hol_reason = _is_hol(d)
+            b = buckets.get(d)
+            marked = b['total_marked'] if b else 0
+            statuses = b['statuses'] if b else {}
+            sources = b['sources'] if b else {}
+
+            if is_hol:
+                status = 'holiday'
+            elif total_students and marked >= total_students:
+                status = 'completed'
+            elif marked > 0:
+                status = 'partial'
+            else:
+                status = 'pending'
+
+            completion_pct = (
+                round((marked / total_students) * 100, 1)
+                if total_students else 0.0
+            )
+            present = statuses.get('present', 0) if statuses else 0
+            late = statuses.get('late', 0) if statuses else 0
+            present_like = present + late
+            att_pct = (
+                round((present_like / marked) * 100, 1)
+                if marked else 0.0
+            )
+
+            out.append({
+                'date': d.isoformat(),
+                'day_name': d.strftime('%a'),
+                'day_full': d.strftime('%A'),
+                'is_today': d == today,
+                'is_holiday': is_hol,
+                'holiday_reason': hol_reason,
+                'total_students': total_students,
+                'marked': marked,
+                'present': present,
+                'absent': statuses.get('absent', 0) if statuses else 0,
+                'late': late,
+                'half_day': statuses.get('half_day', 0) if statuses else 0,
+                'excused': statuses.get('excused', 0) if statuses else 0,
+                'holiday': statuses.get('holiday', 0) if statuses else 0,
+                'completion_pct': completion_pct,
+                'attendance_pct': att_pct,
+                'status': status,
+                'period_marked': period_by_date.get(d, 0),
+                'sources': dict(sources) if sources else {},
+            })
+
+        return JsonResponse({
+            'ok': True,
+            'class_id': school_class.id,
+            'class_name': str(school_class),
+            'total_students': total_students,
+            'days': days,
+            'rows': out,
+        })

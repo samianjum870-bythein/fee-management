@@ -1,6 +1,5 @@
 {% extends 'tenant/base.html' %}
 {% load class_display %}
-{% load class_display %}
 {% block title %}{{ student.name }} | Profile{% endblock %}
 
 {% block body %}
@@ -98,7 +97,9 @@
         font-weight: 500;
     }
 
-    /* ── Header Actions ── */
+    /* ══════════════════════════════════════════════════
+       ── REDESIGNED HEADER ACTIONS (Visible Buttons) ──
+       ══════════════════════════════════════════════════ */
     .profile-actions {
         display: flex;
         flex-wrap: wrap;
@@ -110,57 +111,95 @@
     .profile-actions .btn {
         display: inline-flex;
         align-items: center;
-        gap: 0.45rem;
-        padding: 0.5rem 1.1rem;
-        border-radius: 2rem;
-        font-weight: 500;
-        font-size: 0.82rem;
+        gap: 0.5rem;
+        padding: 0.65rem 1.25rem;
+        border-radius: 0.7rem;
+        font-weight: 600;
+        font-size: 0.85rem;
+        letter-spacing: 0.01em;
         text-decoration: none;
-        border: none;
+        border: 1.5px solid transparent;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: transform 0.15s ease, box-shadow 0.2s ease,
+                    background 0.2s ease, border-color 0.2s ease,
+                    color 0.2s ease;
         white-space: nowrap;
+        line-height: 1;
+        position: relative;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
     }
-
-    .btn-primary {
-        background: var(--primary);
-        color: #fff;
-    }
-    .btn-primary:hover {
-        background: var(--primary-dark, #1d4ed8);
+    .profile-actions .btn:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+    }
+    .profile-actions .btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+    }
+    .profile-actions .btn .inline-icon {
+        width: 16px;
+        height: 16px;
+        stroke-width: 2;
     }
 
-    .btn-secondary {
+    /* Manage Attendance – Indigo (distinct, always visible) */
+    .profile-actions .btn-attendance {
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #ffffff;
+        border-color: #4f46e5;
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
+    }
+    .profile-actions .btn-attendance:hover {
+        background: linear-gradient(135deg, #4f46e5, #4338ca);
+        box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4);
+    }
+
+    /* Voucher – Amber */
+    .profile-actions .btn-voucher {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        color: #ffffff;
+        border-color: #d97706;
+        box-shadow: 0 2px 8px rgba(217, 119, 6, 0.28);
+    }
+    .profile-actions .btn-voucher:hover {
+        background: linear-gradient(135deg, #d97706, #b45309);
+        box-shadow: 0 6px 18px rgba(217, 119, 6, 0.4);
+    }
+
+    /* Edit – Slate */
+    .profile-actions .btn-edit {
+        background: linear-gradient(135deg, #64748b, #475569);
+        color: #ffffff;
+        border-color: #475569;
+        box-shadow: 0 2px 8px rgba(71, 85, 105, 0.28);
+    }
+    .profile-actions .btn-edit:hover {
+        background: linear-gradient(135deg, #475569, #334155);
+        box-shadow: 0 6px 18px rgba(71, 85, 105, 0.4);
+    }
+
+    /* Collect Pending – Emerald (kept prominent) */
+    .profile-actions .btn-collect {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: #ffffff;
+        border-color: #059669;
+        box-shadow: 0 2px 8px rgba(5, 150, 105, 0.28);
+    }
+    .profile-actions .btn-collect:hover {
+        background: linear-gradient(135deg, #059669, #047857);
+        box-shadow: 0 6px 18px rgba(5, 150, 105, 0.4);
+    }
+
+    /* Back – light outline but with real contrast */
+    .profile-actions .btn-back {
         background: var(--surface-alt);
         color: var(--text);
-        border: 1px solid var(--border);
+        border-color: var(--border);
     }
-    .btn-secondary:hover {
+    .profile-actions .btn-back:hover {
         background: var(--border);
-        transform: translateY(-1px);
-    }
-
-    .btn-outline {
-        background: transparent;
-        color: var(--primary);
-        border: 1.5px solid var(--primary);
-    }
-    .btn-outline:hover {
-        background: var(--primary);
-        color: #fff;
-        transform: translateY(-1px);
-    }
-
-    .btn-success {
-        background: #10b981;
-        color: #fff;
-    }
-    .btn-success:hover {
-        background: #059669;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        border-color: var(--muted);
+        color: var(--text);
     }
 
     /* ── Info Grid ── */
@@ -223,74 +262,207 @@
         color: #1e40af;
     }
 
-    /* ── Teacher Section ── */
+    /* ══════════════════════════════════════════════════
+       ── REDESIGNED TEACHER SECTION (Clear & Visible) ──
+       ══════════════════════════════════════════════════ */
     .teacher-section {
+        display: grid;
+        grid-template-columns: minmax(240px, 1fr) minmax(320px, 2fr);
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .teacher-card {
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: var(--radius, 0.75rem);
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 2rem;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1.5rem 3rem;
+        border-radius: var(--radius, 0.85rem);
+        padding: 1.15rem 1.25rem;
         box-shadow: var(--shadow-sm);
+        position: relative;
+        overflow: hidden;
+    }
+    .teacher-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(180deg, #6366f1, #4f46e5);
+    }
+    .teacher-card.subjects-card::before {
+        background: linear-gradient(180deg, #0ea5e9, #0284c7);
     }
 
-    .teacher-section .teacher-block {
-        flex: 1 1 200px;
-        min-width: 150px;
+    .teacher-card-head {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin-bottom: 0.9rem;
     }
-
-    .teacher-section .teacher-block .block-label {
-        font-size: 0.7rem;
+    .teacher-card-head .tc-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 0.5rem;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .teacher-card.subjects-card .teacher-card-head .tc-icon {
+        background: linear-gradient(135deg, #0ea5e9, #0284c7);
+    }
+    .teacher-card-head .tc-icon svg {
+        width: 15px;
+        height: 15px;
+    }
+    .teacher-card-head .tc-title {
+        font-size: 0.72rem;
+        font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.07em;
         color: var(--muted);
-        font-weight: 600;
-        margin-bottom: 0.3rem;
     }
 
-    .teacher-section .teacher-block .teacher-name {
-        font-weight: 600;
-        font-size: 1rem;
-        color: var(--primary);
-        text-decoration: none;
+    /* Class teacher display */
+    .ct-name-row {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
     }
-    .teacher-section .teacher-block .teacher-name:hover {
+    .ct-avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        box-shadow: 0 3px 10px rgba(79, 70, 229, 0.3);
+    }
+    .ct-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        min-width: 0;
+    }
+    .ct-name {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text);
+        text-decoration: none;
+        line-height: 1.25;
+        transition: color 0.15s;
+    }
+    .ct-name:hover {
+        color: #4f46e5;
         text-decoration: underline;
     }
+    .ct-role {
+        font-size: 0.72rem;
+        color: var(--muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .ct-empty {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.55rem 0.75rem;
+        background: var(--surface-alt);
+        border: 1px dashed var(--border);
+        border-radius: 0.6rem;
+        color: var(--muted);
+        font-size: 0.86rem;
+        font-style: italic;
+    }
 
-    .teacher-section .subject-list {
+    /* Subject teachers list */
+    .subject-list-modern {
         list-style: none;
         padding: 0;
         margin: 0;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1.5rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 0.55rem;
     }
-
-    .teacher-section .subject-list li {
+    .subject-list-modern li {
         display: flex;
-        align-items: baseline;
-        gap: 0.3rem;
-        font-size: 0.92rem;
+        align-items: center;
+        gap: 0.65rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.65rem;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        transition: border-color 0.2s, transform 0.12s, box-shadow 0.2s;
+        min-width: 0;
     }
-
-    .teacher-section .subject-list li .subject-name {
-        font-weight: 500;
+    .subject-list-modern li:hover {
+        border-color: #0284c7;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.12);
+    }
+    .subject-list-modern .sub-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #0ea5e9, #0284c7);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.78rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    .subject-list-modern .sub-avatar.unassigned-avatar {
+        background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+        color: #fff;
+    }
+    .subject-list-modern .sub-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.05rem;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .subject-list-modern .sub-subject {
+        font-size: 0.68rem;
+        font-weight: 800;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        line-height: 1.2;
+    }
+    .subject-list-modern .sub-teacher {
+        font-size: 0.9rem;
+        font-weight: 600;
         color: var(--text);
-    }
-    .teacher-section .subject-list li .subject-teacher {
-        color: var(--primary);
         text-decoration: none;
-        font-weight: 500;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: color 0.15s;
     }
-    .teacher-section .subject-list li .subject-teacher:hover {
+    .subject-list-modern .sub-teacher:hover {
+        color: #0284c7;
         text-decoration: underline;
     }
-    .teacher-section .subject-list li .unassigned {
+    .subject-list-modern .sub-teacher.unassigned {
         color: var(--muted);
-        font-size: 0.85rem;
+        font-style: italic;
+        font-weight: 500;
     }
 
     /* ── Fee Summary ── */
@@ -676,6 +848,12 @@
     }
 
     /* ── Responsive ── */
+    @media (max-width: 900px) {
+        .teacher-section {
+            grid-template-columns: 1fr;
+        }
+    }
+
     @media (max-width: 768px) {
         .profile-header-card {
             flex-direction: column;
@@ -691,7 +869,7 @@
         }
         .profile-actions .btn {
             font-size: 0.78rem;
-            padding: 0.4rem 0.9rem;
+            padding: 0.55rem 1rem;
         }
         .info-grid-modern {
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -709,10 +887,6 @@
             flex-direction: column;
             align-items: stretch;
         }
-        .teacher-section {
-            flex-direction: column;
-            gap: 1rem;
-        }
         .modal-box {
             padding: 1.25rem;
             margin: 0.5rem;
@@ -724,6 +898,9 @@
         }
         .profile-name-group h1 {
             font-size: 1.3rem;
+        }
+        .subject-list-modern {
+            grid-template-columns: 1fr;
         }
     }
 
@@ -785,20 +962,24 @@
         </div>
 
         <div class="profile-actions">
-            <button class="btn btn-outline" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
+            <button class="btn btn-attendance" onclick="AXIS_STUDENT_ATT.open()" type="button">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 15l2 2 4-4"/></svg>
+                Manage Attendance
+            </button>
+            <button class="btn btn-voucher" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')" type="button">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
                 Voucher
             </button>
-            <a href="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-secondary">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+            <a href="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-edit">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
                 Edit
             </a>
-            <a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-success">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8"/></svg>
+            <a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-collect">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8"/></svg>
                 Collect Pending
             </a>
-            <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="btn btn-secondary">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg>
+            <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="btn btn-back">
+                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
                 Back
             </a>
         </div>
@@ -836,38 +1017,72 @@
         </div>
     </div>
 
-    {# ─── TEACHER SECTION ─── #}
+    {# ─── TEACHER SECTION (Redesigned) ─── #}
     <div class="teacher-section">
-        <div class="teacher-block">
-            <div class="block-label">Class Teacher</div>
+
+        {# Class Teacher Card #}
+        <div class="teacher-card">
+            <div class="teacher-card-head">
+                <span class="tc-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l3 6 6 .9-4.5 4.3L17.8 20 12 17l-5.8 3 1.3-6.8L3 8.9 9 8z"/></svg>
+                </span>
+                <span class="tc-title">Class Teacher</span>
+            </div>
+
             {% if class_teacher %}
-                <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="teacher-name">
-                    {{ class_teacher.full_name }}
-                </a>
+                <div class="ct-name-row">
+                    <div class="ct-avatar">{{ class_teacher.full_name|slice:":1" }}</div>
+                    <div class="ct-meta">
+                        <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="ct-name">
+                            {{ class_teacher.full_name }}
+                        </a>
+                        <span class="ct-role">Assigned</span>
+                    </div>
+                </div>
             {% else %}
-                <span class="text-muted" style="font-size:0.92rem;">Not assigned</span>
+                <div class="ct-empty">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Not assigned yet
+                </div>
             {% endif %}
         </div>
 
-        <div class="teacher-block" style="flex: 2 1 300px;">
-            <div class="block-label">Subject Teachers</div>
+        {# Subject Teachers Card #}
+        <div class="teacher-card subjects-card">
+            <div class="teacher-card-head">
+                <span class="tc-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                </span>
+                <span class="tc-title">Subject Teachers</span>
+            </div>
+
             {% if subject_teachers %}
-                <ul class="subject-list">
+                <ul class="subject-list-modern">
                     {% for item in subject_teachers %}
                         <li>
-                            <span class="subject-name">{{ item.subject }}:</span>
                             {% if item.teacher %}
-                                <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="subject-teacher">
-                                    {{ item.teacher.full_name }}
-                                </a>
+                                <div class="sub-avatar">{{ item.teacher.full_name|slice:":1" }}</div>
+                                <div class="sub-meta">
+                                    <span class="sub-subject">{{ item.subject }}</span>
+                                    <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="sub-teacher">
+                                        {{ item.teacher.full_name }}
+                                    </a>
+                                </div>
                             {% else %}
-                                <span class="unassigned">Unassigned</span>
+                                <div class="sub-avatar unassigned-avatar">?</div>
+                                <div class="sub-meta">
+                                    <span class="sub-subject">{{ item.subject }}</span>
+                                    <span class="sub-teacher unassigned">Unassigned</span>
+                                </div>
                             {% endif %}
                         </li>
                     {% endfor %}
                 </ul>
             {% else %}
-                <span class="text-muted" style="font-size:0.9rem;">No subject assignments</span>
+                <div class="ct-empty">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    No subject assignments yet
+                </div>
             {% endif %}
         </div>
     </div>
@@ -1025,6 +1240,410 @@
         </div>
     </div>
 </div>
+
+
+{# ============ STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 ============ #}
+<style>
+    .satt-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+        gap: .5rem;
+        padding: .85rem 1.4rem;
+        background: var(--surface-alt);
+        border-bottom: 1px solid var(--border);
+    }
+    .satt-kpi { text-align: center; }
+    .satt-kpi .k-label {
+        font-size: .62rem;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 800;
+        letter-spacing: .05em;
+    }
+    .satt-kpi .k-val {
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin-top: .1rem;
+        color: var(--text);
+    }
+    .satt-kpi .k-val.ok   { color: #10b981; }
+    .satt-kpi .k-val.bad  { color: #ef4444; }
+    .satt-kpi .k-val.warn { color: #f59e0b; }
+
+    .satt-filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        align-items: center;
+        padding: .75rem 1.4rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .satt-filter-bar label {
+        font-size: .68rem;
+        font-weight: 800;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: .05em;
+    }
+    .satt-filter-bar input[type="date"],
+    .satt-filter-bar select {
+        padding: .4rem .55rem;
+        border-radius: .5rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: .82rem;
+    }
+
+    /* STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 */
+    .satt-quick-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem;
+        align-items: center;
+        padding: .55rem 1.4rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        font-size: .72rem;
+    }
+    .satt-quick-label {
+        color: var(--muted);
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        margin-right: .25rem;
+    }
+    .satt-qbtn {
+        padding: .35rem .75rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-size: .72rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all .12s ease;
+    }
+    .satt-qbtn:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+    }
+    .satt-qbtn.active {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+    }
+    .satt-active-filter {
+        margin-left: auto;
+        display: none;
+        padding: .25rem .7rem;
+        border-radius: 999px;
+        background: #dbeafe;
+        color: #1e40af;
+        font-weight: 800;
+        font-size: .7rem;
+        letter-spacing: .02em;
+    }
+    .satt-btn {
+        padding: .45rem .9rem;
+        border-radius: .55rem;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text);
+        font-weight: 700;
+        font-size: .78rem;
+        cursor: pointer;
+    }
+    .satt-btn.primary {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+    }
+    .satt-btn.primary:hover { filter: brightness(1.08); }
+    .satt-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .satt-table-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .satt-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: .86rem;
+    }
+    .satt-table thead th {
+        text-align: left;
+        padding: .55rem .85rem;
+        font-size: .68rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: var(--muted);
+        font-weight: 800;
+        border-bottom: 2px solid var(--border);
+        background: var(--surface-alt);
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+    .satt-table tbody td {
+        padding: .55rem .85rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--text);
+        vertical-align: middle;
+    }
+    .satt-table tbody tr:hover { background: var(--surface-alt); }
+    .satt-table .empty-row {
+        text-align: center;
+        color: var(--muted);
+        padding: 1.8rem 1rem;
+        font-style: italic;
+    }
+    .satt-mini-badge {
+        display: inline-block;
+        padding: .12rem .55rem;
+        border-radius: 999px;
+        font-size: .7rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+    .satt-mini-badge.present  { background: #d1fae5; color: #065f46; }
+    .satt-mini-badge.absent   { background: #fee2e2; color: #991b1b; }
+    .satt-mini-badge.late     { background: #fef3c7; color: #92400e; }
+    .satt-mini-badge.half_day { background: #e0e7ff; color: #3730a3; }
+    .satt-mini-badge.excused  { background: #dbeafe; color: #1e40af; }
+    .satt-mini-badge.holiday  { background: #e5e7eb; color: #374151; }
+
+    .satt-pager {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: .7rem 1.4rem;
+        border-top: 1px solid var(--border);
+        background: var(--surface-alt);
+        gap: .5rem;
+    }
+    .satt-pager .info {
+        font-size: .78rem;
+        color: var(--muted);
+        font-weight: 600;
+    }
+
+    /* submodal status group */
+    #sattEditStatus input[type="radio"] { display: none; }
+    #sattEditStatus label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 48px;
+        padding: .45rem .7rem;
+        border-radius: .55rem;
+        font-size: .78rem;
+        font-weight: 800;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--muted);
+        user-select: none;
+    }
+    #sattEditStatus input[value="present"]:checked  + label { background:#10b981; color:#fff; border-color:#10b981; }
+    #sattEditStatus input[value="absent"]:checked   + label { background:#ef4444; color:#fff; border-color:#ef4444; }
+    #sattEditStatus input[value="late"]:checked     + label { background:#f59e0b; color:#fff; border-color:#f59e0b; }
+    #sattEditStatus input[value="half_day"]:checked + label { background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
+    #sattEditStatus input[value="excused"]:checked  + label { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
+</style>
+
+<div class="modal-overlay" id="studentAttModal"
+     style="display:none; z-index: 1000; padding: 1rem;">
+    <div class="modal-box"
+         style="max-width: 980px; width: 100%; padding: 0;
+                max-height: 92vh; display: flex; flex-direction: column;">
+
+        <div style="display:flex; justify-content:space-between;
+                    align-items:center; gap:.6rem;
+                    padding:1rem 1.4rem;
+                    border-bottom:1px solid var(--border);">
+            <div>
+                <h2 style="margin:0; font-size:1.15rem;">
+                    Manage Attendance — {{ student.name }}
+                </h2>
+                <div style="font-size:.78rem; color:var(--muted);
+                            margin-top:.15rem;">
+                    Roll {{ student.roll_number }} &middot;
+                    {{ student|display_class:tenant }}
+                </div>
+            </div>
+            <button type="button" onclick="AXIS_STUDENT_ATT.close()"
+                    style="background:transparent; border:none;
+                           font-size:1.5rem; color:var(--muted);
+                           cursor:pointer; line-height:1;
+                           padding:0 .35rem;"
+                    aria-label="Close">&times;</button>
+        </div>
+
+        <div class="satt-kpi-grid" id="sattKpiGrid">
+            <div class="satt-kpi">
+                <div class="k-label">Present</div>
+                <div class="k-val ok" id="sattKpiPresent">0</div>
+            </div>
+            <div class="satt-kpi">
+                <div class="k-label">Absent</div>
+                <div class="k-val bad" id="sattKpiAbsent">0</div>
+            </div>
+            <div class="satt-kpi">
+                <div class="k-label">Late</div>
+                <div class="k-val warn" id="sattKpiLate">0</div>
+            </div>
+            <div class="satt-kpi">
+                <div class="k-label">Half Day</div>
+                <div class="k-val" id="sattKpiHalfDay">0</div>
+            </div>
+            <div class="satt-kpi">
+                <div class="k-label">Excused</div>
+                <div class="k-val" id="sattKpiExcused">0</div>
+            </div>
+            <div class="satt-kpi">
+                <div class="k-label">Total</div>
+                <div class="k-val" id="sattKpiTotal">0</div>
+            </div>
+            <div class="satt-kpi">
+                <div class="k-label">Attendance</div>
+                <div class="k-val" id="sattKpiPct">0%</div>
+            </div>
+        </div>
+
+        <div class="satt-filter-bar">
+            <label for="sattFilterStart">From</label>
+            <input type="date" id="sattFilterStart">
+            <label for="sattFilterEnd">To</label>
+            <input type="date" id="sattFilterEnd">
+            <label for="sattFilterStatus">Status</label>
+            <select id="sattFilterStatus">
+                <option value="">All</option>
+                <option value="present">Present</option>
+                <option value="absent">Absent</option>
+                <option value="late">Late</option>
+                <option value="half_day">Half Day</option>
+                <option value="excused">Excused</option>
+                <option value="holiday">Holiday</option>
+            </select>
+            <button type="button" class="satt-btn primary"
+                    id="sattApplyBtn">Apply</button>
+            <button type="button" class="satt-btn"
+                    id="sattResetBtn">Reset</button>
+        </div>
+
+        <!-- STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 -->
+        <div class="satt-quick-bar" id="sattQuickBar">
+            <span class="satt-quick-label">Quick range:</span>
+            <button type="button" class="satt-qbtn" data-range="0">Today</button>
+            <button type="button" class="satt-qbtn" data-range="7">Last 7 days</button>
+            <button type="button" class="satt-qbtn" data-range="30">Last 30 days</button>
+            <button type="button" class="satt-qbtn" data-range="90">Last 90 days</button>
+            <button type="button" class="satt-qbtn" data-range="365">Last year</button>
+            <button type="button" class="satt-qbtn active" data-range="all">All time</button>
+            <span class="satt-active-filter" id="sattActiveFilter"></span>
+        </div>
+
+        <div class="satt-table-wrap">
+            <table class="satt-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Slot</th>
+                        <th>Status</th>
+                        <th>Marked By</th>
+                        <th style="text-align:right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="sattTableBody">
+                    <tr><td colspan="6" class="empty-row">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="satt-pager">
+            <span class="info" id="sattPagerInfo">—</span>
+            <div style="display:flex; gap:.4rem;">
+                <button type="button" class="satt-btn" id="sattPrevBtn"
+                        disabled>&lsaquo; Prev</button>
+                <button type="button" class="satt-btn" id="sattNextBtn"
+                        disabled>Next &rsaquo;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="sattEditModal"
+     style="display:none; z-index: 1001; padding: 1rem;">
+    <div class="modal-box" style="max-width: 500px;">
+        <h2 style="margin-top:0; font-size:1.1rem;">Edit Attendance</h2>
+        <div style="font-size:.82rem; color:var(--muted);
+                    margin-bottom:.85rem;">
+            <div id="sattEditDate" style="font-weight:700;
+                                          color:var(--text);"></div>
+            <div id="sattEditSlot"></div>
+        </div>
+
+        <label style="font-size:.72rem; font-weight:800; color:var(--muted);
+                      text-transform:uppercase; letter-spacing:.05em;
+                      display:block; margin-bottom:.35rem;">
+            Status
+        </label>
+        <div id="sattEditStatus"
+             style="display:flex; gap:.35rem; flex-wrap:wrap;
+                    margin-bottom:.85rem;">
+            <input type="radio" name="satt_edit_status"
+                   id="satt_s_present" value="present">
+            <label for="satt_s_present">Present</label>
+
+            <input type="radio" name="satt_edit_status"
+                   id="satt_s_absent" value="absent">
+            <label for="satt_s_absent">Absent</label>
+
+            <input type="radio" name="satt_edit_status"
+                   id="satt_s_late" value="late">
+            <label for="satt_s_late">Late</label>
+
+            <input type="radio" name="satt_edit_status"
+                   id="satt_s_half_day" value="half_day">
+            <label for="satt_s_half_day">Half Day</label>
+
+            <input type="radio" name="satt_edit_status"
+                   id="satt_s_excused" value="excused">
+            <label for="satt_s_excused">Excused</label>
+        </div>
+
+        <label style="font-size:.72rem; font-weight:800; color:var(--muted);
+                      text-transform:uppercase; letter-spacing:.05em;
+                      display:block; margin-bottom:.35rem;">
+            Remarks (optional)
+        </label>
+        <textarea id="sattEditRemarks" rows="2"
+                  style="width:100%; padding:.5rem .7rem;
+                         border-radius:.55rem;
+                         border:1px solid var(--border);
+                         background:var(--surface-alt);
+                         color:var(--text); font-size:.88rem;
+                         margin-bottom:.4rem;"></textarea>
+
+        <div style="display:flex; gap:.5rem; align-items:center;
+                    justify-content:flex-end; margin-top:.85rem;">
+            <span id="sattEditMsg"
+                  style="margin-right:auto; font-size:.82rem;
+                         color:var(--muted);"></span>
+            <button type="button" class="satt-btn"
+                    id="sattEditCancelBtn">Cancel</button>
+            <button type="button" class="satt-btn primary"
+                    id="sattEditSaveBtn">Save</button>
+        </div>
+    </div>
+</div>
+{# ============ /STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 ============ #}
 
 {# ─── SCRIPTS ─── #}
 <script>
@@ -1284,6 +1903,437 @@
         };
 
     })();
+</script>
+
+<script>
+/* ============ STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 ============ */
+window.AXIS_STUDENT_ATT = (function() {
+    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    var STUDENT_ID = {{ student.id }};
+    var PAGE_SIZE = 30;
+
+    var state = {
+        page: 1,
+        num_pages: 1,
+        total: 0,
+        records: [],
+        class_id: 0,
+        start_date: '',
+        end_date: '',
+        status: '',
+    };
+
+    function q(s, r) { return (r || document).querySelector(s); }
+    function qa(s, r) {
+        return Array.prototype.slice.call((r || document).querySelectorAll(s));
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+        });
+    }
+    function csrf() {
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute('content')) return m.getAttribute('content');
+        var name = 'csrftoken=';
+        var parts = (document.cookie || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return c.substring(name.length);
+        }
+        return '';
+    }
+
+    function statusClass(s) {
+        return 'satt-mini-badge ' + (s || 'present');
+    }
+    function statusLabel(s) {
+        var m = {
+            present: 'Present',
+            absent: 'Absent',
+            late: 'Late',
+            half_day: 'Half Day',
+            excused: 'Excused',
+            holiday: 'Holiday'
+        };
+        return m[s] || s;
+    }
+
+    function open() {
+        var modal = q('#studentAttModal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        state.page = 1;
+        load(state.page);
+    }
+    function close() {
+        var modal = q('#studentAttModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function load(page) {
+        state.page = page || 1;
+        var url = '/portal/' + SCHEMA
+                + '/api/attendance/student/' + STUDENT_ID
+                + '/history-paginated/'
+                + '?page=' + state.page
+                + '&page_size=' + PAGE_SIZE;
+        if (state.start_date) {
+            url += '&start_date=' + encodeURIComponent(state.start_date);
+        }
+        if (state.end_date) {
+            url += '&end_date=' + encodeURIComponent(state.end_date);
+        }
+        if (state.status) {
+            url += '&status=' + encodeURIComponent(state.status);
+        }
+
+        q('#sattTableBody').innerHTML =
+            '<tr><td colspan="6" class="empty-row">Loading…</td></tr>';
+        q('#sattPagerInfo').textContent = 'Loading…';
+
+        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    q('#sattTableBody').innerHTML =
+                        '<tr><td colspan="6" class="empty-row">'
+                        + esc(j.error || 'Failed') + '</td></tr>';
+                    q('#sattPagerInfo').textContent = '—';
+                    return;
+                }
+                state.records = j.records || [];
+                state.total = (j.pagination && j.pagination.total) || 0;
+                state.num_pages = (j.pagination && j.pagination.num_pages) || 1;
+                state.class_id = (j.student && j.student.class_id) || 0;
+
+                renderSummary(j.summary || {});
+                renderTable();
+                renderPager();
+            })
+            .catch(function() {
+                q('#sattTableBody').innerHTML =
+                    '<tr><td colspan="6" class="empty-row">'
+                    + 'Network error.</td></tr>';
+                q('#sattPagerInfo').textContent = '—';
+            });
+    }
+
+    function renderSummary(s) {
+        q('#sattKpiPresent').textContent  = s.present  || 0;
+        q('#sattKpiAbsent').textContent   = s.absent   || 0;
+        q('#sattKpiLate').textContent     = s.late     || 0;
+        q('#sattKpiHalfDay').textContent  = s.half_day || 0;
+        q('#sattKpiExcused').textContent  = s.excused  || 0;
+        q('#sattKpiTotal').textContent    = s.total    || 0;
+        q('#sattKpiPct').textContent =
+            (s.attendance_percentage || 0) + '%';
+    }
+
+    function renderTable() {
+        var tbody = q('#sattTableBody');
+        if (!state.records.length) {
+            tbody.innerHTML =
+                '<tr><td colspan="6" class="empty-row">'
+                + 'No attendance records match your filters.</td></tr>';
+            return;
+        }
+        var h = '';
+        state.records.forEach(function(r) {
+            var slot = r.period_order
+                ? 'Period ' + r.period_order
+                : 'Full day';
+            var markedBy = r.marked_by
+                ? esc(r.marked_by)
+                : '<span style="color:var(--muted);">—</span>';
+            h += '<tr>';
+            h +=   '<td>' + esc(r.date) + '</td>';
+            h +=   '<td>' + esc(r.day_name) + '</td>';
+            h +=   '<td>' + esc(slot) + '</td>';
+            h +=   '<td><span class="' + statusClass(r.status) + '">'
+                 + esc(statusLabel(r.status)) + '</span></td>';
+            h +=   '<td>' + markedBy + '</td>';
+            h +=   '<td style="text-align:right;">'
+                 +   '<button type="button" class="satt-btn" '
+                 +     'data-rid="' + r.id + '">Edit</button>'
+                 + '</td>';
+            h += '</tr>';
+        });
+        tbody.innerHTML = h;
+
+        qa('#sattTableBody button[data-rid]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var rid = btn.getAttribute('data-rid');
+                var rec = state.records.filter(function(x) {
+                    return String(x.id) === String(rid);
+                })[0];
+                if (rec) openEdit(rec);
+            });
+        });
+    }
+
+    function renderPager() {
+        q('#sattPagerInfo').textContent =
+            'Page ' + state.page + ' of ' + state.num_pages
+            + ' · ' + state.total + ' record(s)';
+        q('#sattPrevBtn').disabled = state.page <= 1;
+        q('#sattNextBtn').disabled = state.page >= state.num_pages;
+    }
+
+    function applyFilters() {
+        var s  = q('#sattFilterStart').value || '';
+        var e  = q('#sattFilterEnd').value || '';
+        var st = q('#sattFilterStatus').value || '';
+
+        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1: if the admin
+        // picked an inverted range (from > to), silently swap them
+        // instead of returning zero rows.
+        if (s && e && s > e) {
+            var tmp = s; s = e; e = tmp;
+            q('#sattFilterStart').value = s;
+            q('#sattFilterEnd').value   = e;
+        }
+
+        state.start_date = s;
+        state.end_date   = e;
+        state.status     = st;
+        renderActiveFilter();
+        load(1);
+    }
+    function resetFilters() {
+        q('#sattFilterStart').value = '';
+        q('#sattFilterEnd').value = '';
+        q('#sattFilterStatus').value = '';
+        state.start_date = '';
+        state.end_date = '';
+        state.status = '';
+        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — reset the quick
+        // bar so "All time" is the one that looks selected again.
+        qa('.satt-qbtn').forEach(function(x) {
+            x.classList.toggle('active', x.getAttribute('data-range') === 'all');
+        });
+        renderActiveFilter();
+        load(1);
+    }
+
+    // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — quick range helper.
+    function applyQuickRange(days) {
+        var today = new Date();
+        var endIso = today.toISOString().slice(0, 10);
+        if (days === 'all' || days === '' || days === null ||
+            days === undefined) {
+            q('#sattFilterStart').value = '';
+            q('#sattFilterEnd').value = '';
+        } else {
+            var d = new Date(today);
+            d.setDate(d.getDate() - parseInt(days, 10));
+            q('#sattFilterStart').value = d.toISOString().slice(0, 10);
+            q('#sattFilterEnd').value   = endIso;
+        }
+        applyFilters();
+    }
+
+    // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — active filter chip.
+    function renderActiveFilter() {
+        var el = q('#sattActiveFilter');
+        if (!el) return;
+        var parts = [];
+        if (state.start_date) parts.push('from ' + state.start_date);
+        if (state.end_date)   parts.push('to '   + state.end_date);
+        if (state.status)     parts.push('status: ' + state.status);
+        if (!parts.length) {
+            el.textContent = '';
+            el.style.display = 'none';
+        } else {
+            el.textContent = 'Showing ' + parts.join(' · ');
+            el.style.display = 'inline-block';
+        }
+    }
+
+    // ---------------- edit submodal ----------------
+
+    var editingRecord = null;
+
+    function openEdit(rec) {
+        editingRecord = rec;
+        q('#sattEditDate').textContent = rec.date + ' (' + rec.day_name + ')';
+        q('#sattEditSlot').textContent = rec.period_order
+            ? 'Period ' + rec.period_order
+            : 'Full day';
+        q('#sattEditRemarks').value = rec.remarks || '';
+        qa('#sattEditStatus input[type="radio"]').forEach(function(el) {
+            el.checked = (el.value === rec.status);
+        });
+        var msg = q('#sattEditMsg');
+        msg.textContent = '';
+        msg.style.color = 'var(--muted)';
+        msg.style.fontWeight = '400';
+        q('#sattEditModal').style.display = 'flex';
+    }
+    function closeEdit() {
+        q('#sattEditModal').style.display = 'none';
+        editingRecord = null;
+    }
+
+    function saveEdit() {
+        if (!editingRecord) return;
+        var checked = q('#sattEditStatus input[type="radio"]:checked');
+        if (!checked) {
+            var m = q('#sattEditMsg');
+            m.textContent = 'Choose a status first.';
+            m.style.color = '#ef4444';
+            m.style.fontWeight = '700';
+            return;
+        }
+        var status = checked.value;
+        var remarks = q('#sattEditRemarks').value || '';
+
+        var payload = {
+            class_id: state.class_id,
+            date: editingRecord.date,
+            records: [{
+                student_id: STUDENT_ID,
+                status: status,
+                remarks: remarks
+            }]
+        };
+        if (editingRecord.period_order) {
+            payload.period_order = editingRecord.period_order;
+        }
+
+        var m2 = q('#sattEditMsg');
+        m2.textContent = 'Saving…';
+        m2.style.color = 'var(--muted)';
+        m2.style.fontWeight = '400';
+        q('#sattEditSaveBtn').disabled = true;
+
+        fetch('/portal/' + SCHEMA + '/api/attendance/mark/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(payload)
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                q('#sattEditSaveBtn').disabled = false;
+                if (!j.ok) {
+                    m2.textContent = j.error || 'Save failed.';
+                    m2.style.color = '#ef4444';
+                    m2.style.fontWeight = '700';
+                    return;
+                }
+                m2.textContent = 'Saved.';
+                m2.style.color = '#10b981';
+                m2.style.fontWeight = '700';
+                setTimeout(function() {
+                    closeEdit();
+                    load(state.page);
+                }, 500);
+            })
+            .catch(function() {
+                q('#sattEditSaveBtn').disabled = false;
+                m2.textContent = 'Network error.';
+                m2.style.color = '#ef4444';
+                m2.style.fontWeight = '700';
+            });
+    }
+
+    // ---------------- wire up ----------------
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var pb = q('#sattPrevBtn');
+        if (pb) pb.addEventListener('click', function() {
+            if (state.page > 1) load(state.page - 1);
+        });
+        var nb = q('#sattNextBtn');
+        if (nb) nb.addEventListener('click', function() {
+            if (state.page < state.num_pages) load(state.page + 1);
+        });
+        var af = q('#sattApplyBtn');
+        if (af) af.addEventListener('click', applyFilters);
+        var rf = q('#sattResetBtn');
+        if (rf) rf.addEventListener('click', resetFilters);
+
+        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — quick range
+        // buttons.  Clicking one sets From/To and immediately
+        // re-fetches the first page.
+        qa('.satt-qbtn').forEach(function(b) {
+            b.addEventListener('click', function() {
+                qa('.satt-qbtn').forEach(function(x) {
+                    x.classList.remove('active');
+                });
+                b.classList.add('active');
+                var r = b.getAttribute('data-range');
+                applyQuickRange(r === 'all' ? null : r);
+            });
+        });
+
+        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — auto-apply on
+        // date / status change with a 600 ms debounce, so the admin
+        // does not have to click Apply after every edit.
+        var autoApplyTimer = null;
+        function scheduleAutoApply() {
+            if (autoApplyTimer) clearTimeout(autoApplyTimer);
+            autoApplyTimer = setTimeout(applyFilters, 600);
+        }
+        var startEl = q('#sattFilterStart');
+        if (startEl) startEl.addEventListener('change', scheduleAutoApply);
+        var endEl = q('#sattFilterEnd');
+        if (endEl) endEl.addEventListener('change', scheduleAutoApply);
+        var statusEl = q('#sattFilterStatus');
+        if (statusEl) statusEl.addEventListener('change', scheduleAutoApply);
+
+        var sv = q('#sattEditSaveBtn');
+        if (sv) sv.addEventListener('click', saveEdit);
+        var cn = q('#sattEditCancelBtn');
+        if (cn) cn.addEventListener('click', closeEdit);
+
+        var mainModal = q('#studentAttModal');
+        if (mainModal) mainModal.addEventListener('click', function(e) {
+            if (e.target === mainModal) close();
+        });
+        var editModal = q('#sattEditModal');
+        if (editModal) editModal.addEventListener('click', function(e) {
+            if (e.target === editModal) closeEdit();
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1:
+                // Never hijack Escape while the user is inside an
+                // input / select / textarea.  Pressing Escape there
+                // is the standard way to dismiss a native date picker
+                // or clear a text field.  Previously the global
+                // handler also closed the whole attendance modal, so
+                // picking a date and pressing Escape wiped every
+                // From/To value the admin had just typed.
+                var target = e.target || document.activeElement || {};
+                var tag = String(target.tagName || '').toLowerCase();
+                if (tag === 'input' || tag === 'textarea' ||
+                    tag === 'select') {
+                    return;
+                }
+                var em = q('#sattEditModal');
+                if (em && em.style.display === 'flex') {
+                    closeEdit();
+                } else {
+                    close();
+                }
+            }
+        });
+    });
+
+    return {
+        open: open,
+        close: close,
+        load: load,
+        applyFilters: applyFilters,
+        resetFilters: resetFilters
+    };
+})();
 </script>
 
 {% endblock %}

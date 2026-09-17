@@ -2682,3 +2682,576 @@ class FullLifecycleIntegrationTests(AttendanceTestBase):
         )
         self.assertTrue(r.json()["ok"])
         self.assertEqual(r.json()["summary"]["absent"], 5)
+
+
+# =====================================================================
+# STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 — new test coverage
+# ---------------------------------------------------------------------
+# Covers the paginated single-student history endpoint and the exact
+# flow the student-profile modal performs (fetch → edit → save →
+# audit log).  This closes the loop between the admin attendance
+# backend and the profile-page UI.
+# =====================================================================
+
+
+class AdminStudentHistoryPaginatedAPITests(AttendanceTestBase):
+    """`admin_attendance_student_history_paginated_api`."""
+
+    def _make_history(self, student, count, status_cycle=None):
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            for i in range(count):
+                status = 'present'
+                if status_cycle:
+                    status = status_cycle[i % len(status_cycle)]
+                StudentAttendance.objects.create(
+                    student=student,
+                    school_class=self.class_obj,
+                    date=today - timedelta(days=i),
+                    period_order=None,
+                    status=status,
+                    source='admin',
+                )
+
+    def test_returns_paginated_history(self):
+        self._make_history(self.students[0], 25)
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/?page=1&page_size=10'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['ok'])
+        self.assertEqual(len(body['records']), 10)
+        self.assertEqual(body['pagination']['page'], 1)
+        self.assertEqual(body['pagination']['page_size'], 10)
+        self.assertEqual(body['pagination']['total'], 25)
+        self.assertEqual(body['pagination']['num_pages'], 3)
+        self.assertEqual(body['student']['id'], self.students[0].id)
+        self.assertEqual(body['summary']['present'], 25)
+        self.assertEqual(body['summary']['total'], 25)
+
+    def test_pagination_returns_next_slice(self):
+        self._make_history(self.students[0], 25)
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/?page=2&page_size=10'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        body = response.json()
+        self.assertEqual(body['pagination']['page'], 2)
+        self.assertEqual(len(body['records']), 10)
+
+    def test_last_page_has_remainder(self):
+        self._make_history(self.students[0], 25)
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/?page=3&page_size=10'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        body = response.json()
+        self.assertEqual(body['pagination']['page'], 3)
+        self.assertEqual(len(body['records']), 5)
+
+    def test_filter_by_status(self):
+        self._make_history(
+            self.students[0], 10,
+            status_cycle=['present', 'absent'],
+        )
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/?status=absent'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        body = response.json()
+        self.assertEqual(body['pagination']['total'], 5)
+        for rec in body['records']:
+            self.assertEqual(rec['status'], 'absent')
+
+    def test_filter_by_date_range(self):
+        self._make_history(self.students[0], 10)
+        today = timezone.localdate()
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/'
+                f'?start_date={(today - timedelta(days=4)).isoformat()}'
+                f'&end_date={today.isoformat()}'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        body = response.json()
+        self.assertEqual(body['pagination']['total'], 5)
+
+    def test_summary_uses_full_history_not_current_page(self):
+        # 15 rows total, 5 per page — summary must reflect all 15.
+        self._make_history(
+            self.students[0], 15,
+            status_cycle=['present'] * 12 + ['absent'] * 3,
+        )
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/?page=1&page_size=5'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        body = response.json()
+        self.assertEqual(len(body['records']), 5)
+        self.assertEqual(body['summary']['present'], 12)
+        self.assertEqual(body['summary']['absent'], 3)
+        self.assertEqual(body['summary']['total'], 15)
+        # (12 present + 0 late) / 15 = 80%
+        self.assertEqual(body['summary']['attendance_percentage'], 80.0)
+
+    def test_unknown_student_404(self):
+        response = self.client.get(
+            self.url(
+                'api/attendance/student/99999/history-paginated/'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_markable_statuses_excludes_holiday(self):
+        """The edit dropdown must never offer 'holiday' — that
+        would let one stray click flip the whole day (see
+        ATTENDANCE_SYSTEM_BUGFIX_V1 BUG-4/BUG-8)."""
+        self._make_history(self.students[0], 1)
+        response = self.client.get(
+            self.url(
+                f'api/attendance/student/{self.students[0].id}'
+                f'/history-paginated/'
+            ),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        body = response.json()
+        values = [s['value'] for s in body['markable_statuses']]
+        self.assertNotIn('holiday', values)
+        self.assertIn('present', values)
+        self.assertIn('absent', values)
+        self.assertIn('late', values)
+        self.assertIn('half_day', values)
+        self.assertIn('excused', values)
+
+
+class AdminSingleStudentEditFlowTests(AttendanceTestBase):
+    """End-to-end flow the profile modal performs: fetch history,
+    edit one row, save via mark API, audit logged."""
+
+    def test_edit_existing_row_changes_status(self):
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            StudentAttendance.objects.create(
+                student=self.students[0],
+                school_class=self.class_obj,
+                date=today, period_order=None,
+                status='present', source='admin',
+            )
+        response = self.client.post(
+            self.url('api/attendance/mark/'),
+            data=json.dumps({
+                'class_id': self.class_obj.id,
+                'date': today.isoformat(),
+                'records': [{
+                    'student_id': self.students[0].id,
+                    'status': 'absent',
+                }],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        with schema_context(self.schema):
+            row = StudentAttendance.objects.get(
+                student=self.students[0], date=today,
+                period_order=None,
+            )
+            self.assertEqual(row.status, 'absent')
+
+    def test_edit_creates_row_when_missing(self):
+        """Editing a date with no existing mark must create the
+        row (the modal lets the admin add attendance for any
+        non-holiday past date that was never marked)."""
+        yesterday = timezone.localdate() - timedelta(days=1)
+        response = self.client.post(
+            self.url('api/attendance/mark/'),
+            data=json.dumps({
+                'class_id': self.class_obj.id,
+                'date': yesterday.isoformat(),
+                'records': [{
+                    'student_id': self.students[0].id,
+                    'status': 'excused',
+                }],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        with schema_context(self.schema):
+            row = StudentAttendance.objects.get(
+                student=self.students[0], date=yesterday,
+                period_order=None,
+            )
+            self.assertEqual(row.status, 'excused')
+            self.assertEqual(row.source, 'admin')
+
+    def test_edit_writes_audit_log(self):
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            StudentAttendance.objects.create(
+                student=self.students[0],
+                school_class=self.class_obj,
+                date=today, period_order=None,
+                status='present', source='admin',
+            )
+        self.client.post(
+            self.url('api/attendance/mark/'),
+            data=json.dumps({
+                'class_id': self.class_obj.id,
+                'date': today.isoformat(),
+                'records': [{
+                    'student_id': self.students[0].id,
+                    'status': 'late',
+                }],
+            }),
+            content_type='application/json',
+        )
+        with schema_context(self.schema):
+            log = (
+                AttendanceAuditLog.objects
+                .filter(
+                    student_id_snapshot=self.students[0].id,
+                    date_snapshot=today,
+                    action='update',
+                )
+                .order_by('-changed_at')
+                .first()
+            )
+        self.assertIsNotNone(log)
+        self.assertEqual(log.old_status, 'present')
+        self.assertEqual(log.new_status, 'late')
+
+    def test_edit_rejects_holiday_status(self):
+        """Per-student mark must fall back to a sane status when the
+        client sends 'holiday' (BUG-4 / BUG-8)."""
+        today = timezone.localdate()
+        self.client.post(
+            self.url('api/attendance/mark/'),
+            data=json.dumps({
+                'class_id': self.class_obj.id,
+                'date': today.isoformat(),
+                'records': [{
+                    'student_id': self.students[0].id,
+                    'status': 'holiday',
+                }],
+            }),
+            content_type='application/json',
+        )
+        with schema_context(self.schema):
+            row = StudentAttendance.objects.get(
+                student=self.students[0], date=today,
+                period_order=None,
+            )
+        self.assertNotEqual(row.status, 'holiday')
+        self.assertEqual(row.status, 'present')
+
+    def test_edit_respects_future_date_gate(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        response = self.client.post(
+            self.url('api/attendance/mark/'),
+            data=json.dumps({
+                'class_id': self.class_obj.id,
+                'date': tomorrow.isoformat(),
+                'records': [{
+                    'student_id': self.students[0].id,
+                    'status': 'present',
+                }],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_edit_does_not_leak_to_other_students(self):
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            for s in self.students:
+                StudentAttendance.objects.create(
+                    student=s,
+                    school_class=self.class_obj,
+                    date=today, period_order=None,
+                    status='present', source='admin',
+                )
+        # Edit only student[0]
+        self.client.post(
+            self.url('api/attendance/mark/'),
+            data=json.dumps({
+                'class_id': self.class_obj.id,
+                'date': today.isoformat(),
+                'records': [{
+                    'student_id': self.students[0].id,
+                    'status': 'absent',
+                }],
+            }),
+            content_type='application/json',
+        )
+        with schema_context(self.schema):
+            s0 = StudentAttendance.objects.get(
+                student=self.students[0], date=today, period_order=None,
+            )
+            s1 = StudentAttendance.objects.get(
+                student=self.students[1], date=today, period_order=None,
+            )
+        self.assertEqual(s0.status, 'absent')
+        self.assertEqual(s1.status, 'present')
+
+
+# =====================================================================
+# ATTENDANCE_LOGS_ANY_DATE_V1 — the audit-log viewer is now reachable
+# from the Mark Attendance tab (not just the Auto-Marked tab).  These
+# tests prove the daily-logs endpoint serves ANY (class, date) — today,
+# a manually-marked past date, a teacher-marked date — and includes
+# both manual and auto rows in the same response.
+# =====================================================================
+
+
+class AdminDailyLogsAnyDateTests(AttendanceTestBase):
+    """`admin_attendance_daily_logs_api` — full audit trail for
+    any date, not just auto-marked dates."""
+
+    def test_logs_for_today_manual_marks(self):
+        """Marking today (admin action) must produce a create-log
+        per student, visible via the daily-logs endpoint."""
+        today = timezone.localdate()
+        records = [
+            {"student_id": s.id, "status": "present"}
+            for s in self.students
+        ]
+        self.client.post(
+            self.url("api/attendance/mark/"),
+            data=json.dumps({
+                "class_id": self.class_obj.id,
+                "date": today.isoformat(),
+                "records": records,
+            }),
+            content_type="application/json",
+        )
+        response = self.client.get(
+            self.url(
+                f"api/attendance/daily-logs/"
+                f"?class_id={self.class_obj.id}"
+                f"&date={today.isoformat()}"
+            ),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["logs"]), 5)
+        for log in body["logs"]:
+            self.assertEqual(log["action"], "create")
+            self.assertEqual(log["new_status"], "present")
+
+    def test_logs_for_past_date_show_create_and_update(self):
+        """A past date marked then edited must show BOTH rows."""
+        yesterday = timezone.localdate() - timedelta(days=1)
+        # First pass: create.
+        self.client.post(
+            self.url("api/attendance/mark/"),
+            data=json.dumps({
+                "class_id": self.class_obj.id,
+                "date": yesterday.isoformat(),
+                "records": [{
+                    "student_id": self.students[0].id,
+                    "status": "present",
+                }],
+            }),
+            content_type="application/json",
+        )
+        # Second pass: update the same student.
+        self.client.post(
+            self.url("api/attendance/mark/"),
+            data=json.dumps({
+                "class_id": self.class_obj.id,
+                "date": yesterday.isoformat(),
+                "records": [{
+                    "student_id": self.students[0].id,
+                    "status": "absent",
+                }],
+            }),
+            content_type="application/json",
+        )
+        response = self.client.get(
+            self.url(
+                f"api/attendance/daily-logs/"
+                f"?class_id={self.class_obj.id}"
+                f"&date={yesterday.isoformat()}"
+            ),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        actions = [l["action"] for l in body["logs"]]
+        self.assertIn("create", actions)
+        self.assertIn("update", actions)
+        update_log = next(
+            l for l in body["logs"] if l["action"] == "update"
+        )
+        self.assertEqual(update_log["old_status"], "present")
+        self.assertEqual(update_log["new_status"], "absent")
+
+    def test_logs_include_manual_and_auto_rows_together(self):
+        """Unlike the auto-marked-dates endpoint (which filters to
+        source='auto_system'), the daily-logs endpoint must return
+        manual / admin / auto rows side by side."""
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            # Manual (teacher-style) row + audit
+            manual_row = StudentAttendance.objects.create(
+                student=self.students[0],
+                school_class=self.class_obj,
+                date=today, period_order=None,
+                status="present", source="teacher",
+            )
+            AttendanceAuditLog.objects.create(
+                attendance=manual_row,
+                student_id_snapshot=manual_row.student_id,
+                date_snapshot=manual_row.date,
+                action="create", new_status="present",
+                changed_by_name="Ayesha Khan",
+                reason="teacher:Ayesha Khan",
+            )
+            # Auto-mark row + audit
+            auto_row = StudentAttendance.objects.create(
+                student=self.students[1],
+                school_class=self.class_obj,
+                date=today, period_order=None,
+                status="present", source="auto_system",
+            )
+            AttendanceAuditLog.objects.create(
+                attendance=auto_row,
+                student_id_snapshot=auto_row.student_id,
+                date_snapshot=auto_row.date,
+                action="create", new_status="present",
+                changed_by_name="system:auto",
+                reason="auto_system",
+            )
+        response = self.client.get(
+            self.url(
+                f"api/attendance/daily-logs/"
+                f"?class_id={self.class_obj.id}"
+                f"&date={today.isoformat()}"
+            ),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        self.assertEqual(len(body["logs"]), 2)
+        student_ids = {l["student_id"] for l in body["logs"]}
+        self.assertIn(self.students[0].id, student_ids)
+        self.assertIn(self.students[1].id, student_ids)
+
+    def test_logs_for_untouched_date_returns_empty(self):
+        """A date with no marks must return an empty (but valid)
+        response — the viewer shows its own 'no logs' message."""
+        yesterday = timezone.localdate() - timedelta(days=1)
+        response = self.client.get(
+            self.url(
+                f"api/attendance/daily-logs/"
+                f"?class_id={self.class_obj.id}"
+                f"&date={yesterday.isoformat()}"
+            ),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["logs"], [])
+        self.assertEqual(body["quota"]["teacher_edit_count"], 0)
+        self.assertEqual(body["quota"]["max_edits_per_date"], 0)
+
+    def test_logs_filtered_by_period_when_supplied(self):
+        """When period_order is present in the query string, only
+        that period's logs are returned."""
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            # Period 1 row + audit
+            p1 = StudentAttendance.objects.create(
+                student=self.students[0],
+                school_class=self.class_obj,
+                date=today, period_order=1,
+                status="present", source="teacher",
+            )
+            AttendanceAuditLog.objects.create(
+                attendance=p1,
+                student_id_snapshot=p1.student_id,
+                date_snapshot=p1.date,
+                period_snapshot=1,
+                action="create", new_status="present",
+            )
+            # Period 2 row + audit
+            p2 = StudentAttendance.objects.create(
+                student=self.students[1],
+                school_class=self.class_obj,
+                date=today, period_order=2,
+                status="absent", source="teacher",
+            )
+            AttendanceAuditLog.objects.create(
+                attendance=p2,
+                student_id_snapshot=p2.student_id,
+                date_snapshot=p2.date,
+                period_snapshot=2,
+                action="create", new_status="absent",
+            )
+        response = self.client.get(
+            self.url(
+                f"api/attendance/daily-logs/"
+                f"?class_id={self.class_obj.id}"
+                f"&date={today.isoformat()}"
+                f"&period_order=1"
+            ),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        self.assertEqual(len(body["logs"]), 1)
+        self.assertEqual(body["logs"][0]["period_order"], 1)
+        self.assertEqual(body["logs"][0]["student_id"],
+                         self.students[0].id)
+
+    def test_logs_carry_student_names_map(self):
+        """`student_names` allows the viewer to render names without
+        a second round-trip."""
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            row = StudentAttendance.objects.create(
+                student=self.students[0],
+                school_class=self.class_obj,
+                date=today, period_order=None,
+                status="present", source="admin",
+            )
+            AttendanceAuditLog.objects.create(
+                attendance=row,
+                student_id_snapshot=row.student_id,
+                date_snapshot=row.date,
+                action="create", new_status="present",
+            )
+        response = self.client.get(
+            self.url(
+                f"api/attendance/daily-logs/"
+                f"?class_id={self.class_obj.id}"
+                f"&date={today.isoformat()}"
+            ),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        # json.dumps() converts integer dict keys to strings.
+        self.assertIn(str(self.students[0].id), body["student_names"])
+        self.assertEqual(
+            body["student_names"][str(self.students[0].id)],
+            self.students[0].name,
+        )
