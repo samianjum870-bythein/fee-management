@@ -1,43 +1,44 @@
 #!/usr/bin/env python3
 """
-axis_patcher.py — ATTENDANCE_SYSTEM_BUGFIX_V2
-================================================
+axis_patcher.py — ATTENDANCE_PERMS_UNIVERSAL_V1
+=================================================
 
-Fixes every failure / error reported by the previous test run:
+Adds a "Universal Class Teacher Permissions" block to the top of the
+existing Class Teacher Permissions modal, so the admin can set the
+same default attendance authority for EVERY class in one click, while
+still being able to override individual classes below.
 
-  🐞  ERROR #A   StaffMarkAPITests.test_invalid_json_400
-                 AttributeError: 'str' object has no attribute 'items'
-                 The test helper `_staff_request` did not accept a raw
-                 string/bytes body, so `factory.post(path, "not-json")`
-                 tried to multipart-encode a str.
+What this patcher does
+----------------------
+1.  Adds a new bulk-save endpoint to `axis_saas/views/admin_attendence.py`:
 
-  🐞  FAIL  #B   AdminDailyLogsAPITests.test_returns_logs_for_class_and_date
-                 JSON serialises integer dict keys as strings, so
-                 `body["student_names"]` contains "1", not 1.
+        POST /portal/<schema>/api/attendance/class-teacher-permissions/bulk-save/
 
-  🐞  FAIL  #C   HolidayDetectionAdminTests.test_historical_evidence_marks_holiday
-                 The historical-evidence check was intentionally removed
-                 by ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-4).  The test still
-                 asserted the old behaviour.
+    Body:
+        {
+          "backdate_access":     "none" | "read" | "read_write",
+          "max_edits_per_date":  int,
+          "view_history_days":   int,
+          "edit_history_days":   int
+        }
 
-  🐞  FAIL  #D   MultiTenantIsolationTests.test_admin_cannot_see_other_schema_students
-                 Class IDs are per-schema and both schemas start at 1,
-                 so `other_class.id == 1` matched the primary tenant's
-                 own class id=1 and the API returned 200.  The test must
-                 use an ID that cannot exist in the primary schema.
+    It applies the same permission row to every active class that has
+    an assigned class teacher, and creates the row when one does not
+    exist yet.  Returns {ok, updated, classes: [...ids]}.
 
-  🐞  FAIL  #E   StaffDashboardViewTests.test_class_teacher_sees_class_section
-                 The rendered HTML contains the substituted JSON
-                 (var CT_CLASSES = [...]), not the template variable
-                 name `class_teacher_classes_json`.
+2.  Registers the URL route in `axis_saas/public_urls.py`.
 
-  🐞  FAIL  #F   StaffStudentsAPITests.test_locked_flag_when_marked
-                 Today is always editable for the class teacher, so
-                 `locked` is correctly False for today.  The test must
-                 use a PAST date whose quota is exhausted to exercise
-                 the lock.
+3.  Enhances `templates/tenant/attendence.html`:
 
-Everything is idempotent — re-running the patcher is safe.
+        * Inserts a "Universal / Default Settings" card ABOVE the
+          per-class table inside the existing `attPermModal`.
+        * The card has the four fields + an
+          "Apply to All Classes" primary button + a
+          "Copy from an existing class" quick-fill (dropdown).
+        * The card is collapsible so the admin can still jump straight
+          to the per-class overrides.
+
+Idempotent. Safe to re-run. Never deletes or overwrites unrelated code.
 
 Usage
 -----
@@ -53,7 +54,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-MARKER = "ATTENDANCE_SYSTEM_BUGFIX_V2"
+MARKER = "ATTENDANCE_PERMS_UNIVERSAL_V1"
 
 
 # ------------------------------------------------------------------ utils
@@ -86,376 +87,539 @@ def write_file(path, content, dry_run=False, label=""):
         return False
 
 
-def replace_once(content, pattern, replacement, label=""):
-    """Return (new_content, n_matches). Replaces all matches by default
-    when `pattern` is a plain string; for regex use `count=1`."""
-    if isinstance(pattern, str):
-        n = content.count(pattern)
-        if n:
-            content = content.replace(pattern, replacement)
-        return content, n
-    else:
-        new, n = pattern.subn(replacement, content, count=1)
-        return new, n
+def replace_once(content, old, new, label=""):
+    """Replace the first occurrence of `old`. Returns (new_content, ok)."""
+    if old not in content:
+        return content, False
+    return content.replace(old, new, 1), True
 
 
 # =====================================================================
-# The one file we touch
+# 1. admin_attendence.py — add bulk-save endpoint
 # =====================================================================
 
-def patch_test_suite(root, args):
-    path = (root / "axis_saas" / "tests"
-            / "test_attendance_system.py")
+BULK_SAVE_VIEW = '''
+
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_class_teacher_permissions_bulk_save_api(
+    request, schema_name,
+):
+    """ATTENDANCE_PERMS_UNIVERSAL_V1
+
+    Apply the same attendance permission settings to EVERY active
+    class that has an assigned class teacher, in one shot.
+
+    Body:
+        {
+          "backdate_access":    "none" | "read" | "read_write",
+          "max_edits_per_date": int,
+          "view_history_days":  int,
+          "edit_history_days":  int
+        }
+
+    Returns:
+        {
+          "ok": True,
+          "updated":  N,
+          "classes":  [class_id, class_id, ...]
+        }
+
+    Individual per-class overrides are still possible through the
+    existing `/save/` endpoint; this endpoint only writes the universal
+    default that the admin chooses.
+    """
+    from ..models import ClassTeacherAttendancePermission
+
+    try:
+        body = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+
+    def _int(key, default, lo=0, hi=None):
+        try:
+            v = int(body.get(key, default))
+        except (TypeError, ValueError):
+            v = default
+        v = max(lo, v)
+        if hi is not None:
+            v = min(hi, v)
+        return v
+
+    backdate_access = (body.get('backdate_access') or 'none').strip()
+    if backdate_access not in ('none', 'read', 'read_write'):
+        backdate_access = 'none'
+
+    admin_name = request.session.get('school_admin_username', 'admin')
+
+    with schema_context(schema_name):
+        with transaction.atomic():
+            classes = list(
+                SchoolClass.objects
+                .filter(is_active=True, class_teacher__isnull=False)
+                .only('id')
+            )
+            updated_ids = []
+            for cls in classes:
+                p = ClassTeacherAttendancePermission.for_class(cls)
+                p.backdate_access = backdate_access
+                p.max_edits_per_date = _int(
+                    'max_edits_per_date', p.max_edits_per_date, 0, 50,
+                )
+                p.view_history_days = _int(
+                    'view_history_days', p.view_history_days, 0, 730,
+                )
+                p.edit_history_days = _int(
+                    'edit_history_days', p.edit_history_days, 0, 730,
+                )
+                p.updated_by = admin_name
+                p.save()
+                updated_ids.append(cls.id)
+
+    return JsonResponse({
+        'ok': True,
+        'updated': len(updated_ids),
+        'classes': updated_ids,
+        'backdate_access': backdate_access,
+    })
+'''
+
+
+def patch_admin_attendance(root, args):
+    path = root / "axis_saas" / "views" / "admin_attendence.py"
     content = read_file(path)
     if content is None:
-        log(f"  FATAL: test file not found at {path}")
         return False
 
-    changes = []
-
-    # ---------------------------------------------------------------
-    # FIX #A — _staff_request must accept str / bytes bodies so the
-    #          "invalid JSON" test can actually send malformed JSON.
-    # ---------------------------------------------------------------
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#A raw body)" not in content:
-        old_helper = (
-            "        else:\n"
-            "            if is_json:\n"
-            "                request = factory.post(\n"
-            "                    path,\n"
-            "                    data=json.dumps(data or {}),\n"
-            "                    content_type=\"application/json\",\n"
-            "                )\n"
-            "            else:\n"
-            "                request = factory.post(path, data or {})"
-        )
-        new_helper = (
-            "        else:\n"
-            "            if is_json:\n"
-            "                request = factory.post(\n"
-            "                    path,\n"
-            "                    data=json.dumps(data or {}),\n"
-            "                    content_type=\"application/json\",\n"
-            "                )\n"
-            "            elif isinstance(data, (str, bytes)):\n"
-            "                # ATTENDANCE_SYSTEM_BUGFIX_V2 (#A raw body):\n"
-            "                # allow tests to send a deliberately malformed\n"
-            "                # JSON body.  Passing a str to factory.post()\n"
-            "                # without content_type made Django try to\n"
-            "                # multipart-encode it and blow up with\n"
-            "                # \"'str' object has no attribute 'items'\".\n"
-            "                request = factory.post(\n"
-            "                    path,\n"
-            "                    data=data,\n"
-            "                    content_type=\"application/json\",\n"
-            "                )\n"
-            "            else:\n"
-            "                request = factory.post(path, data or {})"
-        )
-        if old_helper in content:
-            content = content.replace(old_helper, new_helper, 1)
-            changes.append("#A _staff_request accepts raw bodies")
-        else:
-            log(f"  WARN: #A _staff_request else-branch not matched")
-    else:
-        log(f"  SKIP (already applied): #A _staff_request raw body")
-
-    # ---------------------------------------------------------------
-    # FIX #A (test) — test_invalid_json_400 must call the helper
-    #                 correctly (no more data="not-json", is_json=False
-    #                 followed by manual request._body mutation).
-    # ---------------------------------------------------------------
-    old_invalid_json_test = (
-        "    def test_invalid_json_400(self):\n"
-        "        request = self._staff_request(\n"
-        "            self.class_teacher, method=\"POST\",\n"
-        "            path=\"/mark/\",\n"
-        "            data=\"not-json\", is_json=False,\n"
-        "        )\n"
-        "        request._body = b\"not-json\"\n"
-        "        response = staff_att.staff_attendance_mark_api(request)\n"
-        "        self.assertEqual(response.status_code, 400)"
-    )
-    new_invalid_json_test = (
-        "    def test_invalid_json_400(self):\n"
-        "        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#A): pass the malformed\n"
-        "        # JSON body as a raw str.  The helper's str/bytes branch\n"
-        "        # sends it with content_type=application/json so the view\n"
-        "        # receives it verbatim and its json.loads() call fails.\n"
-        "        request = self._staff_request(\n"
-        "            self.class_teacher, method=\"POST\",\n"
-        "            path=\"/mark/\",\n"
-        "            data=\"not-json\",\n"
-        "        )\n"
-        "        response = staff_att.staff_attendance_mark_api(request)\n"
-        "        self.assertEqual(response.status_code, 400)"
-    )
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#A)" in content:
-        log(f"  SKIP (already applied): #A test_invalid_json_400")
-    elif old_invalid_json_test in content:
-        content = content.replace(old_invalid_json_test,
-                                  new_invalid_json_test, 1)
-        changes.append("#A test_invalid_json_400 rewritten")
-    else:
-        log(f"  WARN: #A test_invalid_json_400 body not matched")
-
-    # ---------------------------------------------------------------
-    # FIX #B — string keys in student_names.
-    # ---------------------------------------------------------------
-    old_b = (
-        "        self.assertIn(self.students[0].id, body[\"student_names\"])"
-    )
-    new_b = (
-        "        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#B): json.dumps() converts\n"
-        "        # integer dictionary keys to strings, so the parsed body\n"
-        "        # contains \"1\", not 1.\n"
-        "        self.assertIn(str(self.students[0].id),\n"
-        "                      body[\"student_names\"])"
-    )
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#B)" in content:
-        log(f"  SKIP (already applied): #B student_names key")
-    elif old_b in content:
-        content = content.replace(old_b, new_b, 1)
-        changes.append("#B student_names string key")
-    else:
-        log(f"  WARN: #B student_names assertion not matched")
-
-    # ---------------------------------------------------------------
-    # FIX #C — historical-evidence test now asserts False, because
-    #          the historical check was intentionally removed.
-    # ---------------------------------------------------------------
-    old_c = (
-        "    def test_historical_evidence_marks_holiday(self):\n"
-        "        \"\"\"A past date with a holiday status row is a holiday.\"\"\"\n"
-        "        with schema_context(self.schema):\n"
-        "            # Create one row with status='holiday'.\n"
-        "            StudentAttendance.objects.create(\n"
-        "                student=self.students[0],\n"
-        "                school_class=self.class_obj,\n"
-        "                date=date(2020, 1, 1),\n"
-        "                period_order=None,\n"
-        "                status=\"holiday\",\n"
-        "                source=\"admin\",\n"
-        "            )\n"
-        "            is_hol, _ = admin_att._is_holiday(date(2020, 1, 1))\n"
-        "        self.assertTrue(is_hol)"
-    )
-    new_c = (
-        "    def test_historical_evidence_does_not_flip_whole_day(self):\n"
-        "        # ATTENDANCE_SYSTEM_BUGFIX_V1 (BUG-4) intentionally removed\n"
-        "        # the \"any row with status='holiday' means the whole day is\n"
-        "        # a holiday\" check.  ATTENDANCE_SYSTEM_BUGFIX_V2 (#C)\n"
-        "        # updates the test to match the new (correct) behaviour:\n"
-        "        # a single stray row must NOT flip the entire day.\n"
-        "        with schema_context(self.schema):\n"
-        "            StudentAttendance.objects.create(\n"
-        "                student=self.students[0],\n"
-        "                school_class=self.class_obj,\n"
-        "                date=date(2020, 1, 1),\n"
-        "                period_order=None,\n"
-        "                status=\"holiday\",\n"
-        "                source=\"admin\",\n"
-        "            )\n"
-        "            is_hol, _ = admin_att._is_holiday(date(2020, 1, 1))\n"
-        "        self.assertFalse(is_hol)"
-    )
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#C)" in content:
-        log(f"  SKIP (already applied): #C historical-evidence test")
-    elif old_c in content:
-        content = content.replace(old_c, new_c, 1)
-        changes.append("#C historical-evidence test updated")
-    else:
-        log(f"  WARN: #C historical-evidence test body not matched")
-
-    # ---------------------------------------------------------------
-    # FIX #D — multi-tenant isolation test must use a class ID that
-    #          cannot exist in the primary tenant's schema.
-    # ---------------------------------------------------------------
-    old_d = (
-        "        connection.set_schema_to_public()\n"
-        "        try:\n"
-        "            with schema_context(\"attendance-other\"):\n"
-        "                other_class = SchoolClass.objects.create(\n"
-        "                    name=\"Other-Grade\", section=\"Z\",\n"
-        "                )\n"
-        "            # Admin of the main tenant tries to fetch the other class.\n"
-        "            today = timezone.localdate()\n"
-        "            response = self.client.get(\n"
-        "                self.url(\n"
-        "                    f\"api/attendance/students/?class_id={other_class.id}\"\n"
-        "                    f\"&date={today.isoformat()}\"\n"
-        "                ),\n"
-        "                HTTP_X_REQUESTED_WITH=\"XMLHttpRequest\",\n"
-        "            )\n"
-        "            self.assertEqual(response.status_code, 404)"
-    )
-    new_d = (
-        "        connection.set_schema_to_public()\n"
-        "        try:\n"
-        "            with schema_context(\"attendance-other\"):\n"
-        "                # ATTENDANCE_SYSTEM_BUGFIX_V2 (#D): PostgreSQL\n"
-        "                # sequences are per-schema, so the very first\n"
-        "                # class created in a fresh schema also has id=1\n"
-        "                # — identical to the primary tenant's class_obj.\n"
-        "                # That made the previous assertion return 200\n"
-        "                # (the primary tenant's own class), not a leak.\n"
-        "                # Pad the other schema with dummy classes so\n"
-        "                # other_class.id cannot collide with any class\n"
-        "                # id in the primary tenant.\n"
-        "                for _i in range(20):\n"
-        "                    SchoolClass.objects.create(\n"
-        "                        name=f\"Dummy-{_i}\", section=\"X\",\n"
-        "                    )\n"
-        "                other_class = SchoolClass.objects.create(\n"
-        "                    name=\"Other-Grade\", section=\"Z\",\n"
-        "                )\n"
-        "            # Admin of the main tenant tries to fetch the other class.\n"
-        "            today = timezone.localdate()\n"
-        "            response = self.client.get(\n"
-        "                self.url(\n"
-        "                    f\"api/attendance/students/?class_id={other_class.id}\"\n"
-        "                    f\"&date={today.isoformat()}\"\n"
-        "                ),\n"
-        "                HTTP_X_REQUESTED_WITH=\"XMLHttpRequest\",\n"
-        "            )\n"
-        "            # other_class.id is > 20 and cannot exist in the primary\n"
-        "            # tenant's schema, so the API must 404.\n"
-        "            self.assertEqual(response.status_code, 404)"
-    )
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#D)" in content:
-        log(f"  SKIP (already applied): #D multi-tenant isolation")
-    elif old_d in content:
-        content = content.replace(old_d, new_d, 1)
-        changes.append("#D multi-tenant isolation distinct IDs")
-    else:
-        log(f"  WARN: #D multi-tenant isolation block not matched")
-
-    # ---------------------------------------------------------------
-    # FIX #E — staff dashboard view test must look for the substituted
-    #          JSON, not the template variable name.
-    # ---------------------------------------------------------------
-    old_e = (
-        "    def test_class_teacher_sees_class_section(self):\n"
-        "        request = self._staff_request(self.class_teacher)\n"
-        "        response = staff_att.staff_attendance_view(request)\n"
-        "        self.assertEqual(response.status_code, 200)\n"
-        "        self.assertIn(\n"
-        "            b\"class_teacher_classes_json\", response.content,\n"
-        "        )"
-    )
-    new_e = (
-        "    def test_class_teacher_sees_class_section(self):\n"
-        "        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#E): the template uses\n"
-        "        # `{{ class_teacher_classes_json|safe }}`, which Django\n"
-        "        # substitutes with the actual JSON array.  After rendering,\n"
-        "        # the literal string `class_teacher_classes_json` is NOT\n"
-        "        # present — we must look for the JS variable name that\n"
-        "        # the template assigns the JSON to.\n"
-        "        request = self._staff_request(self.class_teacher)\n"
-        "        response = staff_att.staff_attendance_view(request)\n"
-        "        self.assertEqual(response.status_code, 200)\n"
-        "        self.assertIn(b\"CT_CLASSES\", response.content)\n"
-        "        # And the actual class name must be present in the JSON.\n"
-        "        self.assertIn(b\"Grade 1\", response.content)"
-    )
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#E)" in content:
-        log(f"  SKIP (already applied): #E dashboard view test")
-    elif old_e in content:
-        content = content.replace(old_e, new_e, 1)
-        changes.append("#E dashboard view test looks for CT_CLASSES")
-    else:
-        log(f"  WARN: #E dashboard view test body not matched")
-
-    # ---------------------------------------------------------------
-    # FIX #F — locked flag test must use a PAST date whose quota is
-    #          exhausted.  Today is always editable for the class
-    #          teacher, so testing it for "locked" is conceptually
-    #          wrong.
-    # ---------------------------------------------------------------
-    old_f = (
-        "    def test_locked_flag_when_marked(self):\n"
-        "        today = timezone.localdate()\n"
-        "        with schema_context(self.schema):\n"
-        "            self._mark_full_day(today)\n"
-        "            # Turn on read_write so can_edit is possible in principle;\n"
-        "            # but the frontend is locked because marks exist.\n"
-        "            perm = ClassTeacherAttendancePermission.for_class(\n"
-        "                self.class_obj,\n"
-        "            )\n"
-        "            perm.backdate_access = \"read_write\"\n"
-        "            perm.max_edits_per_date = 3\n"
-        "            perm.view_history_days = 30\n"
-        "            perm.edit_history_days = 5\n"
-        "            perm.save()\n"
-        "        request = self._staff_request(\n"
-        "            self.class_teacher,\n"
-        "            path=f\"/?class_id={self.class_obj.id}\"\n"
-        "                 f\"&date={today.isoformat()}\",\n"
-        "        )\n"
-        "        response = staff_att.staff_attendance_students_api(request)\n"
-        "        # lock_reason may be empty for today but the flag reflects marks.\n"
-        "        body = json.loads(response.content)\n"
-        "        self.assertTrue(body[\"locked\"])"
-    )
-    new_f = (
-        "    def test_locked_flag_when_quota_exhausted_on_past_date(self):\n"
-        "        # ATTENDANCE_SYSTEM_BUGFIX_V2 (#F): today is NEVER locked\n"
-        "        # for the class teacher — they own the class and the\n"
-        "        # backdate quota only applies to past dates.  The \"locked\"\n"
-        "        # flag is True only when _compute_permission_payload()\n"
-        "        # returns can_edit=False, which happens on a PAST date\n"
-        "        # whose per-date quota has been exhausted.\n"
-        "        target = timezone.localdate() - timedelta(days=2)\n"
-        "        with schema_context(self.schema):\n"
-        "            perm = ClassTeacherAttendancePermission.for_class(\n"
-        "                self.class_obj,\n"
-        "            )\n"
-        "            perm.backdate_access = \"read_write\"\n"
-        "            perm.max_edits_per_date = 1\n"
-        "            perm.view_history_days = 30\n"
-        "            perm.edit_history_days = 5\n"
-        "            perm.save()\n"
-        "            # Exhaust the teacher's quota for the target date.\n"
-        "            q = ClassTeacherEditQuota.for_class_date(\n"
-        "                self.class_obj, target,\n"
-        "            )\n"
-        "            q.teacher_edit_count = 1\n"
-        "            q.save()\n"
-        "            # Mark a row so the API has data to return.\n"
-        "            StudentAttendance.objects.create(\n"
-        "                student=self.students[0],\n"
-        "                school_class=self.class_obj,\n"
-        "                date=target,\n"
-        "                period_order=None,\n"
-        "                status=\"present\",\n"
-        "                source=\"teacher\",\n"
-        "                teacher=self.class_teacher,\n"
-        "                marked_by=self.class_teacher,\n"
-        "            )\n"
-        "        request = self._staff_request(\n"
-        "            self.class_teacher,\n"
-        "            path=f\"/?class_id={self.class_obj.id}\"\n"
-        "                 f\"&date={target.isoformat()}\",\n"
-        "        )\n"
-        "        response = staff_att.staff_attendance_students_api(request)\n"
-        "        body = json.loads(response.content)\n"
-        "        self.assertTrue(body[\"locked\"])\n"
-        "        self.assertTrue(body[\"lock_reason\"])"
-    )
-    if "ATTENDANCE_SYSTEM_BUGFIX_V2 (#F)" in content:
-        log(f"  SKIP (already applied): #F locked flag test")
-    elif old_f in content:
-        content = content.replace(old_f, new_f, 1)
-        changes.append("#F locked flag test uses exhausted past date")
-    else:
-        log(f"  WARN: #F locked flag test body not matched")
-
-    if not changes:
-        log(f"  NO CHANGES for {path}")
+    if "admin_attendance_class_teacher_permissions_bulk_save_api" in content:
+        log(f"  SKIP (already applied): bulk-save view in {path}")
         return True
 
+    # Append at end of file (after the last view).
+    content = content.rstrip() + "\n" + BULK_SAVE_VIEW
     return write_file(path, content, args.dry_run,
-                      ", ".join(changes))
+                      "add bulk-save endpoint")
+
+
+# =====================================================================
+# 2. public_urls.py — register the new route
+# =====================================================================
+
+def patch_public_urls(root, args):
+    path = root / "axis_saas" / "public_urls.py"
+    content = read_file(path)
+    if content is None:
+        return False
+
+    if "admin_attendance_class_teacher_permissions_bulk_save_api" in content:
+        log(f"  SKIP (already applied): bulk-save route in {path}")
+        return True
+
+    # --- extend the import block -------------------------------------
+    old_import = (
+        "    admin_attendance_class_teacher_permissions_save_api,\n"
+        "    admin_attendance_daily_logs_api,\n"
+    )
+    new_import = (
+        "    admin_attendance_class_teacher_permissions_save_api,\n"
+        "    # ATTENDANCE_PERMS_UNIVERSAL_V1\n"
+        "    admin_attendance_class_teacher_permissions_bulk_save_api,\n"
+        "    admin_attendance_daily_logs_api,\n"
+    )
+    content, ok = replace_once(content, old_import, new_import,
+                               label="import block")
+    if not ok:
+        log(f"  WARN: could not extend import block in {path}")
+        return False
+
+    # --- add the route ------------------------------------------------
+    old_route = (
+        "    path('portal/<slug:schema_name>/api/attendance/"
+        "class-teacher-permissions/save/', "
+        "portal_wrapper(login_required_for_schema("
+        "admin_attendance_class_teacher_permissions_save_api)), "
+        "name='admin_attendance_class_teacher_permissions_save_api'),\n"
+    )
+    new_route = old_route + (
+        "    # ATTENDANCE_PERMS_UNIVERSAL_V1\n"
+        "    path('portal/<slug:schema_name>/api/attendance/"
+        "class-teacher-permissions/bulk-save/', "
+        "portal_wrapper(login_required_for_schema("
+        "admin_attendance_class_teacher_permissions_bulk_save_api)), "
+        "name='admin_attendance_class_teacher_permissions_bulk_save_api'),\n"
+    )
+    content, ok = replace_once(content, old_route, new_route,
+                               label="route block")
+    if not ok:
+        log(f"  WARN: could not add route block in {path}")
+        return False
+
+    return write_file(path, content, args.dry_run,
+                      "register bulk-save route")
+
+
+# =====================================================================
+# 3. templates/tenant/attendence.html — universal block in modal
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# The universal block markup that gets injected just above the
+# `#attPermList` container.  Uses the existing modal CSS classes so
+# the look is consistent.
+# ---------------------------------------------------------------------
+
+UNIVERSAL_BLOCK = r'''
+            <!-- ============ ATTENDANCE_PERMS_UNIVERSAL_V1 ============ -->
+            <div id="attPermUniversal"
+                 style="border-bottom:1px solid var(--border);
+                        background:var(--surface-alt);">
+                <div style="display:flex; justify-content:space-between;
+                            align-items:center; gap:.5rem;
+                            padding:.85rem 1.2rem; cursor:pointer;"
+                     onclick="AXIS_ADMIN_ATT_PERMS.toggleUniversal()">
+                    <div>
+                        <div style="font-weight:800; font-size:.95rem;">
+                            🌐 Universal Settings
+                            <span style="font-weight:600; color:var(--muted);
+                                         font-size:.75rem; margin-left:.4rem;">
+                                (Apply the same defaults to every class)
+                            </span>
+                        </div>
+                        <div style="font-size:.72rem; color:var(--muted);
+                                    margin-top:.15rem;">
+                            Set once here, then override individual classes
+                            below if you need to.
+                        </div>
+                    </div>
+                    <button type="button" id="attPermUniversalToggle"
+                            style="background:transparent; border:1px solid var(--border);
+                                   color:var(--text); border-radius:.5rem;
+                                   padding:.35rem .7rem; font-weight:700;
+                                   font-size:.78rem; cursor:pointer;">
+                        Show ▾
+                    </button>
+                </div>
+
+                <div id="attPermUniversalBody" style="display:none;
+                        padding:.4rem 1.2rem 1.1rem;">
+                    <div style="display:grid;
+                                grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                                gap:.75rem; align-items:end;">
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                Backdate Access
+                            </div>
+                            <select id="attPermUniBackdate"
+                                    style="width:100%; padding:.5rem .6rem;
+                                           border-radius:.5rem;
+                                           border:1px solid var(--border);
+                                           background:var(--surface);
+                                           color:var(--text);">
+                                <option value="none">Today only</option>
+                                <option value="read">Read only</option>
+                                <option value="read_write">Read &amp; Write</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                Max Edits / Date
+                            </div>
+                            <input type="number" id="attPermUniMaxEdits"
+                                   min="0" max="50" value="1"
+                                   style="width:100%; padding:.5rem .6rem;
+                                          border-radius:.5rem;
+                                          border:1px solid var(--border);
+                                          background:var(--surface);
+                                          color:var(--text);">
+                        </div>
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                View History Days
+                            </div>
+                            <input type="number" id="attPermUniViewDays"
+                                   min="0" max="730" value="30"
+                                   style="width:100%; padding:.5rem .6rem;
+                                          border-radius:.5rem;
+                                          border:1px solid var(--border);
+                                          background:var(--surface);
+                                          color:var(--text);">
+                        </div>
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                Edit History Days
+                            </div>
+                            <input type="number" id="attPermUniEditDays"
+                                   min="0" max="730" value="5"
+                                   style="width:100%; padding:.5rem .6rem;
+                                          border-radius:.5rem;
+                                          border:1px solid var(--border);
+                                          background:var(--surface);
+                                          color:var(--text);">
+                        </div>
+                    </div>
+
+                    <div style="display:flex; flex-wrap:wrap; gap:.5rem;
+                                align-items:center; margin-top:.9rem;">
+                        <label style="font-size:.72rem; font-weight:800;
+                                      color:var(--muted); text-transform:uppercase;
+                                      letter-spacing:.05em;">
+                            Copy from
+                        </label>
+                        <select id="attPermUniCopyFrom"
+                                style="padding:.4rem .55rem;
+                                       border-radius:.5rem;
+                                       border:1px solid var(--border);
+                                       background:var(--surface);
+                                       color:var(--text); font-size:.82rem;
+                                       min-width:180px;">
+                            <option value="">— pick an existing class —</option>
+                        </select>
+                        <button type="button"
+                                onclick="AXIS_ADMIN_ATT_PERMS.fillFromClass()"
+                                style="background:var(--surface-alt);
+                                       color:var(--text);
+                                       border:1px solid var(--border);
+                                       border-radius:.5rem;
+                                       padding:.4rem .8rem;
+                                       font-weight:700; font-size:.78rem;
+                                       cursor:pointer;">
+                            Fill
+                        </button>
+                        <span style="flex:1;"></span>
+                        <button type="button"
+                                onclick="AXIS_ADMIN_ATT_PERMS.resetUniversal()"
+                                style="background:var(--surface);
+                                       color:var(--text);
+                                       border:1px solid var(--border);
+                                       border-radius:.55rem;
+                                       padding:.55rem 1rem;
+                                       font-weight:700; font-size:.82rem;
+                                       cursor:pointer;">
+                            Reset
+                        </button>
+                        <button type="button"
+                                onclick="AXIS_ADMIN_ATT_PERMS.applyUniversal()"
+                                style="background:var(--primary);
+                                       color:#fff;
+                                       border:1px solid var(--primary);
+                                       border-radius:.55rem;
+                                       padding:.55rem 1.1rem;
+                                       font-weight:700; font-size:.82rem;
+                                       cursor:pointer;">
+                            ✔ Apply to All Classes
+                        </button>
+                    </div>
+
+                    <div id="attPermUniMsg"
+                         style="margin-top:.6rem; font-size:.82rem;
+                                color:var(--muted); min-height:1.1rem;">
+                    </div>
+                </div>
+            </div>
+            <!-- ============ /ATTENDANCE_PERMS_UNIVERSAL_V1 ============ -->
+
+'''
+
+# The JS hooks that get appended to the existing AXIS_ADMIN_ATT_PERMS
+# IIFE.  They are inserted just before the `return { ... };` line so
+# they share the same SCHEMA / q / esc / csrf closures.
+PERMS_JS_HOOKS = r'''
+    // ---------- ATTENDANCE_PERMS_UNIVERSAL_V1 ----------
+
+    function toggleUniversal() {
+        var body = q('#attPermUniversalBody');
+        var btn  = q('#attPermUniversalToggle');
+        if (!body) return;
+        var isHidden = body.style.display === 'none' ||
+                       body.style.display === '';
+        body.style.display = isHidden ? 'block' : 'none';
+        if (btn) btn.textContent = isHidden ? 'Hide ▴' : 'Show ▾';
+    }
+
+    function resetUniversal() {
+        q('#attPermUniBackdate').value  = 'none';
+        q('#attPermUniMaxEdits').value  = 1;
+        q('#attPermUniViewDays').value  = 30;
+        q('#attPermUniEditDays').value  = 5;
+        setUniMsg('', '');
+    }
+
+    function setUniMsg(text, cls) {
+        var m = q('#attPermUniMsg');
+        if (!m) return;
+        m.textContent = text || '';
+        m.style.color = cls === 'ok'  ? '#10b981'
+                      : cls === 'err' ? '#ef4444'
+                      : 'var(--muted)';
+        m.style.fontWeight = (cls === 'ok' || cls === 'err') ? 700 : 400;
+    }
+
+    function populateUniversalCopyFrom() {
+        var sel = q('#attPermUniCopyFrom');
+        if (!sel) return;
+        // Keep the first option
+        while (sel.options.length > 1) sel.remove(1);
+        permCache.forEach(function(p) {
+            var o = document.createElement('option');
+            o.value = p.class_id;
+            o.textContent = p.class_display || ('Class #' + p.class_id);
+            sel.appendChild(o);
+        });
+    }
+
+    function fillFromClass() {
+        var sel = q('#attPermUniCopyFrom');
+        if (!sel) return;
+        var cid = sel.value;
+        if (!cid) { setUniMsg('Pick a class first.', 'err'); return; }
+        var row = permCache.filter(function(p) {
+            return String(p.class_id) === String(cid);
+        })[0];
+        if (!row) { setUniMsg('Class not found in list.', 'err'); return; }
+        q('#attPermUniBackdate').value = row.backdate_access || 'none';
+        q('#attPermUniMaxEdits').value = row.max_edits_per_date;
+        q('#attPermUniViewDays').value = row.view_history_days;
+        q('#attPermUniEditDays').value = row.edit_history_days;
+        setUniMsg('Copied from ' + (row.class_display || cid) + '.', 'ok');
+    }
+
+    function applyUniversal() {
+        var payload = {
+            backdate_access:    q('#attPermUniBackdate').value,
+            max_edits_per_date: parseInt(q('#attPermUniMaxEdits').value, 10) || 0,
+            view_history_days:  parseInt(q('#attPermUniViewDays').value, 10) || 0,
+            edit_history_days:  parseInt(q('#attPermUniEditDays').value, 10) || 0,
+        };
+        if (!confirm(
+            'Apply these settings to ALL classes that have a class teacher?\n\n' +
+            'This will overwrite any per-class overrides you have saved.'
+        )) { return; }
+
+        setUniMsg('Applying to all classes…', '');
+        fetch('/portal/' + SCHEMA +
+              '/api/attendance/class-teacher-permissions/bulk-save/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    setUniMsg(j.error || 'Failed.', 'err');
+                    return;
+                }
+                setUniMsg('Applied to ' + j.updated + ' class(es). Refreshing…', 'ok');
+                // Refresh the per-class table so the numbers match.
+                setTimeout(function() { loadPermissions(); }, 400);
+            })
+            .catch(function() {
+                setUniMsg('Network error.', 'err');
+            });
+    }
+
+'''
+
+
+def patch_admin_template(root, args):
+    path = root / "templates" / "tenant" / "attendence.html"
+    content = read_file(path)
+    if content is None:
+        return False
+
+    if "ATTENDANCE_PERMS_UNIVERSAL_V1" in content:
+        log(f"  SKIP (already applied): universal block in {path}")
+        return True
+
+    # ---- 1. Insert the universal block just above #attPermList ------
+    anchor = (
+        '        <div class="att-modal-body" id="attPermList" '
+        'style="padding:1rem 1.2rem;">'
+    )
+    if anchor not in content:
+        log(f"  WARN: could not find #attPermList anchor in {path}")
+        return False
+
+    content = content.replace(
+        anchor,
+        UNIVERSAL_BLOCK + anchor,
+        1,
+    )
+    log(f"  Inserted universal block before #attPermList")
+
+    # ---- 2. Call populateUniversalCopyFrom when permissions load ----
+    #         (permCache is populated inside loadPermissions() right
+    #          before renderPermissions() is called).
+    old_load = (
+        "                permCache = j.permissions || [];\n"
+        "                renderPermissions();"
+    )
+    new_load = (
+        "                permCache = j.permissions || [];\n"
+        "                renderPermissions();\n"
+        "                // ATTENDANCE_PERMS_UNIVERSAL_V1\n"
+        "                if (typeof populateUniversalCopyFrom === 'function') {\n"
+        "                    populateUniversalCopyFrom();\n"
+        "                }"
+    )
+    if old_load in content:
+        content = content.replace(old_load, new_load, 1)
+        log(f"  Hooked populateUniversalCopyFrom into loadPermissions")
+    else:
+        log(f"  WARN: loadPermissions body not matched; universal copy-"
+            f"from dropdown will be empty until modal is re-opened")
+
+    # ---- 3. Insert JS hooks just before the return statement --------
+    return_anchor = (
+        "    return {\n"
+        "        openPermissions: openPermissions,\n"
+        "        closePermissions: closePermissions,\n"
+        "        savePermission: savePermission,\n"
+        "        openLogs: openLogs,\n"
+        "        closeLogs: closeLogs,\n"
+        "    };"
+    )
+    new_return = (
+        "    // ---------- ATTENDANCE_PERMS_UNIVERSAL_V1 exports ----------\n"
+        "    return {\n"
+        "        openPermissions: openPermissions,\n"
+        "        closePermissions: closePermissions,\n"
+        "        savePermission: savePermission,\n"
+        "        openLogs: openLogs,\n"
+        "        closeLogs: closeLogs,\n"
+        "        toggleUniversal: toggleUniversal,\n"
+        "        resetUniversal: resetUniversal,\n"
+        "        applyUniversal: applyUniversal,\n"
+        "        fillFromClass: fillFromClass,\n"
+        "    };"
+    )
+    if return_anchor not in content:
+        log(f"  WARN: return-anchor not found in {path}; "
+            f"could not add JS hooks cleanly")
+        return False
+
+    # Insert the JS hooks just before the return statement.
+    content = content.replace(
+        return_anchor,
+        PERMS_JS_HOOKS + new_return,
+        1,
+    )
+    log(f"  Inserted universal JS hooks before IIFE return")
+
+    return write_file(path, content, args.dry_run,
+                      "insert universal block + JS")
 
 
 # =====================================================================
@@ -465,8 +629,10 @@ def patch_test_suite(root, args):
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            f"{MARKER} — fixes every test failure reported after "
-            f"running axis_saas.tests.test_attendance_system."
+            f"{MARKER} — add a Universal Settings block to the Class "
+            f"Teacher Permissions modal so the admin can apply the same "
+            f"attendance authority to every class in one click, while "
+            f"still overriding individual classes below."
         )
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -484,7 +650,9 @@ def main():
     log(f"Patch:  {MARKER}")
 
     steps = [
-        ("Attendance test suite", patch_test_suite),
+        ("Admin views: bulk-save endpoint",  patch_admin_attendance),
+        ("URLs: register bulk-save route",   patch_public_urls),
+        ("Template: universal block + JS",   patch_admin_template),
     ]
 
     results = []
@@ -507,8 +675,16 @@ def main():
         if args.dry_run:
             log("Re-run without --dry-run to apply.")
         else:
-            log("Next steps:")
-            log("  python manage.py test axis_saas.tests.test_attendance_system")
+            log("Restart the Django server to pick up the new endpoint.")
+            log("")
+            log("What you get:")
+            log("  • The Class Teacher Permissions modal now opens with a")
+            log("    collapsible 🌐 Universal Settings card at the top.")
+            log("  • Fill the four fields (or 'Copy from' an existing")
+            log("    class) and click 'Apply to All Classes' to set every")
+            log("    class at once.")
+            log("  • The per-class table below is unchanged — individual")
+            log("    overrides still work exactly as before.")
         return 0
     log("One or more steps failed. See messages above.")
     return 2

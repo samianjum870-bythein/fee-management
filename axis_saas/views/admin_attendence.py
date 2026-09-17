@@ -1517,3 +1517,88 @@ def admin_attendance_daily_logs_api(request, schema_name):
                 ),
             },
         })
+
+
+@require_http_methods(['POST'])
+@require_tenant_type(['school', 'wing_school', 'single_small_school'])
+@require_school_feature('attendance_management')
+def admin_attendance_class_teacher_permissions_bulk_save_api(
+    request, schema_name,
+):
+    """ATTENDANCE_PERMS_UNIVERSAL_V1
+
+    Apply the same attendance permission settings to EVERY active
+    class that has an assigned class teacher, in one shot.
+
+    Body:
+        {
+          "backdate_access":    "none" | "read" | "read_write",
+          "max_edits_per_date": int,
+          "view_history_days":  int,
+          "edit_history_days":  int
+        }
+
+    Returns:
+        {
+          "ok": True,
+          "updated":  N,
+          "classes":  [class_id, class_id, ...]
+        }
+
+    Individual per-class overrides are still possible through the
+    existing `/save/` endpoint; this endpoint only writes the universal
+    default that the admin chooses.
+    """
+    from ..models import ClassTeacherAttendancePermission
+
+    try:
+        body = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+
+    def _int(key, default, lo=0, hi=None):
+        try:
+            v = int(body.get(key, default))
+        except (TypeError, ValueError):
+            v = default
+        v = max(lo, v)
+        if hi is not None:
+            v = min(hi, v)
+        return v
+
+    backdate_access = (body.get('backdate_access') or 'none').strip()
+    if backdate_access not in ('none', 'read', 'read_write'):
+        backdate_access = 'none'
+
+    admin_name = request.session.get('school_admin_username', 'admin')
+
+    with schema_context(schema_name):
+        with transaction.atomic():
+            classes = list(
+                SchoolClass.objects
+                .filter(is_active=True, class_teacher__isnull=False)
+                .only('id')
+            )
+            updated_ids = []
+            for cls in classes:
+                p = ClassTeacherAttendancePermission.for_class(cls)
+                p.backdate_access = backdate_access
+                p.max_edits_per_date = _int(
+                    'max_edits_per_date', p.max_edits_per_date, 0, 50,
+                )
+                p.view_history_days = _int(
+                    'view_history_days', p.view_history_days, 0, 730,
+                )
+                p.edit_history_days = _int(
+                    'edit_history_days', p.edit_history_days, 0, 730,
+                )
+                p.updated_by = admin_name
+                p.save()
+                updated_ids.append(cls.id)
+
+    return JsonResponse({
+        'ok': True,
+        'updated': len(updated_ids),
+        'classes': updated_ids,
+        'backdate_access': backdate_access,
+    })

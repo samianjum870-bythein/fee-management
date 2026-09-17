@@ -1394,6 +1394,164 @@ console.log('[AXIS] Attendance policy loaded:', window.__AXIS_ATT_POLICY__);
             </div>
             <button type="button" onclick="AXIS_ADMIN_ATT_PERMS.closePermissions()">×</button>
         </div>
+
+            <!-- ============ ATTENDANCE_PERMS_UNIVERSAL_V1 ============ -->
+            <div id="attPermUniversal"
+                 style="border-bottom:1px solid var(--border);
+                        background:var(--surface-alt);">
+                <div style="display:flex; justify-content:space-between;
+                            align-items:center; gap:.5rem;
+                            padding:.85rem 1.2rem; cursor:pointer;"
+                     onclick="AXIS_ADMIN_ATT_PERMS.toggleUniversal()">
+                    <div>
+                        <div style="font-weight:800; font-size:.95rem;">
+                            🌐 Universal Settings
+                            <span style="font-weight:600; color:var(--muted);
+                                         font-size:.75rem; margin-left:.4rem;">
+                                (Apply the same defaults to every class)
+                            </span>
+                        </div>
+                        <div style="font-size:.72rem; color:var(--muted);
+                                    margin-top:.15rem;">
+                            Set once here, then override individual classes
+                            below if you need to.
+                        </div>
+                    </div>
+                    <button type="button" id="attPermUniversalToggle"
+                            style="background:transparent; border:1px solid var(--border);
+                                   color:var(--text); border-radius:.5rem;
+                                   padding:.35rem .7rem; font-weight:700;
+                                   font-size:.78rem; cursor:pointer;">
+                        Show ▾
+                    </button>
+                </div>
+
+                <div id="attPermUniversalBody" style="display:none;
+                        padding:.4rem 1.2rem 1.1rem;">
+                    <div style="display:grid;
+                                grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                                gap:.75rem; align-items:end;">
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                Backdate Access
+                            </div>
+                            <select id="attPermUniBackdate"
+                                    style="width:100%; padding:.5rem .6rem;
+                                           border-radius:.5rem;
+                                           border:1px solid var(--border);
+                                           background:var(--surface);
+                                           color:var(--text);">
+                                <option value="none">Today only</option>
+                                <option value="read">Read only</option>
+                                <option value="read_write">Read &amp; Write</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                Max Edits / Date
+                            </div>
+                            <input type="number" id="attPermUniMaxEdits"
+                                   min="0" max="50" value="1"
+                                   style="width:100%; padding:.5rem .6rem;
+                                          border-radius:.5rem;
+                                          border:1px solid var(--border);
+                                          background:var(--surface);
+                                          color:var(--text);">
+                        </div>
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                View History Days
+                            </div>
+                            <input type="number" id="attPermUniViewDays"
+                                   min="0" max="730" value="30"
+                                   style="width:100%; padding:.5rem .6rem;
+                                          border-radius:.5rem;
+                                          border:1px solid var(--border);
+                                          background:var(--surface);
+                                          color:var(--text);">
+                        </div>
+                        <div>
+                            <div style="font-size:.7rem; font-weight:800;
+                                        color:var(--muted); text-transform:uppercase;
+                                        letter-spacing:.05em; margin-bottom:.25rem;">
+                                Edit History Days
+                            </div>
+                            <input type="number" id="attPermUniEditDays"
+                                   min="0" max="730" value="5"
+                                   style="width:100%; padding:.5rem .6rem;
+                                          border-radius:.5rem;
+                                          border:1px solid var(--border);
+                                          background:var(--surface);
+                                          color:var(--text);">
+                        </div>
+                    </div>
+
+                    <div style="display:flex; flex-wrap:wrap; gap:.5rem;
+                                align-items:center; margin-top:.9rem;">
+                        <label style="font-size:.72rem; font-weight:800;
+                                      color:var(--muted); text-transform:uppercase;
+                                      letter-spacing:.05em;">
+                            Copy from
+                        </label>
+                        <select id="attPermUniCopyFrom"
+                                style="padding:.4rem .55rem;
+                                       border-radius:.5rem;
+                                       border:1px solid var(--border);
+                                       background:var(--surface);
+                                       color:var(--text); font-size:.82rem;
+                                       min-width:180px;">
+                            <option value="">— pick an existing class —</option>
+                        </select>
+                        <button type="button"
+                                onclick="AXIS_ADMIN_ATT_PERMS.fillFromClass()"
+                                style="background:var(--surface-alt);
+                                       color:var(--text);
+                                       border:1px solid var(--border);
+                                       border-radius:.5rem;
+                                       padding:.4rem .8rem;
+                                       font-weight:700; font-size:.78rem;
+                                       cursor:pointer;">
+                            Fill
+                        </button>
+                        <span style="flex:1;"></span>
+                        <button type="button"
+                                onclick="AXIS_ADMIN_ATT_PERMS.resetUniversal()"
+                                style="background:var(--surface);
+                                       color:var(--text);
+                                       border:1px solid var(--border);
+                                       border-radius:.55rem;
+                                       padding:.55rem 1rem;
+                                       font-weight:700; font-size:.82rem;
+                                       cursor:pointer;">
+                            Reset
+                        </button>
+                        <button type="button"
+                                onclick="AXIS_ADMIN_ATT_PERMS.applyUniversal()"
+                                style="background:var(--primary);
+                                       color:#fff;
+                                       border:1px solid var(--primary);
+                                       border-radius:.55rem;
+                                       padding:.55rem 1.1rem;
+                                       font-weight:700; font-size:.82rem;
+                                       cursor:pointer;">
+                            ✔ Apply to All Classes
+                        </button>
+                    </div>
+
+                    <div id="attPermUniMsg"
+                         style="margin-top:.6rem; font-size:.82rem;
+                                color:var(--muted); min-height:1.1rem;">
+                    </div>
+                </div>
+            </div>
+            <!-- ============ /ATTENDANCE_PERMS_UNIVERSAL_V1 ============ -->
+
         <div class="att-modal-body" id="attPermList" style="padding:1rem 1.2rem;">
             <div class="att-modal-empty">Loading…</div>
         </div>
@@ -1462,6 +1620,10 @@ window.AXIS_ADMIN_ATT_PERMS = (function() {
                 }
                 permCache = j.permissions || [];
                 renderPermissions();
+                // ATTENDANCE_PERMS_UNIVERSAL_V1
+                if (typeof populateUniversalCopyFrom === 'function') {
+                    populateUniversalCopyFrom();
+                }
             })
             .catch(function() {
                 q('#attPermList').innerHTML =
@@ -1621,12 +1783,115 @@ window.AXIS_ADMIN_ATT_PERMS = (function() {
             if (e.target === pm) closePermissions();
         });
     });
+
+    // ---------- ATTENDANCE_PERMS_UNIVERSAL_V1 ----------
+
+    function toggleUniversal() {
+        var body = q('#attPermUniversalBody');
+        var btn  = q('#attPermUniversalToggle');
+        if (!body) return;
+        var isHidden = body.style.display === 'none' ||
+                       body.style.display === '';
+        body.style.display = isHidden ? 'block' : 'none';
+        if (btn) btn.textContent = isHidden ? 'Hide ▴' : 'Show ▾';
+    }
+
+    function resetUniversal() {
+        q('#attPermUniBackdate').value  = 'none';
+        q('#attPermUniMaxEdits').value  = 1;
+        q('#attPermUniViewDays').value  = 30;
+        q('#attPermUniEditDays').value  = 5;
+        setUniMsg('', '');
+    }
+
+    function setUniMsg(text, cls) {
+        var m = q('#attPermUniMsg');
+        if (!m) return;
+        m.textContent = text || '';
+        m.style.color = cls === 'ok'  ? '#10b981'
+                      : cls === 'err' ? '#ef4444'
+                      : 'var(--muted)';
+        m.style.fontWeight = (cls === 'ok' || cls === 'err') ? 700 : 400;
+    }
+
+    function populateUniversalCopyFrom() {
+        var sel = q('#attPermUniCopyFrom');
+        if (!sel) return;
+        // Keep the first option
+        while (sel.options.length > 1) sel.remove(1);
+        permCache.forEach(function(p) {
+            var o = document.createElement('option');
+            o.value = p.class_id;
+            o.textContent = p.class_display || ('Class #' + p.class_id);
+            sel.appendChild(o);
+        });
+    }
+
+    function fillFromClass() {
+        var sel = q('#attPermUniCopyFrom');
+        if (!sel) return;
+        var cid = sel.value;
+        if (!cid) { setUniMsg('Pick a class first.', 'err'); return; }
+        var row = permCache.filter(function(p) {
+            return String(p.class_id) === String(cid);
+        })[0];
+        if (!row) { setUniMsg('Class not found in list.', 'err'); return; }
+        q('#attPermUniBackdate').value = row.backdate_access || 'none';
+        q('#attPermUniMaxEdits').value = row.max_edits_per_date;
+        q('#attPermUniViewDays').value = row.view_history_days;
+        q('#attPermUniEditDays').value = row.edit_history_days;
+        setUniMsg('Copied from ' + (row.class_display || cid) + '.', 'ok');
+    }
+
+    function applyUniversal() {
+        var payload = {
+            backdate_access:    q('#attPermUniBackdate').value,
+            max_edits_per_date: parseInt(q('#attPermUniMaxEdits').value, 10) || 0,
+            view_history_days:  parseInt(q('#attPermUniViewDays').value, 10) || 0,
+            edit_history_days:  parseInt(q('#attPermUniEditDays').value, 10) || 0,
+        };
+        if (!confirm(
+            'Apply these settings to ALL classes that have a class teacher?\n\n' +
+            'This will overwrite any per-class overrides you have saved.'
+        )) { return; }
+
+        setUniMsg('Applying to all classes…', '');
+        fetch('/portal/' + SCHEMA +
+              '/api/attendance/class-teacher-permissions/bulk-save/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.ok) {
+                    setUniMsg(j.error || 'Failed.', 'err');
+                    return;
+                }
+                setUniMsg('Applied to ' + j.updated + ' class(es). Refreshing…', 'ok');
+                // Refresh the per-class table so the numbers match.
+                setTimeout(function() { loadPermissions(); }, 400);
+            })
+            .catch(function() {
+                setUniMsg('Network error.', 'err');
+            });
+    }
+
+    // ---------- ATTENDANCE_PERMS_UNIVERSAL_V1 exports ----------
     return {
         openPermissions: openPermissions,
         closePermissions: closePermissions,
         savePermission: savePermission,
         openLogs: openLogs,
         closeLogs: closeLogs,
+        toggleUniversal: toggleUniversal,
+        resetUniversal: resetUniversal,
+        applyUniversal: applyUniversal,
+        fillFromClass: fillFromClass,
     };
 })();
 </script>
