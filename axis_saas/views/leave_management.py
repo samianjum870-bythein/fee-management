@@ -692,6 +692,14 @@ def leave_approve(request, schema_name, leave_id):
             leave.save(update_fields=[
                 'status', 'reviewed_by', 'reviewed_at', 'admin_remarks',
             ])
+            # DASHBOARD_V3_PROFESSIONAL: bust the dashboard cache so
+            # the pending-leave and staff-on-leave widgets refresh
+            # immediately, without waiting for the 60s TTL.
+            try:
+                from django.core.cache import cache as _dash_cache
+                _dash_cache.delete(f"dashboard_stats:{schema_name}")
+            except Exception:
+                pass
 
             subjects = _prefetch_active_subjects_for_staff([leave.staff])
             return JsonResponse({
@@ -740,6 +748,14 @@ def leave_reject(request, schema_name, leave_id):
             leave.save(update_fields=[
                 'status', 'reviewed_by', 'reviewed_at', 'admin_remarks',
             ])
+            # DASHBOARD_V3_PROFESSIONAL: bust the dashboard cache so
+            # the pending-leave and staff-on-leave widgets refresh
+            # immediately, without waiting for the 60s TTL.
+            try:
+                from django.core.cache import cache as _dash_cache
+                _dash_cache.delete(f"dashboard_stats:{schema_name}")
+            except Exception:
+                pass
 
             auto_suspension = None
             try:

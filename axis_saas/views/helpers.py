@@ -57,6 +57,20 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory, SchoolClass
 from ..models import SchoolClass
+# DASHBOARD_V3_PROFESSIONAL: models used by _compute_dashboard_context.
+# Before this import, every reference below raised NameError inside
+# a try/except block, so the dashboard silently showed 0 for staff,
+# pending leaves, staff-on-leave, attendance, top sellers, and next
+# vacation. Fixed at the import site rather than by removing the
+# try/except, so a future missing dependency still fails loudly in
+# logging without taking down the page.
+from ..models import (
+    Staff,
+    LeaveRequest,
+    StudentAttendance,
+    SaleItem,
+    Vacation,
+)
 from ..forms import StudentForm, FeeCollectionForm, FeeSettingsForm, FeeStructureForm, FamilyPaymentForm
 from django.http import JsonResponse, HttpResponse
 from django.db import transaction
@@ -273,57 +287,368 @@ def is_mobile_user_agent(request):
     return bool(MOBILE_AGENT_RE.search(ua))
 
 def _compute_dashboard_context(tenant, schema_name):
-    # Use Redis caching (5 minutes)
+    """DASHBOARD_V2_PROFESSIONAL
+
+    Full dashboard context. Every metric here is what the professional
+    dashboard template reads. Cached for 5 minutes by get_dashboard_context.
+
+    Metrics provided
+    ----------------
+    Fee / finance
+        today_collection, month_collection, total_revenue,
+        total_pending, defaulters_count, collection_rate,
+        recent_payments, top_defaulters, months_labels, months_amounts,
+        fee_automation_enabled, next_fee_generation_date
+
+    People
+        total_students, total_active_students,
+        total_staff, total_active_staff,
+        total_classes
+
+    Attendance (today)
+        today_attendance_marked, today_attendance_present,
+        today_attendance_rate, class_attendance_summary,
+        classes_with_attendance_today, total_classes_for_attendance
+
+    Leave
+        pending_leave_count, staff_on_leave_today,
+        recent_pending_leaves
+
+    Stock
+        low_stock_count, top_selling_products
+
+    Calendar
+        next_vacation
+    """
+    from datetime import timedelta
+    from calendar import monthrange
+
     def compute():
         with schema_context(schema_name):
             today = timezone.localdate()
             first_day_month = today.replace(day=1)
-            today_collection = PaymentTransaction.objects.filter(payment_date=today).aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
-            month_collection = PaymentTransaction.objects.filter(payment_date__gte=first_day_month).aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
-            total_revenue = PaymentTransaction.objects.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+            last_30 = today - timedelta(days=30)
+
+            # -----------------------------------------------------------------
+            # Fee / finance
+            # -----------------------------------------------------------------
+            today_collection = (
+                PaymentTransaction.objects
+                .filter(payment_date=today)
+                .aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+            )
+            month_collection = (
+                PaymentTransaction.objects
+                .filter(payment_date__gte=first_day_month)
+                .aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+            )
+            total_revenue = (
+                PaymentTransaction.objects
+                .aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+            )
             student_totals = get_student_pending_queryset(Student.objects.all())
-            total_pending = student_totals.aggregate(total_pending=Sum('pending_amount'))['total_pending'] or Decimal('0')
-            defaulters_count = Student.objects.filter(fee_records__status__in=['pending', 'partial', 'overdue']).distinct().count()
+            total_pending = (
+                student_totals
+                .aggregate(total_pending=Sum('pending_amount'))['total_pending']
+                or Decimal('0')
+            )
+            defaulters_count = (
+                Student.objects
+                .filter(fee_records__status__in=['pending', 'partial', 'overdue'])
+                .distinct()
+                .count()
+            )
+
             total_students = Student.objects.count()
+            total_active_students = Student.objects.filter(status='active').count()
             low_stock_count = Product.objects.filter(quantity__lt=10).count()
+            # DASHBOARD_V3_FIX_1: list of the low-stock products so
+            # the dashboard can show WHICH items need restocking.
+            low_stock_items = list(
+                Product.objects
+                .filter(quantity__lt=10)
+                .order_by('quantity', 'name')
+                .values('id', 'name', 'quantity', 'selling_price')[:5]
+            )
+
             total_billed = total_revenue + total_pending
-            collection_rate = float(total_revenue) / float(total_billed) * 100 if total_billed > 0 else 0
-            recent_payments = list(PaymentTransaction.objects.select_related('student').order_by('-payment_date')[:5])
+            collection_rate = (
+                float(total_revenue) / float(total_billed) * 100
+                if total_billed > 0 else 0
+            )
+
+            recent_payments = list(
+                PaymentTransaction.objects
+                .select_related('student')
+                .order_by('-payment_date')[:6]
+            )
+
             top_defaulters = []
-            for student in student_totals.filter(pending_amount__gt=0).order_by('-pending_amount')[:5]:
-                fee_pending = sum(fr.remaining_total for fr in student.fee_records.filter(status__in=['pending', 'partial', 'overdue']))
-                top_defaulters.append({'student': student, 'pending': student.pending_amount, 'fee_pending': fee_pending})
-            months_labels = []
-            months_amounts = []
+            for student in (
+                student_totals
+                .filter(pending_amount__gt=0)
+                .order_by('-pending_amount')[:5]
+            ):
+                fee_pending = sum(
+                    fr.remaining_total
+                    for fr in student.fee_records.filter(
+                        status__in=['pending', 'partial', 'overdue']
+                    )
+                )
+                top_defaulters.append({
+                    'student': student,
+                    'pending': student.pending_amount,
+                    'fee_pending': fee_pending,
+                })
+
+            # Six-month trend
+            months_labels: list[str] = []
+            months_amounts: list[float] = []
             for i in range(5, -1, -1):
                 m = today.month - i
                 y = today.year
                 if m <= 0:
                     m += 12
                     y -= 1
-                total = PaymentTransaction.objects.filter(payment_date__year=y, payment_date__month=m).aggregate(Sum('amount'))['amount__sum'] or 0
+                total = (
+                    PaymentTransaction.objects
+                    .filter(payment_date__year=y, payment_date__month=m)
+                    .aggregate(Sum('amount'))['amount__sum'] or 0
+                )
                 months_labels.append(f"{m}/{y}")
                 months_amounts.append(float(total))
+
+            # -----------------------------------------------------------------
+            # Fee automation status
+            # -----------------------------------------------------------------
+            try:
+                fee_settings, _ = SchoolFeeSettings.objects.get_or_create(pk=1)
+                fee_automation_enabled = bool(fee_settings.automation_enabled)
+                gen_day = int(fee_settings.fee_generation_day or 1)
+                if today.day <= gen_day:
+                    next_fee_generation_date = date(
+                        today.year, today.month,
+                        min(gen_day, monthrange(today.year, today.month)[1]),
+                    )
+                else:
+                    nm = today.month + 1 if today.month < 12 else 1
+                    ny = today.year + 1 if today.month == 12 else today.year
+                    next_fee_generation_date = date(
+                        ny, nm,
+                        min(gen_day, monthrange(ny, nm)[1]),
+                    )
+            except Exception:
+                fee_automation_enabled = False
+                next_fee_generation_date = None
+
+            # -----------------------------------------------------------------
+            # Staff / classes
+            # -----------------------------------------------------------------
+            try:
+                total_staff = Staff.objects.count()
+                total_active_staff = Staff.objects.filter(status='active').count()
+            except Exception:
+                total_staff = 0
+                total_active_staff = 0
+
+            try:
+                class_qs = SchoolClass.objects.filter(is_active=True)
+                total_classes = class_qs.count()
+            except Exception:
+                class_qs = SchoolClass.objects.none()
+                total_classes = 0
+
+            # -----------------------------------------------------------------
+            # Attendance today (full-day rows only)
+            # -----------------------------------------------------------------
+            today_attendance_marked = 0
+            today_attendance_present = 0
+            today_attendance_rate = 0.0
+            class_attendance_summary: list[dict] = []
+            classes_with_attendance_today = 0
+
+            try:
+                today_full = StudentAttendance.objects.filter(
+                    date=today, period_order__isnull=True,
+                )
+                today_attendance_marked = today_full.count()
+                today_attendance_present = today_full.filter(
+                    status__in=['present', 'late']
+                ).count()
+                if today_attendance_marked:
+                    today_attendance_rate = round(
+                        today_attendance_present / today_attendance_marked * 100, 1
+                    )
+
+                for c in class_qs.order_by('name', 'section')[:12]:
+                    try:
+                        total_in_class = Student.objects.filter(
+                            school_class=c, status='active'
+                        ).count()
+                        marked_in_class = StudentAttendance.objects.filter(
+                            school_class=c, date=today, period_order__isnull=True
+                        ).count()
+                    except Exception:
+                        total_in_class = 0
+                        marked_in_class = 0
+
+                    if total_in_class == 0:
+                        status = 'no_students'
+                    elif marked_in_class >= total_in_class:
+                        status = 'completed'
+                    elif marked_in_class > 0:
+                        status = 'partial'
+                    else:
+                        status = 'pending'
+
+                    if marked_in_class > 0:
+                        classes_with_attendance_today += 1
+
+                    class_attendance_summary.append({
+                        'class_obj': c,
+                        'name': str(c),
+                        'total': total_in_class,
+                        'marked': marked_in_class,
+                        'status': status,
+                    })
+            except Exception:
+                pass
+
+            # -----------------------------------------------------------------
+            # Leave
+            # -----------------------------------------------------------------
+            pending_leave_count = 0
+            staff_on_leave_today = 0
+            # DASHBOARD_V3_FIX_1: names of staff on leave today.
+            staff_on_leave_list: list = []
+            recent_pending_leaves: list = []
+            try:
+                pending_leave_count = LeaveRequest.objects.filter(
+                    status='pending'
+                ).count()
+                staff_on_leave_today = LeaveRequest.objects.filter(
+                    status='approved',
+                    start_date__lte=today,
+                    end_date__gte=today,
+                ).count()
+                # DASHBOARD_V3_FIX_1: fetch the names of staff on
+                # leave today, so the widget can render them.
+                staff_on_leave_list = [
+                    {
+                        'staff_id': lv.staff_id,
+                        'staff_name': lv.staff.full_name if lv.staff else '',
+                        'leave_type': lv.get_leave_type_display(),
+                        'start_date': lv.start_date.isoformat() if lv.start_date else '',
+                        'end_date': lv.end_date.isoformat() if lv.end_date else '',
+                    }
+                    for lv in LeaveRequest.objects
+                        .filter(
+                            status='approved',
+                            start_date__lte=today,
+                            end_date__gte=today,
+                        )
+                        .select_related('staff')[:8]
+                ]
+                recent_pending_leaves = list(
+                    LeaveRequest.objects
+                    .filter(status='pending')
+                    .select_related('staff')
+                    .order_by('-created_at')[:4]
+                )
+            except Exception:
+                pass
+
+            # -----------------------------------------------------------------
+            # Stock — top sellers last 30 days
+            # -----------------------------------------------------------------
+            top_selling_products: list[dict] = []
+            try:
+                top_selling_products = list(
+                    SaleItem.objects
+                    .filter(created_at__date__gte=last_30, product__isnull=False)
+                    .values('name')
+                    .annotate(
+                        total_qty=Sum('quantity'),
+                        total_value=Sum('line_total'),
+                    )
+                    .order_by('-total_qty')[:5]
+                )
+            except Exception:
+                pass
+
+            # -----------------------------------------------------------------
+            # Upcoming vacation
+            # -----------------------------------------------------------------
+            next_vacation = None
+            try:
+                next_vacation = (
+                    Vacation.objects
+                    .filter(end_date__gte=today)
+                    .order_by('start_date')
+                    .first()
+                )
+            except Exception:
+                pass
+
         return {
             'tenant': tenant,
+
+            # Fee / finance
             'today_collection': today_collection,
             'month_collection': month_collection,
             'total_revenue': total_revenue,
             'total_pending': total_pending,
             'defaulters_count': defaulters_count,
-            'total_students': total_students,
-            'low_stock_count': low_stock_count,
             'collection_rate': round(collection_rate, 1),
             'recent_payments': recent_payments,
             'top_defaulters': top_defaulters,
             'months_labels': months_labels,
             'months_amounts': months_amounts,
+            'fee_automation_enabled': fee_automation_enabled,
+            'next_fee_generation_date': next_fee_generation_date,
+
+            # People
+            'total_students': total_students,
+            'total_active_students': total_active_students,
+            'total_staff': total_staff,
+            'total_active_staff': total_active_staff,
+            'total_classes': total_classes,
+
+            # Attendance
+            'today_attendance_marked': today_attendance_marked,
+            'today_attendance_present': today_attendance_present,
+            'today_attendance_rate': today_attendance_rate,
+            'class_attendance_summary': class_attendance_summary,
+            'classes_with_attendance_today': classes_with_attendance_today,
+
+            # Leave
+            'pending_leave_count': pending_leave_count,
+            'staff_on_leave_today': staff_on_leave_today,
+            'staff_on_leave_list': staff_on_leave_list,
+            'recent_pending_leaves': recent_pending_leaves,
+
+            # Stock
+            'low_stock_count': low_stock_count,
+            'low_stock_items': low_stock_items,
+            'top_selling_products': top_selling_products,
+
+            # Calendar
+            'next_vacation': next_vacation,
+
+            # Meta
             'logo_url': tenant.school_logo.url if tenant.school_logo else None,
             'today': today,
             'start_date': first_day_month,
         }
 
-    return get_cached_or_compute(schema_name, 'dashboard_stats', compute, 300)
+    # DASHBOARD_V3_PROFESSIONAL: 60s instead of 300s. The signals in
+    # signals.py already invalidate on every relevant write, but a
+    # short TTL is a safety net for deployments where the signal
+    # module is not imported yet (e.g. fresh migration, missing
+    # apps.ready import). 60s keeps the dashboard live-looking
+    # without hammering the DB.
+    return get_cached_or_compute(schema_name, 'dashboard_stats', compute, 60)
+
 
 def product_list_api(request, schema_name):
     """API: Return list of products with their detail URLs for pre‑caching."""

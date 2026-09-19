@@ -328,3 +328,62 @@ def _ap2_on_leave_request_save(sender, instance, **kwargs):
 
 # ===== END ATTENDANCE_PRODUCTION_V2 SIGNALS =========================
 
+
+
+# ========== DASHBOARD_V2_CACHE_SIGNALS ==================================
+# The professional dashboard reads Staff, LeaveRequest, StudentAttendance,
+# and SchoolClass counts. Invalidate `dashboard_stats` when those change
+# so the dashboard is not stale for up to 5 minutes.
+from .models import Staff as _DBV2_Staff
+from .models import LeaveRequest as _DBV2_LeaveRequest
+from .models import StudentAttendance as _DBV2_StudentAttendance
+from .models import SchoolClass as _DBV2_SchoolClass
+from .models import StudentLeave as _DBV2_StudentLeave
+from .models import LeaveSuspension as _DBV2_LeaveSuspension
+
+
+def _dbv2_invalidate(schema_name):
+    if not schema_name or schema_name == 'public':
+        return
+    try:
+        invalidate_tenant_cache(schema_name, 'dashboard_stats')
+    except Exception:
+        pass
+
+
+@receiver(post_save, sender=_DBV2_Staff)
+@receiver(post_delete, sender=_DBV2_Staff)
+def _dbv2_on_staff(sender, instance, **kwargs):
+    _dbv2_invalidate(connection.schema_name)
+
+
+@receiver(post_save, sender=_DBV2_LeaveRequest)
+@receiver(post_delete, sender=_DBV2_LeaveRequest)
+def _dbv2_on_leave_request(sender, instance, **kwargs):
+    _dbv2_invalidate(connection.schema_name)
+
+
+@receiver(post_save, sender=_DBV2_StudentAttendance)
+@receiver(post_delete, sender=_DBV2_StudentAttendance)
+def _dbv2_on_student_attendance(sender, instance, **kwargs):
+    _dbv2_invalidate(connection.schema_name)
+
+
+@receiver(post_save, sender=_DBV2_SchoolClass)
+@receiver(post_delete, sender=_DBV2_SchoolClass)
+def _dbv2_on_school_class(sender, instance, **kwargs):
+    _dbv2_invalidate(connection.schema_name)
+
+
+@receiver(post_save, sender=_DBV2_StudentLeave)
+@receiver(post_delete, sender=_DBV2_StudentLeave)
+def _dbv2_on_student_leave(sender, instance, **kwargs):
+    _dbv2_invalidate(connection.schema_name)
+
+
+@receiver(post_save, sender=_DBV2_LeaveSuspension)
+@receiver(post_delete, sender=_DBV2_LeaveSuspension)
+def _dbv2_on_leave_suspension(sender, instance, **kwargs):
+    _dbv2_invalidate(connection.schema_name)
+
+# ===== END DASHBOARD_V2_CACHE_SIGNALS ==================================

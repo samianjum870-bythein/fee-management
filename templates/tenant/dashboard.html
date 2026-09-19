@@ -3,551 +3,785 @@
 {% load static %}
 {% block title %}Dashboard | {{ tenant.name }}{% endblock %}
 
+{% comment %}
+DASHBOARD_V3_PROFESSIONAL
+-------------------------
+Attention-first dashboard. Replaces the previous V2 layout, which had
+a broken colour hierarchy, no signals for actionable items, duplicated
+the sidebar as "Quick Actions", and buried every important widget
+below a wall of cards.
+
+Layout (top to bottom):
+  1. Hero          — greeting + date + logo
+  2. Alert strip   — pending leaves / low stock / staff on leave /
+                     defaulters. Blinks amber or red when count > 0.
+  3. KPI row       — students / today's collection / collection rate /
+                     outstanding
+  4. Main grid (2fr / 1fr):
+       left  → chart + recent payments + top defaulters
+       right → attendance snapshot + pending leaves list +
+               automation status + low-stock list
+  5. Vacation banner — only if one is scheduled
+
+NOTE: this comment is placed BELOW `{% extends %}` on purpose — Django
+requires `{% extends %}` to be the first template tag in the file.
+{% endcomment %}
+
 {% block extra_head %}
 <style>
-    /* ---- Dashboard specific styles ---- */
-    .dashboard-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1.5rem;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
-    .dashboard-header .title-group h1 {
-        font-size: 1.8rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        margin: 0;
-    }
-    .dashboard-header .title-group p {
-        color: var(--muted);
-        margin: 0.2rem 0 0;
-    }
-    .dashboard-header .school-logo {
-        height: 60px;
-        border-radius: 0.75rem;
-        border: 1px solid var(--border);
-        padding: 0.25rem;
-        background: var(--surface);
-    }
+.dv3 {
+    --dv3-radius: 14px;
+    --dv3-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --dv3-shadow-lg: 0 10px 25px -5px rgba(15,23,42,0.08), 0 8px 10px -6px rgba(15,23,42,0.05);
+    --dv3-warn: #b45309;
+    --dv3-warn-bg: #fef3c7;
+    --dv3-warn-border: #fcd34d;
+    --dv3-danger: #b91c1c;
+    --dv3-danger-bg: #fee2e2;
+    --dv3-danger-border: #fca5a5;
+    padding: 0.25rem 0 2rem;
+    color: var(--text, #0f172a);
+}
+[data-theme="dark"] .dv3 {
+    --dv3-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    --dv3-shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.45);
+    --dv3-warn-bg: rgba(180,83,9,0.22);
+    --dv3-warn-border: rgba(252,211,77,0.35);
+    --dv3-warn: #fcd34d;
+    --dv3-danger-bg: rgba(185,28,28,0.22);
+    --dv3-danger-border: rgba(252,165,165,0.35);
+    --dv3-danger: #fca5a5;
+}
 
-    /* Quick Actions */
-    .quick-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        margin-bottom: 1.5rem;
-    }
-    .action-card {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 1.2rem;
-        background: var(--surface);
-        border-radius: 2rem;
-        border: 1px solid var(--border);
-        text-decoration: none;
-        color: var(--text);
-        font-weight: 500;
-        font-size: 0.85rem;
-        transition: all 0.2s;
-        box-shadow: var(--shadow-sm);
-    }
-    .action-card:hover {
-        background: var(--primary);
-        color: white;
-        border-color: var(--primary);
-        transform: translateY(-2px);
-        box-shadow: var(--shadow);
-    }
-    .action-card svg {
-        transition: stroke 0.2s;
-    }
-    .action-card:hover svg {
-        stroke: white;
-    }
+/* ---------- Hero ---------- */
+.dv3-hero {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem;
+    padding: 1.15rem 1.35rem;
+    background: linear-gradient(135deg, rgba(59,130,246,0.06), rgba(37,99,235,0.015));
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: var(--dv3-radius);
+}
+.dv3-hero-left h1 {
+    font-size: 1.55rem; font-weight: 800; letter-spacing: -0.02em;
+    margin: 0 0 0.2rem; color: var(--text, #0f172a);
+}
+.dv3-hero-left p { margin: 0; color: var(--muted, #64748b); font-size: 0.88rem; }
+.dv3-hero-right { display: flex; align-items: center; gap: 0.9rem; }
+.dv3-hero-logo {
+    height: 48px; border-radius: 12px; border: 1px solid var(--border, #e2e8f0);
+    background: var(--surface, #fff); padding: 0.25rem;
+}
+.dv3-hero-date { font-size: 0.75rem; color: var(--muted, #64748b); text-align: right; }
+.dv3-hero-date strong {
+    display: block; color: var(--text, #0f172a);
+    font-size: 0.92rem; font-weight: 800;
+}
 
-    /* KPI Grid */
-    .kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-    .kpi-card {
-        background: var(--surface);
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        padding: 1rem;
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        transition: all 0.2s;
-        box-shadow: var(--shadow-sm);
-        text-decoration: none;
-        color: var(--text);
-        cursor: pointer;
-    }
-    .kpi-card:hover {
-        transform: translateY(-3px);
-        box-shadow: var(--shadow);
-        border-color: var(--primary);
-    }
-    .kpi-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 2rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: white;
-        font-size: 1.4rem;
-    }
-    .kpi-icon.blue { background: #3b82f6; }
-    .kpi-icon.green { background: #10b981; }
-    .kpi-icon.orange { background: #f59e0b; }
-    .kpi-icon.red { background: #ef4444; }
-    .kpi-icon.purple { background: #8b5cf6; }
-    .kpi-icon.teal { background: #14b8a6; }
+/* ---------- Alert strip ---------- */
+.dv3-alerts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem; margin-bottom: 1.35rem;
+}
+.dv3-alert {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.85rem 1rem; border-radius: var(--dv3-radius);
+    border: 1px solid var(--border, #e2e8f0);
+    background: var(--surface, #fff);
+    box-shadow: var(--dv3-shadow);
+    text-decoration: none; color: inherit;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.dv3-alert:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--dv3-shadow-lg);
+}
+.dv3-alert-icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: grid; place-items: center; flex-shrink: 0; color: #fff;
+}
+.dv3-alert.dv3-alert-danger .dv3-alert-icon { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.dv3-alert.dv3-alert-warn  .dv3-alert-icon { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.dv3-alert.dv3-alert-info  .dv3-alert-icon { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.dv3-alert-body { flex: 1; min-width: 0; }
+.dv3-alert-label {
+    font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted, #64748b);
+}
+.dv3-alert-value {
+    font-size: 1.4rem; font-weight: 800; color: var(--text, #0f172a);
+    line-height: 1.15; margin-top: 0.05rem; letter-spacing: -0.02em;
+}
+.dv3-alert-sub { font-size: 0.72rem; color: var(--muted, #64748b); margin-top: 0.1rem; }
 
-    .kpi-info {
-        flex: 1;
-        min-width: 0;
-    }
-    .kpi-label {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        color: var(--muted);
-        letter-spacing: 0.5px;
-        font-weight: 600;
-    }
-    .kpi-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        line-height: 1.2;
-        color: var(--text);
-    }
-    .kpi-sub {
-        font-size: 0.65rem;
-        color: var(--muted);
-        margin-top: 0.1rem;
-    }
+/* ---------- Blink / pulse animations ---------- */
+@keyframes dv3Blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.52; }
+}
+.dv3-blink-danger {
+    animation: dv3Blink 1.5s ease-in-out infinite;
+    border-color: var(--dv3-danger-border) !important;
+    background: var(--dv3-danger-bg) !important;
+}
+.dv3-blink-danger .dv3-alert-value { color: var(--dv3-danger); }
+.dv3-blink-warn {
+    animation: dv3Blink 1.8s ease-in-out infinite;
+    border-color: var(--dv3-warn-border) !important;
+    background: var(--dv3-warn-bg) !important;
+}
+.dv3-blink-warn .dv3-alert-value { color: var(--dv3-warn); }
+@media (prefers-reduced-motion: reduce) {
+    .dv3-blink-danger, .dv3-blink-warn { animation: none; }
+}
 
-    /* Two Column Layout */
-    .dashboard-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-        gap: 1.5rem;
-        margin-bottom: 1.5rem;
-    }
-    .card {
-        background: var(--surface);
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        overflow: hidden;
-        box-shadow: var(--shadow-sm);
-    }
-    .card-header {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.75rem 1rem;
-        background: var(--surface-alt);
-        border-bottom: 1px solid var(--border);
-    }
-    .card-header h3 {
-        flex: 1;
-        font-size: 1rem;
-        font-weight: 600;
-        margin: 0;
-    }
-    .view-link {
-        font-size: 0.8rem;
-        color: var(--primary);
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-    }
-    .view-link:hover {
-        text-decoration: underline;
-    }
-    .table-responsive {
-        overflow-x: auto;
-    }
-    .data-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-    .data-table th, .data-table td {
-        padding: 0.65rem 0.75rem;
-        text-align: left;
-        border-bottom: 1px solid var(--border);
-        font-size: 0.85rem;
-    }
-    .data-table th {
-        background: var(--surface-alt);
-        font-weight: 600;
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        color: var(--muted);
-    }
-    .amount {
-        font-weight: 600;
-        color: var(--primary);
-    }
-    .pending {
-        font-weight: 600;
-        color: var(--danger);
-    }
-    .student-meta {
-        font-size: 0.7rem;
-        color: var(--muted);
-        display: block;
-        margin-top: 0.1rem;
-    }
-    .btn-sm {
-        background: var(--primary);
-        color: white;
-        padding: 0.15rem 0.6rem;
-        border-radius: 2rem;
-        font-size: 0.7rem;
-        text-decoration: none;
-        display: inline-block;
-    }
-    .empty-row {
-        text-align: center;
-        padding: 1.5rem;
-        color: var(--muted);
-        font-size: 0.85rem;
-    }
-    code {
-        background: var(--surface-alt);
-        padding: 0.1rem 0.3rem;
-        border-radius: 0.3rem;
-        font-family: monospace;
-        font-size: 0.75rem;
-    }
+/* ---------- KPI row ---------- */
+.dv3-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1rem; margin-bottom: 1.5rem;
+}
+.dv3-kpi {
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: var(--dv3-radius);
+    padding: 1.05rem 1.15rem;
+    box-shadow: var(--dv3-shadow);
+    text-decoration: none; color: inherit;
+    position: relative; overflow: hidden;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.dv3-kpi::before {
+    content: ''; position: absolute; top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: var(--kpi-color, #3b82f6); opacity: 0.9;
+}
+.dv3-kpi:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--dv3-shadow-lg);
+    border-color: var(--kpi-color, #3b82f6);
+}
+.dv3-kpi-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.5rem; margin-bottom: 0.5rem;
+}
+.dv3-kpi-label {
+    font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--muted, #64748b);
+}
+.dv3-kpi-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: grid; place-items: center; color: #fff;
+    background: var(--kpi-color, #3b82f6); flex-shrink: 0;
+}
+.dv3-kpi-icon svg { width: 15px; height: 15px; }
+.dv3-kpi-value {
+    font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em;
+    color: var(--text, #0f172a); line-height: 1.1;
+}
+.dv3-kpi-value.dv3-kpi-value-sm { font-size: 1.35rem; }
+.dv3-kpi-sub { font-size: 0.72rem; color: var(--muted, #64748b); margin-top: 0.2rem; }
 
-    /* Collection Rate Progress Bar */
-    .rate-bar {
-        margin-top: 0.3rem;
-        height: 4px;
-        background: var(--surface-alt);
-        border-radius: 4px;
-        overflow: hidden;
-        width: 100%;
-    }
-    .rate-bar .fill {
-        height: 100%;
-        background: var(--primary);
-        border-radius: 4px;
-        transition: width 0.6s ease;
-    }
+/* ---------- Main grid ---------- */
+.dv3-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+    gap: 1.25rem; margin-bottom: 1.25rem;
+}
+@media (max-width: 1024px) {
+    .dv3-layout { grid-template-columns: 1fr; }
+}
 
-    /* Chart container – kept compact */
-    .chart-card {
-        background: var(--surface);
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        padding: 1rem;
-        margin-bottom: 1.5rem;
-        box-shadow: var(--shadow-sm);
-    }
-    .chart-card .card-header {
-        background: transparent;
-        border-bottom: none;
-        padding: 0 0 0.5rem 0;
-    }
-    .chart-card canvas {
-        max-height: 140px;
-        width: 100% !important;
-    }
+/* ---------- Card ---------- */
+.dv3-card {
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: var(--dv3-radius);
+    box-shadow: var(--dv3-shadow);
+    overflow: hidden; display: flex; flex-direction: column;
+    margin-bottom: 1.25rem;
+}
+.dv3-card-head {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    background: var(--surface-alt, #f8fafc);
+}
+.dv3-card-head h3 {
+    margin: 0; font-size: 0.92rem; font-weight: 700;
+    color: var(--text, #0f172a); flex: 1; letter-spacing: -0.01em;
+}
+.dv3-card-head .dv3-card-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: rgba(59,130,246,0.12); color: var(--primary, #3b82f6);
+    flex-shrink: 0;
+}
+.dv3-card-head .dv3-card-icon svg { width: 15px; height: 15px; }
+.dv3-card-head a {
+    font-size: 0.76rem; font-weight: 700;
+    color: var(--primary, #3b82f6); text-decoration: none;
+}
+.dv3-card-head a:hover { text-decoration: underline; }
 
-    /* Responsive tweaks */
-    @media (max-width: 768px) {
-        .kpi-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-        .dashboard-grid {
-            grid-template-columns: 1fr;
-        }
-        .dashboard-header {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-        .dashboard-header .school-logo {
-            align-self: flex-start;
-        }
-        .quick-actions {
-            gap: 0.5rem;
-        }
-        .action-card {
-            font-size: 0.75rem;
-            padding: 0.4rem 0.8rem;
-        }
-        .action-card svg {
-            width: 18px;
-            height: 18px;
-        }
-        .kpi-value {
-            font-size: 1.2rem;
-        }
-        .kpi-icon {
-            width: 40px;
-            height: 40px;
-            font-size: 1.2rem;
-        }
-    }
-    @media (max-width: 480px) {
-        .kpi-grid {
-            grid-template-columns: 1fr 1fr;
-        }
-        .kpi-card {
-            padding: 0.75rem;
-        }
-        .kpi-value {
-            font-size: 1.1rem;
-        }
-        .kpi-icon {
-            width: 36px;
-            height: 36px;
-            font-size: 1rem;
-        }
-    }
+/* ---------- Table ---------- */
+.dv3-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.dv3-table th {
+    padding: 0.55rem 1rem; text-align: left;
+    font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted, #64748b);
+    border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.dv3-table td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    color: var(--text, #0f172a);
+}
+.dv3-table tbody tr:last-child td { border-bottom: none; }
+.dv3-table tbody tr:hover { background: var(--surface-alt, #f8fafc); }
+.dv3-amount { font-weight: 700; color: #047857; }
+.dv3-amount-pending { font-weight: 700; color: var(--dv3-danger); }
+.dv3-code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.72rem;
+    background: var(--surface-alt, #f8fafc);
+    padding: 0.1rem 0.4rem; border-radius: 0.35rem;
+}
+.dv3-muted { color: var(--muted, #64748b); font-size: 0.75rem; }
+.dv3-empty {
+    padding: 1.5rem 1rem; text-align: center;
+    color: var(--muted, #64748b); font-size: 0.85rem;
+}
+
+/* ---------- Attendance tiles ---------- */
+.dv3-att-summary {
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    display: flex; justify-content: space-between; align-items: baseline;
+}
+.dv3-att-summary .lbl {
+    font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.06em; font-weight: 800;
+    color: var(--muted, #64748b);
+}
+.dv3-att-summary .val {
+    font-size: 1.25rem; font-weight: 800;
+    color: var(--text, #0f172a); letter-spacing: -0.02em;
+}
+.dv3-att-summary .val.none { color: var(--muted, #64748b); }
+.dv3-att-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.6rem; padding: 0.85rem;
+}
+.dv3-att-tile {
+    padding: 0.7rem 0.75rem; border-radius: 10px;
+    background: var(--surface-alt, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+}
+.dv3-att-tile .name {
+    font-size: 0.8rem; font-weight: 700;
+    color: var(--text, #0f172a); overflow-wrap: anywhere;
+}
+.dv3-att-tile .meta {
+    font-size: 0.68rem; color: var(--muted, #64748b);
+    margin-top: 0.15rem; display: flex; justify-content: space-between;
+}
+.dv3-att-bar {
+    height: 5px; background: var(--border, #e2e8f0);
+    border-radius: 999px; overflow: hidden; margin-top: 0.4rem;
+}
+.dv3-att-bar > span {
+    display: block; height: 100%; background: #10b981;
+    border-radius: 999px; transition: width 0.3s ease;
+}
+.dv3-att-tile.dv3-att-partial .dv3-att-bar > span { background: #f59e0b; }
+.dv3-att-tile.dv3-att-pending .dv3-att-bar > span { background: #ef4444; }
+.dv3-att-tile.dv3-att-none    .dv3-att-bar > span { background: #94a3b8; }
+
+/* ---------- Leave list ---------- */
+.dv3-leave-row {
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.dv3-leave-row:last-child { border-bottom: none; }
+.dv3-leave-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff; font-weight: 700; font-size: 0.75rem;
+    flex-shrink: 0;
+}
+.dv3-leave-body { flex: 1; min-width: 0; }
+.dv3-leave-body .t {
+    font-weight: 700; font-size: 0.85rem;
+    color: var(--text, #0f172a);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dv3-leave-body .s { font-size: 0.7rem; color: var(--muted, #64748b); margin-top: 0.05rem; }
+.dv3-leave-dates {
+    font-size: 0.68rem; color: var(--muted, #64748b);
+    white-space: nowrap; text-align: right;
+}
+
+/* ---------- Automation ---------- */
+.dv3-auto-body {
+    padding: 0.9rem 1.1rem;
+    display: flex; flex-direction: column; gap: 0.65rem;
+}
+.dv3-auto-row {
+    display: flex; justify-content: space-between;
+    font-size: 0.82rem; color: var(--muted, #64748b);
+}
+.dv3-auto-row strong { color: var(--text, #0f172a); font-weight: 700; }
+.dv3-auto-status {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-weight: 800; font-size: 0.82rem;
+}
+.dv3-auto-status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.2);
+}
+.dv3-auto-status.off .dot {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239,68,68,0.2);
+}
+
+/* ---------- Chart ---------- */
+.dv3-chart-wrap { padding: 0.9rem 1.1rem 1.1rem; }
+.dv3-chart-wrap canvas { width: 100% !important; max-height: 220px; }
+
+/* ---------- Vacation ---------- */
+.dv3-vacation {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.85rem 1.1rem;
+    background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.02));
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: var(--dv3-radius); margin-bottom: 1.25rem;
+    font-size: 0.85rem;
+}
+.dv3-vacation-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: grid; place-items: center;
+    background: rgba(16,185,129,0.18); color: #047857;
+    flex-shrink: 0;
+}
+.dv3-vacation strong { color: var(--text, #0f172a); font-weight: 800; }
+
+@media (max-width: 700px) {
+    .dv3-hero-left h1 { font-size: 1.25rem; }
+    .dv3-kpi-value { font-size: 1.4rem; }
+    .dv3-hero-right { width: 100%; justify-content: space-between; }
+}
 </style>
 {% endblock %}
 
 {% block body %}
-<!-- ====== HEADER ====== -->
-<div class="dashboard-header">
-    <div class="title-group">
-        <h1>Welcome back, {{ tenant.name }}</h1>
-        <p>Here's an overview of your school's financial and operational health</p>
+<div class="dv3">
+
+    {# ---------------- HERO ---------------- #}
+    <div class="dv3-hero">
+        <div class="dv3-hero-left">
+            <h1>Welcome back, {{ tenant.name }}</h1>
+            <p>Live overview of everything happening across your school.</p>
+        </div>
+        <div class="dv3-hero-right">
+            <div class="dv3-hero-date">
+                <strong>{{ today|date:"l" }}</strong>
+                {{ today|date:"d M Y" }}
+            </div>
+            {% if logo_url %}
+                <img src="{{ logo_url }}" alt="Logo" class="dv3-hero-logo">
+            {% endif %}
+        </div>
     </div>
-    {% if logo_url %}
-        <img src="{{ logo_url }}" class="school-logo" alt="Logo">
+
+    {# ---------------- ATTENTION STRIP ---------------- #}
+    <div class="dv3-alerts">
+        {% if tenant|has_feature:'leave_management' %}
+        <a href="{% url 'leave_management' schema_name=tenant.schema_name %}?status=pending"
+           class="dv3-alert dv3-alert-warn {% if pending_leave_count %}dv3-blink-warn{% endif %}">
+            <div class="dv3-alert-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M9 12h6m-6 4h6M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+                </svg>
+            </div>
+            <div class="dv3-alert-body">
+                <div class="dv3-alert-label">Pending Leaves</div>
+                <div class="dv3-alert-value">{{ pending_leave_count }}</div>
+                <div class="dv3-alert-sub">Awaiting your review</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if tenant|has_feature:'stock_management' %}
+        <a href="{% url 'stock_management' schema_name=tenant.schema_name %}"
+           class="dv3-alert dv3-alert-danger {% if low_stock_count %}dv3-blink-danger{% endif %}">
+            <div class="dv3-alert-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M20 7h-4.18A3 3 0 0 0 16 5.18V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v1.18A3 3 0 0 0 8.18 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+                </svg>
+            </div>
+            <div class="dv3-alert-body">
+                <div class="dv3-alert-label">Low Stock Items</div>
+                <div class="dv3-alert-value">{{ low_stock_count }}</div>
+                <div class="dv3-alert-sub">Need restocking soon</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if tenant|has_feature:'leave_management' %}
+        <a href="{% url 'leave_management' schema_name=tenant.schema_name %}"
+           class="dv3-alert dv3-alert-info {% if staff_on_leave_today %}dv3-blink-warn{% endif %}">
+            <div class="dv3-alert-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>
+                </svg>
+            </div>
+            <div class="dv3-alert-body">
+                <div class="dv3-alert-label">Staff On Leave</div>
+                <div class="dv3-alert-value">{{ staff_on_leave_today }}</div>
+                <div class="dv3-alert-sub">Today</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if tenant|has_feature:'defaulters' %}
+        <a href="{% url 'defaulters' schema_name=tenant.schema_name %}"
+           class="dv3-alert dv3-alert-danger {% if defaulters_count %}dv3-blink-danger{% endif %}">
+            <div class="dv3-alert-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 2"/>
+                </svg>
+            </div>
+            <div class="dv3-alert-body">
+                <div class="dv3-alert-label">Fee Defaulters</div>
+                <div class="dv3-alert-value">{{ defaulters_count }}</div>
+                <div class="dv3-alert-sub">₹{{ total_pending|humanize_number }} outstanding</div>
+            </div>
+        </a>
+        {% endif %}
+    </div>
+
+    {# ---------------- MAIN KPIs ---------------- #}
+    <div class="dv3-kpi-row">
+        {% if tenant|has_feature:'students' %}
+        <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="dv3-kpi" style="--kpi-color:#3b82f6;">
+            <div class="dv3-kpi-head">
+                <span class="dv3-kpi-label">Total Students</span>
+                <span class="dv3-kpi-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    </svg>
+                </span>
+            </div>
+            <div class="dv3-kpi-value">{{ total_students|humanize_number }}</div>
+            <div class="dv3-kpi-sub">{{ total_active_students }} active</div>
+        </a>
+        {% endif %}
+
+        {% if tenant|has_feature:'fee_collection' %}
+        <a href="{% url 'reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=today" class="dv3-kpi" style="--kpi-color:#10b981;">
+            <div class="dv3-kpi-head">
+                <span class="dv3-kpi-label">Today's Collection</span>
+                <span class="dv3-kpi-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <path d="M3 12h3l3-9 3 18 3-9h3"/>
+                    </svg>
+                </span>
+            </div>
+            <div class="dv3-kpi-value dv3-kpi-value-sm">₹{{ today_collection|humanize_number }}</div>
+            <div class="dv3-kpi-sub">Month: ₹{{ month_collection|humanize_number }}</div>
+        </a>
+        {% endif %}
+
+        <div class="dv3-kpi" style="--kpi-color:#8b5cf6; cursor:default;">
+            <div class="dv3-kpi-head">
+                <span class="dv3-kpi-label">Collection Rate</span>
+                <span class="dv3-kpi-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <path d="M22 12A10 10 0 1 1 12 2"/><path d="M22 4 12 14.01l-3-3"/>
+                    </svg>
+                </span>
+            </div>
+            <div class="dv3-kpi-value">{{ collection_rate }}%</div>
+            <div class="dv3-kpi-sub">₹{{ total_revenue|humanize_number }} collected</div>
+        </div>
+
+        <div class="dv3-kpi" style="--kpi-color:#f59e0b; cursor:default;">
+            <div class="dv3-kpi-head">
+                <span class="dv3-kpi-label">Outstanding</span>
+                <span class="dv3-kpi-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                    </svg>
+                </span>
+            </div>
+            <div class="dv3-kpi-value dv3-kpi-value-sm">₹{{ total_pending|humanize_number }}</div>
+            <div class="dv3-kpi-sub">Pending fees</div>
+        </div>
+    </div>
+
+    {# ---------------- MAIN LAYOUT ---------------- #}
+    <div class="dv3-layout">
+
+        {# LEFT COLUMN #}
+        <div>
+            {% if tenant|has_feature:'reports' %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M3 3v18h18"/><path d="M18 17V9M12 17V5M6 17v-3"/>
+                        </svg>
+                    </span>
+                    <h3>Monthly Collection Trend</h3>
+                    <span class="dv3-muted">Last 6 months</span>
+                </div>
+                <div class="dv3-chart-wrap">
+                    <canvas id="dv3CollectionChart" height="220"></canvas>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if tenant|has_feature:'fee_collection' %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M17 9V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
+                            <path d="M22 12H9m0 0 3-3m-3 3 3 3"/>
+                        </svg>
+                    </span>
+                    <h3>Recent Payments</h3>
+                    <a href="{% url 'reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all">View all →</a>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="dv3-table">
+                        <thead>
+                            <tr><th>Receipt</th><th>Student</th><th>Amount</th><th>Date</th><th>Mode</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for p in recent_payments %}
+                            <tr>
+                                <td><code class="dv3-code">{{ p.receipt_number }}</code></td>
+                                <td>
+                                    <strong>{{ p.student.name }}</strong>
+                                    <div class="dv3-muted">{{ p.student.roll_number }}</div>
+                                </td>
+                                <td class="dv3-amount">₹{{ p.amount|floatformat:2 }}</td>
+                                <td>{{ p.payment_date|date:"d M Y" }}</td>
+                                <td>{{ p.get_payment_mode_display }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="dv3-empty">No payments recorded yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if tenant|has_feature:'defaulters' %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon" style="background:rgba(239,68,68,0.12); color:#dc2626;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/>
+                        </svg>
+                    </span>
+                    <h3>Top Defaulters</h3>
+                    <a href="{% url 'defaulters' schema_name=tenant.schema_name %}">View all →</a>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="dv3-table">
+                        <thead><tr><th>Student</th><th>Roll</th><th>Pending</th></tr></thead>
+                        <tbody>
+                            {% for d in top_defaulters %}
+                            <tr>
+                                <td>
+                                    <strong>{{ d.student.name }}</strong>
+                                    <div class="dv3-muted">{{ d.student.grade }} - {{ d.student.section }}</div>
+                                </td>
+                                <td>{{ d.student.roll_number }}</td>
+                                <td class="dv3-amount-pending">₹{{ d.pending|floatformat:2 }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="dv3-empty">No defaulters — great job!</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {# RIGHT COLUMN #}
+        <div>
+            {% if tenant|has_feature:'attendance_management' %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon" style="background:rgba(16,185,129,0.14); color:#047857;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M9 11l3 3L22 4"/>
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                        </svg>
+                    </span>
+                    <h3>Today's Attendance</h3>
+                    <a href="{% url 'admin_attendance' schema_name=tenant.schema_name %}">Manage →</a>
+                </div>
+                <div class="dv3-att-summary">
+                    <span class="lbl">
+                        {{ classes_with_attendance_today }} / {{ class_attendance_summary|length }} classes marked
+                    </span>
+                    {% if today_attendance_marked %}
+                        <span class="val">{{ today_attendance_rate }}%</span>
+                    {% else %}
+                        <span class="val none">—</span>
+                    {% endif %}
+                </div>
+                <div class="dv3-att-grid">
+                    {% for row in class_attendance_summary %}
+                    <div class="dv3-att-tile dv3-att-{{ row.status }}">
+                        <div class="name">{{ row.name }}</div>
+                        <div class="meta">
+                            <span>{{ row.marked }}/{{ row.total }}</span>
+                            <span>
+                                {% if row.status == 'completed' %}✓
+                                {% elif row.status == 'partial' %}Partial
+                                {% elif row.status == 'pending' %}Pending
+                                {% else %}—{% endif %}
+                            </span>
+                        </div>
+                        <div class="dv3-att-bar">
+                            <span style="width: {% if row.total %}{% widthratio row.marked row.total 100 %}{% else %}0{% endif %}%;"></span>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div class="dv3-empty" style="grid-column: 1 / -1;">No active classes.</div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if tenant|has_feature:'leave_management' %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon" style="background:rgba(245,158,11,0.14); color:#b45309;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M9 12h6m-6 4h6"/>
+                            <path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+                        </svg>
+                    </span>
+                    <h3>Pending Leave Requests</h3>
+                    <a href="{% url 'leave_management' schema_name=tenant.schema_name %}?status=pending">Review →</a>
+                </div>
+                <div>
+                    {% for lv in recent_pending_leaves %}
+                    <div class="dv3-leave-row">
+                        <div class="dv3-leave-avatar">{{ lv.staff.full_name|slice:":1"|upper }}</div>
+                        <div class="dv3-leave-body">
+                            <div class="t">{{ lv.staff.full_name }}</div>
+                            <div class="s">{{ lv.title }}</div>
+                        </div>
+                        <div class="dv3-leave-dates">
+                            {{ lv.start_date|date:"d M" }}<br>→ {{ lv.end_date|date:"d M" }}
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div class="dv3-empty">No pending leave requests.</div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if tenant|has_feature:'fee_settings' %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon" style="background:rgba(139,92,246,0.12); color:#7c3aed;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/>
+                        </svg>
+                    </span>
+                    <h3>Fee Automation</h3>
+                    <a href="{% url 'fee_settings' schema_name=tenant.schema_name %}">Configure →</a>
+                </div>
+                <div class="dv3-auto-body">
+                    <div class="dv3-auto-status {% if not fee_automation_enabled %}off{% endif %}">
+                        <span class="dot"></span>
+                        {% if fee_automation_enabled %}Automation Active{% else %}Automation Off{% endif %}
+                    </div>
+                    {% if next_fee_generation_date %}
+                    <div class="dv3-auto-row">
+                        <span>Next generation</span>
+                        <strong>{{ next_fee_generation_date|date:"d M Y" }}</strong>
+                    </div>
+                    {% endif %}
+                    <div class="dv3-auto-row">
+                        <span>This month</span>
+                        <strong>₹{{ month_collection|humanize_number }}</strong>
+                    </div>
+                    <div class="dv3-auto-row">
+                        <span>Outstanding</span>
+                        <strong style="color:#dc2626;">₹{{ total_pending|humanize_number }}</strong>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if tenant|has_feature:'stock_management' and low_stock_items %}
+            <div class="dv3-card">
+                <div class="dv3-card-head">
+                    <span class="dv3-card-icon" style="background:rgba(239,68,68,0.12); color:#dc2626;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="10"/>
+                        </svg>
+                    </span>
+                    <h3>Low Stock Items</h3>
+                    <a href="{% url 'stock_management' schema_name=tenant.schema_name %}">Manage →</a>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="dv3-table">
+                        <thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead>
+                        <tbody>
+                            {% for item in low_stock_items %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td><span style="color:#dc2626; font-weight:800;">{{ item.quantity }}</span></td>
+                                <td>₹{{ item.selling_price|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ---------------- VACATION BANNER ---------------- #}
+    {% if next_vacation %}
+    <div class="dv3-vacation">
+        <div class="dv3-vacation-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <rect x="3" y="6" width="18" height="16" rx="2"/>
+                <path d="M8 2v4M16 2v4M3 10h18"/>
+            </svg>
+        </div>
+        <div style="flex:1;">
+            <strong>{{ next_vacation.name }}</strong>
+            &nbsp;·&nbsp; {{ next_vacation.start_date|date:"d M Y" }} → {{ next_vacation.end_date|date:"d M Y" }}
+        </div>
+    </div>
     {% endif %}
+
 </div>
 
-<!-- ====== QUICK ACTIONS ====== -->
-<div class="quick-actions">
-    {% if tenant|has_feature:'students' %}<a href="{% url 'add_student' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg>
-        Add Student
-    </a>{% endif %}
-    {% if tenant|has_feature:'fee_collection' %}<a href="{% url 'fee_collection' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
-        Fee Collection
-    </a>{% endif %}
-    {% if tenant|has_feature:'defaulters' %}<a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        Defaulters
-    </a>{% endif %}
-    {% if tenant|has_feature:'reports' %}<a href="{% url 'reports' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-        Reports
-    </a>{% endif %}
-    {% if tenant|has_feature:'stock_management' %}<a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg>
-        Add Product
-    </a>{% endif %}
-    {% if tenant|has_feature:'stock_management' %}<a href="{% url 'sell_separately' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
-        Sell Separately
-    </a>{% endif %}
-    {% if tenant|has_feature:'fee_structure' %}<a href="{% url 'fee_structure' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
-        Fee Structure
-    </a>{% endif %}
-    {% if tenant|has_feature:'fee_settings' %}<a href="{% url 'settings' schema_name=tenant.schema_name %}" class="action-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-        Settings
-    </a>{% endif %}
-</div>
-
-<!-- ====== KPI CARDS (clickable) ====== -->
-<div class="kpi-grid">
-    {% if tenant|has_feature:'students' %}<a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="kpi-card">
-        <div class="kpi-icon blue"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Total Students</div>
-            <div class="kpi-value">{{ total_students|humanize_number }}</div>
-            <div class="kpi-sub">Enrolled</div>
-        </div>
-    </a>{% endif %}
-    {% if tenant|has_feature:'reports' %}<a href="{% url 'reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all" class="kpi-card">
-        <div class="kpi-icon green"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M3 12h3l3-9 3 18 3-9h3"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Total Revenue</div>
-            <div class="kpi-value">{{ total_revenue|humanize_number }}</div>
-            <div class="kpi-sub">All time</div>
-        </div>
-    </a>{% endif %}
-    {% if tenant|has_feature:'defaulters' %}<a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="kpi-card">
-        <div class="kpi-icon orange"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Total Pending</div>
-            <div class="kpi-value">{{ total_pending|humanize_number }}</div>
-            <div class="kpi-sub">All time</div>
-        </div>
-    </a>{% endif %}
-    {% if tenant|has_feature:'defaulters' %}<a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="kpi-card">
-        <div class="kpi-icon red"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Defaulters</div>
-            <div class="kpi-value">{{ defaulters_count|humanize_number }}</div>
-            <div class="kpi-sub">With pending fees</div>
-        </div>
-    </a>{% endif %}
-    {% if tenant|has_feature:'stock_management' %}<a href="{% url 'stock_management' schema_name=tenant.schema_name %}" class="kpi-card">
-        <div class="kpi-icon purple"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Low Stock</div>
-            <div class="kpi-value">{{ low_stock_count|humanize_number }}</div>
-            <div class="kpi-sub">Items < 10</div>
-        </div>
-    </a>{% endif %}
-    <div class="kpi-card" style="cursor: default;">
-        <div class="kpi-icon teal"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Collection Rate</div>
-            <div class="kpi-value">{{ collection_rate|humanize_number }}%</div>
-            <div class="rate-bar"><div class="fill" style="width: {{ collection_rate|humanize_number }}%;"></div></div>
-            <div class="kpi-sub">Paid / Total billed</div>
-        </div>
-    </div>
-</div>
-
-<!-- ====== TWO COLUMN LAYOUT ====== -->
-<div class="dashboard-grid">
-    <!-- Recent Payments -->
-    <div class="card">
-        <div class="card-header">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
-            <h3>Recent Payments</h3>
-            <a href="{% url 'reports' schema_name=tenant.schema_name %}?type=collection&quick_filter=all" class="view-link">View all <svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></a>
-        </div>
-        <div class="table-responsive">
-            <table class="data-table">
-                <thead>
-                    <tr><th>Receipt</th><th>Student</th><th>Amount</th><th>Date</th><th>Mode</th></tr>
-                </thead>
-                <tbody>
-                    {% for p in recent_payments %}
-                    <tr>
-                        <td><code>{{ p.receipt_number }}</code></td>
-                        <td>{{ p.student.name }}<span class="student-meta">{{ p.student.roll_number }}</span></td>
-                        <td class="amount">₹{{ p.amount|floatformat:2 }}</td>
-                        <td>{{ p.payment_date|date:"d M Y" }}</td>
-                        <td>{{ p.get_payment_mode_display }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="5" class="empty-row">No payments recorded yet</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Top Defaulters -->
-    <div class="card">
-        <div class="card-header">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <h3>Top Defaulters</h3>
-            <a href="{% url 'defaulters' schema_name=tenant.schema_name %}" class="view-link">View all <svg class="inline-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></a>
-        </div>
-        <div class="table-responsive">
-            <table class="data-table">
-                <thead><tr><th>Student</th><th>Roll No</th><th>Pending</th><th>Action</th></tr></thead>
-                <tbody>
-                    {% for d in top_defaulters %}
-                    <tr>
-                        <td><strong>{{ d.student.name }}</strong><span class="student-meta">{{ d.student.grade }} - {{ d.student.section }}</span></td>
-                        <td>{{ d.student.roll_number }}</td>
-                        <td class="pending">₹{{ d.pending|floatformat:2 }}</td>
-                        <td><a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=d.student.id %}" class="btn-sm">Collect</a></td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="4" class="empty-row">No defaulters</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- ====== TREND CHART (compact) ====== -->
-<div class="chart-card">
-    <div class="card-header">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M12 17V5M6 17v-3"/></svg>
-        <h3>Monthly Collection Trend</h3>
-        <span style="font-size:0.7rem; color:var(--muted);">Last 6 months</span>
-    </div>
-    <canvas id="collectionChart" height="140"></canvas>
-</div>
-
-<!-- ====== SCRIPT ====== -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-    (function() {
-        const months = {{ months_labels|safe }};
-        const amounts = {{ months_amounts|safe }};
-        const ctx = document.getElementById('collectionChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: months,
-                datasets: [{
-                    label: 'Collection (₹)',
-                    data: amounts,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59,130,246,0.08)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 2,
-                    borderWidth: 2,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return '₹' + context.parsed.y.toFixed(2);
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            callback: function(value) { return '₹' + value; },
-                            font: { size: 10 }
-                        },
-                        grid: { display: false }
-                    },
-                    x: {
-                        grid: { display: false },
-                        ticks: { font: { size: 10 } }
-                    }
-                },
-                elements: {
-                    line: { borderJoinStyle: 'round' }
-                }
-            }
-        });
-    })();
-</script>
+{# Mobile redirect — unchanged behaviour. #}
 <script>
     if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
         const currentPath = window.location.pathname.replace(/\/+$/, '');
@@ -556,4 +790,63 @@
         }
     }
 </script>
+
+{# ---------------- CHART ---------------- #}
+{% if tenant|has_feature:'reports' %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    var months = {{ months_labels|safe }};
+    var amounts = {{ months_amounts|safe }};
+    var canvas = document.getElementById('dv3CollectionChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: months,
+            datasets: [{
+                label: 'Collection (₹)',
+                data: amounts,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59,130,246,0.12)',
+                fill: true,
+                tension: 0.35,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function (c) {
+                            return '₹' + Number(c.parsed.y).toLocaleString('en-IN');
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        font: { size: 10 },
+                        callback: function (v) {
+                            return '₹' + (v >= 1000 ? (v/1000)+'k' : v);
+                        }
+                    },
+                    grid: { color: 'rgba(148,163,184,0.18)' }
+                },
+                x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+            },
+            elements: { line: { borderJoinStyle: 'round' } }
+        }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}
