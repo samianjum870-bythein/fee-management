@@ -19,7 +19,7 @@ from collections import defaultdict
 import json
 import re
 from functools import wraps
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from ..models import SchoolClient, Student, FeeStructure, FeeRecord, PaymentTransaction, SchoolFeeSettings, Product, ProductCategory
@@ -31,6 +31,13 @@ from ..models import ManualGenerationLog
 from .helpers import *
 from django.urls import reverse   # ✅ Added for reverse redirects
 
+# STUDENT_LIST_FEATURE_GATE_V1: desktop student_list previously had
+# no @require_tenant_type / @require_school_feature decorators, so
+# a tenant with the 'students' feature disabled could still reach
+# this page by direct URL. Now gated the same way as the mobile
+# view and every other student-module view.
+@require_tenant_type(['school'])
+@require_school_feature('students')
 def student_list(request, schema_name):
     if is_mobile_user_agent(request):
         return redirect('mobile_student_list', schema_name=schema_name)
@@ -51,6 +58,12 @@ def mobile_student_list(request, schema_name):
     response['Expires'] = '0'
     return response
 
+# STUDENT_CSRF_COOKIE_FIX_V1: guarantee a csrftoken cookie is set
+# when the profile page renders, so the voucher / fee-generation
+# JS can POST back without a 403. Without this, a user who lands
+# on the profile page directly (no prior CSRF-tagged page visit)
+# has no cookie and every POST fails.
+@ensure_csrf_cookie
 @require_tenant_type(['school'])
 @require_school_feature('students')
 def student_profile(request, schema_name, student_id):
@@ -93,7 +106,9 @@ def add_student(request, schema_name):
     response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return response
 
-@csrf_exempt
+# STUDENT_CSRF_HARDENING_V1: state-changing endpoint — CSRF is
+# enforced (the @csrf_exempt decorator was removed).  The client
+# must send X-CSRFToken like every other POST API in this module.
 @require_http_methods(['POST'])
 @require_tenant_type(['school'])
 @require_school_feature('students')
@@ -163,6 +178,8 @@ def edit_student(request, schema_name, student_id):
     response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return response
 
+@require_tenant_type(['school'])
+@require_school_feature('students')
 def student_fee_records_api(request, schema_name, student_id):
     """API: Return JSON list of fee records for a student."""
     from django.http import JsonResponse
@@ -175,10 +192,30 @@ def student_fee_records_api(request, schema_name, student_id):
             return JsonResponse({'error': 'Student not found'}, status=404)
         records = []
         for fr in student.fee_records.all().order_by('-year', '-month'):
-            records.append({'id': fr.id, 'month': fr.month, 'year': fr.year, 'amount': float(fr.total_amount), 'paid_amount': float(fr.paid_amount), 'status': fr.get_status_display(), 'due_date': fr.due_date.isoformat(), 'receipts': [{'id': p.id, 'number': p.receipt_number} for p in fr.payments.all()]})
+            # STUDENT_FEE_API_FIELD_FIX_V1: return BOTH `amount` (base)
+            # and `total_amount` (base + extra_charges + late_fee). The
+            # profile JS reads `total_amount`; older consumers read
+            # `amount`. Sending both keeps every caller consistent.
+            records.append({
+                'id': fr.id,
+                'month': fr.month,
+                'year': fr.year,
+                'amount': float(fr.amount),
+                'total_amount': float(fr.total_amount),
+                'paid_amount': float(fr.paid_amount),
+                'remaining': float(fr.remaining_total),
+                'status': fr.status,
+                'status_display': fr.get_status_display(),
+                'due_date': fr.due_date.isoformat(),
+                'receipts': [
+                    {'id': p.id, 'number': p.receipt_number}
+                    for p in fr.payments.all()
+                ],
+            })
         return JsonResponse(records, safe=False)
 
 @require_tenant_type(['school'])
+@require_school_feature('students')
 def student_payments_api(request, schema_name, student_id):
     """API: Return JSON list of payments for a student."""
     from django.http import JsonResponse
@@ -191,14 +228,50 @@ def student_payments_api(request, schema_name, student_id):
             return JsonResponse({'error': 'Student not found'}, status=404)
         payments = []
         for p in student.payments.all().order_by('-payment_date'):
-            payments.append({'id': p.id, 'receipt_number': p.receipt_number, 'amount': float(p.amount), 'date': p.payment_date.isoformat(), 'mode': p.get_payment_mode_display(), 'remarks': p.remarks or '', 'url': f'/portal/{schema_name}/fee/receipt/{p.id}/'})
+            # STUDENT_PAYMENTS_API_FIELD_FIX_V1: return the fields
+            # the profile JS actually reads (`day`, `type`, `mode`).
+            # Previously only id/receipt_number/amount/date/mode/
+            # remarks/url were returned, so the JS's Day/Type/Total
+            # Due/Remaining columns rendered as blank or '—'.
+            _remarks = (p.remarks or '').lower()
+            _has_fee = p.fee_records.exists()
+            _has_items = 'items sold' in _remarks
+            if _has_fee and _has_items:
+                _ptype = 'Fee & Items'
+            elif _has_fee:
+                _ptype = 'Fee'
+            elif _has_items:
+                _ptype = 'Items'
+            elif p.payment_type in ('full', 'partial'):
+                # STUDENT_PAYMENTS_TYPE_FALLBACK_FIX_V1: a payment
+                # with no linked FeeRecord and no 'items sold'
+                # markers is still a fee payment — the default
+                # payment_type is 'full'/'partial' for fee
+                # collections. Old code fell through to 'Unknown'.
+                _ptype = 'Fee'
+            else:
+                _ptype = 'Unknown'
+            payments.append({
+                'id': p.id,
+                'receipt_number': p.receipt_number,
+                'amount': float(p.amount),
+                'date': p.payment_date.isoformat(),
+                'day': p.payment_date.strftime('%a'),
+                'mode': p.get_payment_mode_display(),
+                'payment_mode': p.payment_mode,
+                'type': _ptype,
+                'payment_type': p.payment_type,
+                'remarks': p.remarks or '',
+                'url': f'/portal/{schema_name}/fee/receipt/{p.id}/',
+            })
         return JsonResponse(payments, safe=False)
 
 @require_tenant_type(['school'])
+@require_school_feature('students')
 def student_current_fee_status_api(request, schema_name, student_id):
+    """API: Get current month's fee record status for a student."""
     logger = logging.getLogger(__name__)
     logger.info('student_current_fee_status_api called for student=%s schema=%s', student_id, schema_name)
-    "API: Get current month's fee record status for a student."
     from django.http import JsonResponse
     from django.utils import timezone
     from ..models import Student, FeeRecord

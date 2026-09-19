@@ -134,7 +134,7 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">Assign Timetable to Class</h1>
-        <p class="page-desc">Assign a generated periods timetable to any class. Each class can have one assigned timetable at a time.</p>
+        <p class="page-desc">Assign generated periods timetables to a class. A class can have multiple timetables, but they must all share the same label.</p>
     </div>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}" class="btn-secondary btn-lg" style="text-decoration:none;">← Back to Timetables</a>
@@ -145,7 +145,7 @@
 <div class="card">
     <div class="card-header">
         <h3>Current Assignments</h3>
-        <span class="text-muted" style="font-size:0.85rem;">{{ assignments|length }} class{{ assignments|length|pluralize }} assigned</span>
+        <span class="text-muted" style="font-size:0.85rem;">{{ assignments|length }} assignment{{ assignments|length|pluralize }}</span>
     </div>
 
     {% if assignments %}
@@ -201,26 +201,12 @@
 </div>
 
 <!-- ===== Assign Modal ===== -->
+{# ASSIGN_MULTI_TIMETABLE_V1 — class first; timetable filtered by label #}
 <div id="assignOverlay" class="overlay">
     <div class="overlay-content">
         <h2>Assign Timetable to Class</h2>
         <form method="post" action="{% url 'api_assign_timetable' schema_name=tenant.schema_name %}" autocomplete="off">
             {% csrf_token %}
-            <div class="form-group">
-                <label for="assignTimetableSelect">Timetable *</label>
-                <select name="timetable_id" id="assignTimetableSelect" class="form-control" required>
-                    <option value="">-- Select Timetable --</option>
-                    {% for tt in timetables %}
-                    <option value="{{ tt.id }}">{{ tt.title }}{% if tt.label_id %} ({{ tt.label.name }}){% endif %}</option>
-                    {% endfor %}
-                </select>
-                {% if not timetables %}
-                <small class="text-muted" style="display:block; margin-top:0.4rem; font-size:0.78rem;">
-                    No timetables exist yet. Create one first on the
-                    <a href="{% url 'timetable_periods' schema_name=tenant.schema_name %}">Periods</a> page.
-                </small>
-                {% endif %}
-            </div>
             <div class="form-group">
                 <label for="assignClassSelect">Class *</label>
                 <select name="class_id" id="assignClassSelect" class="form-control" required>
@@ -235,30 +221,143 @@
                 </small>
                 {% endif %}
             </div>
+            <div class="form-group">
+                <label for="assignTimetableSelect">Timetable *</label>
+                <select name="timetable_id" id="assignTimetableSelect" class="form-control" required disabled>
+                    <option value="">-- Select Class First --</option>
+                </select>
+                <small id="assignLabelHint" class="text-muted" style="display:block; margin-top:0.4rem; font-size:0.78rem;"></small>
+            </div>
             <div class="form-actions">
                 <button type="button" id="closeAssignBtn" class="btn-secondary">Cancel</button>
-                <button type="submit" class="btn-primary"
-                        {% if not timetables or not all_classes %}disabled{% endif %}>Assign</button>
+                <button type="submit" id="assignSubmitBtn" class="btn-primary" disabled>Assign</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
+    // ASSIGN_MULTI_TIMETABLE_V1 — class-first modal flow.
     (function () {
         var overlay = document.getElementById('assignOverlay');
         var openBtn = document.getElementById('openAssignBtn');
         var closeBtn = document.getElementById('closeAssignBtn');
-        if (openBtn) openBtn.addEventListener('click', function () { overlay.classList.add('active'); });
-        if (closeBtn) closeBtn.addEventListener('click', function () { overlay.classList.remove('active'); });
+        var classSelect = document.getElementById('assignClassSelect');
+        var ttSelect = document.getElementById('assignTimetableSelect');
+        var hint = document.getElementById('assignLabelHint');
+        var submitBtn = document.getElementById('assignSubmitBtn');
+        var schemaName = '{{ tenant.schema_name }}';
+
+        function resetTimetableDropdown(message) {
+            ttSelect.innerHTML = '';
+            var opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = message || '-- Select Class First --';
+            ttSelect.appendChild(opt);
+            ttSelect.disabled = true;
+            if (submitBtn) submitBtn.disabled = true;
+        }
+
+        if (openBtn) openBtn.addEventListener('click', function () {
+            overlay.classList.add('active');
+            classSelect.value = '';
+            resetTimetableDropdown('-- Select Class First --');
+            if (hint) hint.textContent = '';
+        });
+
+        if (closeBtn) closeBtn.addEventListener('click', function () {
+            overlay.classList.remove('active');
+        });
+
         if (overlay) overlay.addEventListener('click', function (e) {
             if (e.target === overlay) overlay.classList.remove('active');
         });
+
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && overlay.classList.contains('active')) {
                 overlay.classList.remove('active');
             }
         });
+
+        if (classSelect) {
+            classSelect.addEventListener('change', function () {
+                var cid = classSelect.value;
+                if (!cid) {
+                    resetTimetableDropdown('-- Select Class First --');
+                    if (hint) hint.textContent = '';
+                    return;
+                }
+                resetTimetableDropdown('Loading...');
+                if (hint) hint.textContent = '';
+
+                var url = '/portal/' + schemaName +
+                          '/api/timetable/class/' + encodeURIComponent(cid) +
+                          '/available-timetables/';
+
+                fetch(url, {
+                    method: 'GET',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin'
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data || !data.ok) {
+                        resetTimetableDropdown('Failed to load timetables');
+                        return;
+                    }
+
+                    if (data.has_assignments) {
+                        if (hint) {
+                            hint.innerHTML = 'This class already has ' +
+                                data.assigned_count + ' timetable(s) with label ' +
+                                '<strong>' + (data.label_name || '') + '</strong>. ' +
+                                'Only timetables with this label can be added.';
+                        }
+                    } else {
+                        if (hint) {
+                            hint.innerHTML = 'No timetables assigned yet — all labels available.';
+                        }
+                    }
+
+                    var list = data.timetables || [];
+                    ttSelect.innerHTML = '';
+                    if (list.length === 0) {
+                        var opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = data.has_assignments
+                            ? 'No more ' + (data.label_name || '') + ' timetables available'
+                            : 'No timetables exist yet';
+                        ttSelect.appendChild(opt);
+                        ttSelect.disabled = true;
+                        if (submitBtn) submitBtn.disabled = true;
+                        return;
+                    }
+
+                    var placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = '-- Select Timetable --';
+                    ttSelect.appendChild(placeholder);
+
+                    list.forEach(function (tt) {
+                        var opt = document.createElement('option');
+                        opt.value = tt.id;
+                        opt.textContent = tt.title + (tt.label ? ' (' + tt.label + ')' : '');
+                        ttSelect.appendChild(opt);
+                    });
+                    ttSelect.disabled = false;
+                    if (submitBtn) submitBtn.disabled = true;
+                })
+                .catch(function () {
+                    resetTimetableDropdown('Error loading timetables');
+                });
+            });
+        }
+
+        if (ttSelect) {
+            ttSelect.addEventListener('change', function () {
+                if (submitBtn) submitBtn.disabled = !ttSelect.value;
+            });
+        }
     })();
 </script>
 {% endblock %}

@@ -1,5 +1,6 @@
 {% extends 'tenant/base.html' %}
 {% load fee_extras %}
+{% load class_display %}
 {% block title %}Students taught by {{ teacher.full_name }} | {{ tenant.name }}{% endblock %}
 
 {% block body %}
@@ -35,7 +36,10 @@
                     <td><span class="roll-badge">{{ s.roll_number }}</span></td>
                     <td><strong>{{ s.name }}</strong></td>
                     <td>{{ s.father_name }}</td>
-                    <td>{{ s.grade }} - {{ s.section }}</td>
+                    {# STUDENTS_BY_TEACHER_WING_DISPLAY_FIX_V1: use the
+                       shared display_class filter so wing-prefixed
+                       names render correctly. #}
+                    <td>{{ s|display_class:tenant }}</td>
                     <td><span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span></td>
                     <td class="action-btns">
                         <a href="{% url 'student_profile' schema_name=tenant.schema_name student_id=s.id %}" class="action-icon" title="Profile">

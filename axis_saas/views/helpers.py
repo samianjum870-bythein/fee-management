@@ -151,9 +151,54 @@ def get_overall_pending(student):
         total_items_cost += sum((item['line_total'] for item in items))
     return total_fee + total_items_cost - total_paid
 
+# STUDENT_PENDING_EXTRA_CHARGES_FIX_V1: PostgreSQL expression that
+# sums the `amount` key of every entry inside FeeRecord.extra_charges.
+# extra_charges is a JSONField (jsonb on PostgreSQL) storing a list
+# of {"title": ..., "amount": ...} dicts. Django's ORM cannot
+# aggregate a JSON list, so we drop to RawSQL. NULL and empty
+# arrays both coalesce to 0.
+_EXTRA_CHARGES_SQL = (
+    "COALESCE((SELECT SUM((ch->>'amount')::numeric) "
+    "FROM jsonb_array_elements(COALESCE(extra_charges, '[]'::jsonb)) AS ch), 0)"
+)
+
+
+def _extra_charges_expr():
+    """Return a RawSQL expression summing the amount of every
+    entry in FeeRecord.extra_charges. Safe on PostgreSQL; returns 0
+    when the column is NULL or the array is empty.
+
+    STUDENT_PENDING_EXTRA_CHARGES_OUTPUT_FIELD_FIX_V1: the
+    RawSQL MUST declare output_field. Without it, Django cannot
+    resolve the type of the enclosing ``F + F + RawSQL``
+    expression and raises:
+
+        FieldError: Cannot infer type of '+' expression
+        involving these types: DecimalField, Field.
+    """
+    from django.db.models.expressions import RawSQL
+    return RawSQL(
+        _EXTRA_CHARGES_SQL,
+        [],
+        output_field=DecimalField(max_digits=12, decimal_places=2),
+    )
+
+
 def get_student_pending_queryset(students_qs):
-    """Annotate each student with SQL-level fee totals and pending balance."""
-    fee_total = FeeRecord.objects.filter(student=OuterRef('pk')).values('student').annotate(total=Sum('amount')).values('total')
+    """Annotate each student with SQL-level fee totals and pending balance.
+
+    STUDENT_PENDING_EXTRA_CHARGES_FIX_V1: the sum now includes
+    late_fee_accrued AND every entry in FeeRecord.extra_charges,
+    so list / defaulters / collection / dashboard totals match the
+    student profile (which uses FeeRecord.total_amount).
+    """
+    _fee_expr = F('amount') + F('late_fee_accrued') + _extra_charges_expr()
+    # STUDENT_PENDING_EXTRA_CHARGES_OUTPUT_FIELD_FIX_V1: pass an
+    # explicit output_field to Sum() too, so the subquery
+    # aggregate has a well-defined Decimal type regardless of
+    # backend / Django version quirks.
+    _fee_sum = Sum(_fee_expr, output_field=DecimalField(max_digits=12, decimal_places=2))
+    fee_total = FeeRecord.objects.filter(student=OuterRef('pk')).values('student').annotate(total=_fee_sum).values('total')
     payment_total = PaymentTransaction.objects.filter(student=OuterRef('pk')).values('student').annotate(total=Sum('amount')).values('total')
     return students_qs.annotate(
         total_fee=Coalesce(Subquery(fee_total), Value(Decimal('0'), output_field=DecimalField())),
@@ -164,7 +209,10 @@ def get_student_pending_queryset(students_qs):
 
 def aggregate_pending_totals():
     """Aggregate fee and payment totals for the full tenant in one database query."""
-    total_fee = FeeRecord.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    # STUDENT_PENDING_CALC_FIX_V1
+    _fee_expr = F('amount') + F('late_fee_accrued') + _extra_charges_expr()
+    _fee_sum = Sum(_fee_expr, output_field=DecimalField(max_digits=12, decimal_places=2))
+    total_fee = FeeRecord.objects.aggregate(total=_fee_sum)['total'] or Decimal('0')
     total_paid = PaymentTransaction.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
     return {
         'total_fee': total_fee,
@@ -495,19 +543,44 @@ def get_student_profile_context(request, schema_name, student_id):
             items_cost_per_payment[p.id] = cost
             total_items_cost_all += cost
 
+        # STUDENT_PAYMENT_HISTORY_MATH_FIX_V1: per-payment contribution
+        # must come from the PAYMENT's own amount, not from
+        # fr.paid_amount (which is the cumulative paid on that record
+        # across every payment ever made to it). We iterate the
+        # payments in chronological order and split each payment into
+        # the fee portion and the items portion. Fee is applied first
+        # (matching fee_collection.fee_collection()), the remainder is
+        # attributed to items, capped by the total item cost on the
+        # whole ledger.
         cumulative_fee_paid = Decimal('0')
         cumulative_items_paid = Decimal('0')
         payment_list = []
 
         for p in payments_qs_all:
-            fee_paid = sum(fr.paid_amount for fr in p.fee_records.all())
+            payment_amount = p.amount or Decimal('0')
             items_cost = items_cost_per_payment.get(p.id, Decimal('0'))
-            total_due_before = (total_fee - cumulative_fee_paid) + (total_items_cost_all - cumulative_items_paid)
+            fee_outstanding = total_fee - cumulative_fee_paid
+            if fee_outstanding < 0:
+                fee_outstanding = Decimal('0')
+            items_outstanding = total_items_cost_all - cumulative_items_paid
+            if items_outstanding < 0:
+                items_outstanding = Decimal('0')
 
+            total_due_before = fee_outstanding + items_outstanding
+
+            # Fee first, then items — matching how the cashier
+            # allocates the amount in fee_collection.
+            fee_paid = min(payment_amount, fee_outstanding)
+            items_paid = min(payment_amount - fee_paid, items_outstanding)
+            # Any surplus beyond both buckets is left as overpayment;
+            # it does not reduce remaining below zero.
             cumulative_fee_paid += fee_paid
-            cumulative_items_paid += (p.amount - fee_paid)
+            cumulative_items_paid += items_paid
 
-            remaining_balance = (total_fee - cumulative_fee_paid) + (total_items_cost_all - cumulative_items_paid)
+            remaining_balance = (
+                (total_fee - cumulative_fee_paid)
+                + (total_items_cost_all - cumulative_items_paid)
+            )
             if remaining_balance < 0:
                 remaining_balance = Decimal('0')
 
@@ -540,9 +613,21 @@ def get_student_profile_context(request, schema_name, student_id):
         item_purchase_total = total_paid - fee_paid_total
         pending_total = total_fee + total_items_cost_all - total_paid
 
+        # STUDENT_MOBILE_EDIT_CLASS_CONTEXT_FIX_V1: the mobile
+        # edit-student modal (added by STUDENT_MOBILE_EDIT_CLASS_FIX_V1)
+        # renders a `school_class` <select> whose options come from
+        # `all_classes`. The view never passed that variable, so the
+        # dropdown was empty and the `required` attribute blocked
+        # every submit — the mobile edit was still silently broken.
+        _all_classes = list(
+            SchoolClass.objects
+            .filter(is_active=True)
+            .order_by('name', 'section')
+        )
         return {
             'tenant': tenant,
             'student': student,
+            'all_classes': _all_classes,
             'fee_records': fee_records,
             'payments': page_obj,
             'total_fee': total_fee,

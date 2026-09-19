@@ -433,46 +433,339 @@ class BatchUpdateLabelTimesTests(TimetableAPITestBase):
 # =====================================================================
 # ClassTimetableAssignment  (OneToOne + cascade)
 # =====================================================================
-class TimetableAssignmentModelTests(TimetableAPITestBase):
+
+
+# =====================================================================
+# ASSIGN_MULTI_TIMETABLE_V1_TESTS
+# ---------------------------------------------------------------------
+# These replace the old `TimetableAssignmentModelTests` which asserted
+# the previous OneToOne behaviour (a second assignment for the same
+# class raised IntegrityError). The rule is now:
+#
+#   * A class can hold MANY timetables.
+#   * Every assigned timetable for a class must share the SAME
+#     ScheduleLabel as the first one.
+#   * The exact same timetable cannot be assigned twice to the same
+#     class (enforced by a DB UniqueConstraint on
+#     (school_class, timetable)).
+#
+# The four classes below cover: DB-level multi-assignment rules,
+# the GET /available-timetables/ endpoint, the POST assign endpoint,
+# and a page-render sanity check.
+# =====================================================================
+
+
+class TimetableAssignmentMultiTests(TimetableAPITestBase):
+    """DB-level rules for the new multi-assignment model."""
 
     def _mk_class(self, name="Grade 1", section="A"):
         with schema_context(self.tenant.schema_name):
             return SchoolClass.objects.create(name=name, section=section)
 
-    def _mk_tt(self, title):
+    def _mk_label(self, name):
+        with schema_context(self.tenant.schema_name):
+            return ScheduleLabel.objects.get_or_create(name=name)[0]
+
+    def _mk_tt(self, title, label):
         with schema_context(self.tenant.schema_name):
             return PeriodsTimetable.objects.create(
-                title=title, label="Senior", break_duration=0, days=[],
+                title=title, label=label, break_duration=0, days=[],
             )
 
-    def test_one_to_one_constraint_on_school_class(self):
+    def test_one_to_one_constraint_is_gone(self):
+        """A class can hold MULTIPLE distinct timetables now."""
         cls = self._mk_class()
-        tt_a = self._mk_tt("A")
-        tt_b = self._mk_tt("B")
+        lbl = self._mk_label("Senior")
+        tt_a = self._mk_tt("TT-A", lbl)
+        tt_b = self._mk_tt("TT-B", lbl)
 
         with schema_context(self.tenant.schema_name):
             ClassTimetableAssignment.objects.create(
                 school_class=cls, timetable=tt_a,
             )
-            # Wrap the failing insert in its own atomic block so the
-            # outer TestCase transaction stays usable after the error.
+            # No IntegrityError — the OneToOneField is now a ForeignKey.
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_b,
+            )
+            self.assertEqual(
+                ClassTimetableAssignment.objects.filter(
+                    school_class=cls,
+                ).count(),
+                2,
+            )
+
+    def test_same_timetable_twice_rejected(self):
+        """Same (class, timetable) pair is refused by the DB."""
+        cls = self._mk_class()
+        lbl = self._mk_label("Senior")
+        tt_a = self._mk_tt("TT-A", lbl)
+
+        with schema_context(self.tenant.schema_name):
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_a,
+            )
             with self.assertRaises(IntegrityError):
                 with transaction.atomic():
                     ClassTimetableAssignment.objects.create(
-                        school_class=cls, timetable=tt_b,
+                        school_class=cls, timetable=tt_a,
                     )
 
-    def test_timetable_delete_cascades_to_assignment(self):
+    def test_timetable_delete_cascades_to_all_assignments(self):
+        """Deleting a timetable removes every assignment that pointed
+        at it, even when the same class held several assignments."""
         cls = self._mk_class()
-        tt = self._mk_tt("A")
+        lbl = self._mk_label("Senior")
+        tt_a = self._mk_tt("TT-A", lbl)
+        tt_b = self._mk_tt("TT-B", lbl)
+
         with schema_context(self.tenant.schema_name):
-            assignment = ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt,
+            a1 = ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_a,
             )
-            assignment_id = assignment.id
-            tt.delete()
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_b,
+            )
+            a1_id = a1.id
+            tt_a.delete()
             self.assertFalse(
+                ClassTimetableAssignment.objects.filter(id=a1_id).exists()
+            )
+            # The other assignment survives.
+            self.assertTrue(
                 ClassTimetableAssignment.objects.filter(
-                    id=assignment_id
+                    school_class=cls, timetable=tt_b,
                 ).exists()
             )
+
+
+class AvailableTimetablesAPITests(TimetableAPITestBase):
+    """GET /api/timetable/class/<id>/available-timetables/."""
+
+    def _mk_class(self, name="Grade 1", section="A"):
+        with schema_context(self.tenant.schema_name):
+            return SchoolClass.objects.create(name=name, section=section)
+
+    def _mk_label(self, name):
+        with schema_context(self.tenant.schema_name):
+            return ScheduleLabel.objects.get_or_create(name=name)[0]
+
+    def _mk_tt(self, title, label):
+        with schema_context(self.tenant.schema_name):
+            return PeriodsTimetable.objects.create(
+                title=title, label=label, break_duration=0, days=[],
+            )
+
+    def _url(self, class_id):
+        return self.url(
+            f"api/timetable/class/{class_id}/available-timetables/"
+        )
+
+    def test_all_timetables_returned_when_no_assignment(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        j_lbl = self._mk_label("Junior")
+        self._mk_tt("Senior-A", s_lbl)
+        self._mk_tt("Junior-A", j_lbl)
+
+        response = self.client.get(
+            self._url(cls.id),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertFalse(body["has_assignments"])
+        self.assertEqual(body["assigned_count"], 0)
+        titles = sorted(tt["title"] for tt in body["timetables"])
+        self.assertEqual(titles, ["Junior-A", "Senior-A"])
+
+    def test_only_same_label_returned_after_first_assignment(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        j_lbl = self._mk_label("Junior")
+        tt_s1 = self._mk_tt("Senior-A", s_lbl)
+        tt_s2 = self._mk_tt("Senior-B", s_lbl)
+        self._mk_tt("Junior-A", j_lbl)
+
+        with schema_context(self.tenant.schema_name):
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_s1,
+            )
+
+        response = self.client.get(
+            self._url(cls.id),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        self.assertTrue(body["has_assignments"])
+        self.assertEqual(body["assigned_count"], 1)
+        self.assertEqual(body["label_name"], "Senior")
+        titles = sorted(tt["title"] for tt in body["timetables"])
+        # Senior-A already assigned -> excluded.
+        # Junior-A different label -> excluded.
+        self.assertEqual(titles, ["Senior-B"])
+
+    def test_already_assigned_timetable_excluded(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        tt_s1 = self._mk_tt("Senior-A", s_lbl)
+
+        with schema_context(self.tenant.schema_name):
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_s1,
+            )
+
+        response = self.client.get(
+            self._url(cls.id),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        body = response.json()
+        self.assertEqual(body["timetables"], [])
+
+    def test_unknown_class_404(self):
+        response = self.client.get(
+            self._url(99999),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+class AssignTimetablePOSTTests(TimetableAPITestBase):
+    """POST /timetable/assign/submit/ — same-label rule enforcement."""
+
+    def _mk_class(self, name="Grade 1", section="A"):
+        with schema_context(self.tenant.schema_name):
+            return SchoolClass.objects.create(name=name, section=section)
+
+    def _mk_label(self, name):
+        with schema_context(self.tenant.schema_name):
+            return ScheduleLabel.objects.get_or_create(name=name)[0]
+
+    def _mk_tt(self, title, label):
+        with schema_context(self.tenant.schema_name):
+            return PeriodsTimetable.objects.create(
+                title=title, label=label, break_duration=0, days=[],
+            )
+
+    def _post(self, class_id, timetable_id):
+        return self.client.post(
+            self.url("timetable/assign/submit/"),
+            data={
+                "class_id": class_id,
+                "timetable_id": timetable_id,
+            },
+        )
+
+    def _count(self, cls):
+        with schema_context(self.tenant.schema_name):
+            return ClassTimetableAssignment.objects.filter(
+                school_class_id=cls.id,
+            ).count()
+
+    def test_first_assignment_succeeds(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        tt = self._mk_tt("Senior-A", s_lbl)
+
+        response = self._post(cls.id, tt.id)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._count(cls), 1)
+
+    def test_second_same_label_assignment_allowed(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        tt_a = self._mk_tt("Senior-A", s_lbl)
+        tt_b = self._mk_tt("Senior-B", s_lbl)
+
+        self._post(cls.id, tt_a.id)
+        self._post(cls.id, tt_b.id)
+        self.assertEqual(self._count(cls), 2)
+
+    def test_third_same_label_assignment_allowed(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        titles = ["Senior-A", "Senior-B", "Senior-C"]
+        tts = [self._mk_tt(t, s_lbl) for t in titles]
+        for tt in tts:
+            self._post(cls.id, tt.id)
+        self.assertEqual(self._count(cls), 3)
+
+    def test_different_label_assignment_refused(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        j_lbl = self._mk_label("Junior")
+        tt_s = self._mk_tt("Senior-A", s_lbl)
+        tt_j = self._mk_tt("Junior-A", j_lbl)
+
+        self._post(cls.id, tt_s.id)
+        self._post(cls.id, tt_j.id)
+        # Junior is refused -> only the Senior assignment exists.
+        self.assertEqual(self._count(cls), 1)
+        with schema_context(self.tenant.schema_name):
+            first = ClassTimetableAssignment.objects.get(
+                school_class=cls,
+            )
+            self.assertEqual(first.timetable.label.name, "Senior")
+
+    def test_duplicate_assignment_refused(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        tt = self._mk_tt("Senior-A", s_lbl)
+
+        self._post(cls.id, tt.id)
+        self._post(cls.id, tt.id)  # exact same timetable again
+        self.assertEqual(self._count(cls), 1)
+
+    def test_missing_class_or_timetable_is_redirected(self):
+        # A POST with no class_id / timetable_id must not 500 — it
+        # redirects back to the page with an error message.
+        response = self.client.post(
+            self.url("timetable/assign/submit/"),
+            data={},
+        )
+        self.assertEqual(response.status_code, 302)
+
+
+class MultiTimetableRenderTests(TimetableAPITestBase):
+    """The assignment page must render cleanly with multiple
+    timetables attached to one class."""
+
+    def _mk_class(self, name="Grade 1", section="A"):
+        with schema_context(self.tenant.schema_name):
+            return SchoolClass.objects.create(name=name, section=section)
+
+    def _mk_label(self, name):
+        with schema_context(self.tenant.schema_name):
+            return ScheduleLabel.objects.get_or_create(name=name)[0]
+
+    def _mk_tt(self, title, label):
+        with schema_context(self.tenant.schema_name):
+            return PeriodsTimetable.objects.create(
+                title=title, label=label, break_duration=0, days=[],
+            )
+
+    def test_page_renders_with_multiple_assignments(self):
+        cls = self._mk_class()
+        s_lbl = self._mk_label("Senior")
+        tt_a = self._mk_tt("Senior-A", s_lbl)
+        tt_b = self._mk_tt("Senior-B", s_lbl)
+        with schema_context(self.tenant.schema_name):
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_a,
+            )
+            ClassTimetableAssignment.objects.create(
+                school_class=cls, timetable=tt_b,
+            )
+
+        response = self.client.get(self.url("timetable/assign/"))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.context["assignments"]), 2)
+        titles = sorted(
+            a.timetable.title for a in response.context["assignments"]
+        )
+        self.assertEqual(titles, ["Senior-A", "Senior-B"])
+
+    def test_page_renders_with_no_assignments(self):
+        response = self.client.get(self.url("timetable/assign/"))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(list(response.context["assignments"]), [])

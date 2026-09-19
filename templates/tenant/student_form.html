@@ -138,11 +138,119 @@
 </style>
 <script>
     window.AXIS_SCHEMA = '{{ tenant.schema_name }}';
+
+  // ===== OFFLINE_STUDENT_SYNC_V1 =====
+  // Drains the IndexedDB `offlineStudents` queue into the server
+  // whenever the browser comes back online or on page load.
+  // This is the missing half of the offline save flow — before this
+  // patch, entries were written to IndexedDB and never sent anywhere.
+  (function () {
+    if (typeof indexedDB === 'undefined') return;
+
+    function openDb() {
+      return new Promise(function (resolve, reject) {
+        var req = indexedDB.open('AxisOfflineDB', 1);
+        req.onupgradeneeded = function (evt) {
+          var db = evt.target.result;
+          if (!db.objectStoreNames.contains('offlineStudents')) {
+            db.createObjectStore('offlineStudents', { keyPath: 'id', autoIncrement: true });
+          }
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+
+    function getAll(db) {
+      return new Promise(function (resolve, reject) {
+        if (!db.objectStoreNames.contains('offlineStudents')) { resolve([]); return; }
+        var tx = db.transaction('offlineStudents', 'readonly');
+        var req = tx.objectStore('offlineStudents').getAll();
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+
+    function deleteEntry(db, id) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction('offlineStudents', 'readwrite');
+        var req = tx.objectStore('offlineStudents').delete(id);
+        req.onsuccess = function () { resolve(); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+
+    function getCsrf() {
+      var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    async function syncQueue() {
+      if (!navigator.onLine) return;
+      var schema = window.AXIS_SCHEMA;
+      if (!schema) return;
+
+      var db;
+      try { db = await openDb(); } catch (e) { return; }
+      var entries;
+      try { entries = await getAll(db); } catch (e) { return; }
+      if (!entries.length) return;
+
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        try {
+          var payload = Object.assign({}, entry.data || {});
+          payload.action = entry.action || 'create';
+          if (entry.student_id) payload.student_id = entry.student_id;
+
+          var resp = await fetch(
+            '/portal/' + schema + '/api/sync-offline-student/',
+            {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrf(),
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              body: JSON.stringify(payload),
+            }
+          );
+          if (resp.ok) {
+            await deleteEntry(db, entry.id);
+          } else {
+            // Leave the entry in the queue; will retry on next online event.
+            console.warn('offline sync: server rejected entry', entry.id, resp.status);
+          }
+        } catch (err) {
+          console.warn('offline sync: network error for entry', entry.id, err);
+        }
+      }
+    }
+
+    window.addEventListener('online', syncQueue);
+    document.addEventListener('DOMContentLoaded', function () {
+      // Small delay so the page shell has fully rendered.
+      setTimeout(syncQueue, 400);
+    });
+    window.AXIS_SYNC_OFFLINE_STUDENTS = syncQueue;
+  })();
+  // ===== /OFFLINE_STUDENT_SYNC_V1 =====
     document.addEventListener('DOMContentLoaded', function () {
         const form = document.getElementById('studentForm');
         if (!form) return;
 
         form.addEventListener('submit', function (event) {
+            // STUDENT_FORM_ONLINE_SUBMIT_FIX_V1:
+            // When the browser is online, let the form submit to the
+            // server normally — the original code ALWAYS called
+            // preventDefault() and then saved to IndexedDB, so the
+            // server never saw the data unless the offline-sync cron
+            // happened to run. Now we only fall back to the offline
+            // path when navigator.onLine is false.
+            if (typeof navigator !== 'undefined' && navigator.onLine) {
+                return;
+            }
             event.preventDefault();
 
             const redirectUrl = '{% url "student_list" schema_name=tenant.schema_name %}?fresh=1';

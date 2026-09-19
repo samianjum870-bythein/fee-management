@@ -67,7 +67,6 @@ def voucher_status_api(request, schema_name, student_id):
         response = {'exists': fee_record is not None, 'fee_record': {'id': fee_record.id if fee_record else None, 'amount': float(fee_record.amount) if fee_record else 0, 'paid_amount': float(fee_record.paid_amount) if fee_record else 0, 'extra_charges': fee_record.extra_charges or [] if fee_record else [], 'status': fee_record.status if fee_record else None, 'can_edit': fee_record and fee_record.paid_amount == 0, 'due_date_offset': fee_record.due_date_offset if fee_record else settings.due_date_offset, 'late_fee_per_day': float(fee_record.late_fee_per_day) if fee_record and fee_record.late_fee_per_day is not None else float(settings.late_fee_penalty)} if fee_record else None, 'default_fee': float(default_fee), 'default_charges': default_charges, 'settings': {'due_date_offset': fee_record.due_date_offset if fee_record else settings.due_date_offset, 'late_fee_penalty': float(fee_record.late_fee_per_day) if fee_record and fee_record.late_fee_per_day is not None else float(settings.late_fee_penalty)}, 'student_name': student.name, 'student_roll': student.roll_number, 'grade': student.grade, 'section': student.section, 'total_pending': float(pending)}
         return JsonResponse(response)
 
-@csrf_exempt
 def generate_voucher_api(request, schema_name, student_id):
     """API: Create or update fee record for current month with custom amount and charges."""
     from django.http import JsonResponse

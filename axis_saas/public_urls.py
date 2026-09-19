@@ -23,6 +23,7 @@ from .views.timetable import (
 from .views.periods import periods_management, api_update_break, api_add_bunch, api_delete_bunch
 from .views.timetable_assignments import (
     timetable_assignments, api_assign_timetable, api_unassign_timetable,
+    api_class_available_timetables,
 )
 from .views.class_staff import (
     api_assign_class_teacher as api_class_assign_class_teacher,
@@ -326,10 +327,13 @@ urlpatterns = [
     path('sw.js', service_worker, name='service_worker'),
     path('portal/<slug:schema_name>/manifest.json', manifest, name='pwa_manifest'),
 
+    # VOUCHER_API_AUTH_WRAPPER_V1: all three voucher APIs now require an
+    # authenticated admin session for the tenant schema.
+    # generate_voucher_api's @csrf_exempt was also removed.
     # Voucher endpoints
-    path('portal/<slug:schema_name>/api/student/<int:student_id>/voucher-status/', voucher_status_api, name='voucher_status_api'),
-    path('portal/<slug:schema_name>/api/student/<int:student_id>/generate-voucher/', generate_voucher_api, name='generate_voucher_api'),
-    path('portal/<slug:schema_name>/api/student/<int:student_id>/voucher-html/', voucher_html_api, name='voucher_html_api'),
+    path('portal/<slug:schema_name>/api/student/<int:student_id>/voucher-status/', portal_wrapper(login_required_for_schema(voucher_status_api)), name='voucher_status_api'),
+    path('portal/<slug:schema_name>/api/student/<int:student_id>/generate-voucher/', portal_wrapper(login_required_for_schema(generate_voucher_api)), name='generate_voucher_api'),
+    path('portal/<slug:schema_name>/api/student/<int:student_id>/voucher-html/', portal_wrapper(login_required_for_schema(voucher_html_api)), name='voucher_html_api'),
 
     # Notification API endpoints
     path('portal/<slug:schema_name>/api/notifications/', portal_wrapper(login_required_for_schema(notifications_list_api)), name='notifications_list_api'),
@@ -367,6 +371,8 @@ urlpatterns = [
     path('portal/<slug:schema_name>/timetable/assign/', portal_wrapper(login_required_for_schema(timetable_assignments)), name='timetable_assignments'),
     path('portal/<slug:schema_name>/timetable/assign/submit/', portal_wrapper(login_required_for_schema(api_assign_timetable)), name='api_assign_timetable'),
     path('portal/<slug:schema_name>/timetable/assign/unassign/', portal_wrapper(login_required_for_schema(api_unassign_timetable)), name='api_unassign_timetable'),
+    # ASSIGN_MULTI_TIMETABLE_V1
+    path('portal/<slug:schema_name>/api/timetable/class/<int:class_id>/available-timetables/', portal_wrapper(login_required_for_schema(api_class_available_timetables)), name='api_class_available_timetables'),
     # ===== ASSIGN_TEACHERS_v1 =====
     path('portal/<slug:schema_name>/timetable/assign-teachers/',
          portal_wrapper(login_required_for_schema(timetable_assign_teachers)),

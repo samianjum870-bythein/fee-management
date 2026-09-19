@@ -1,2338 +1,1061 @@
 {% extends 'tenant/base.html' %}
 {% load class_display %}
+{% load fee_extras %}
 {% block title %}{{ student.name }} | Profile{% endblock %}
 
 {% block body %}
 <style>
-    /* ── Reset & Base ── */
-    .profile-wrapper {
-        max-width: 1280px;
-        margin: 0 auto;
-        padding: 0.5rem 0;
-    }
-
-    /* ── Profile Header ── */
-    .profile-header-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg, 1.25rem);
-        padding: 1.5rem 2rem;
-        margin-bottom: 2rem;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1.25rem 2rem;
-        box-shadow: var(--shadow-sm);
-    }
-
-    .profile-identity {
-        display: flex;
-        align-items: center;
-        gap: 1.25rem;
-        flex: 1 1 280px;
-        min-width: 200px;
-    }
-
-    .profile-avatar {
-        width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, var(--primary), var(--primary-dark, #2563eb));
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.75rem;
-        font-weight: 700;
-        flex-shrink: 0;
-        text-transform: uppercase;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-    }
-
-    .profile-name-group {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-
-    .profile-name-group h1 {
-        font-size: 1.6rem;
-        font-weight: 700;
-        margin: 0;
-        color: var(--text);
-        line-height: 1.2;
-        letter-spacing: -0.02em;
-    }
-
-    .profile-class-link {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: var(--muted);
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        flex-wrap: wrap;
-    }
-
-    .profile-class-link a {
-        color: var(--primary);
-        text-decoration: none;
-        font-weight: 600;
-        transition: color 0.2s;
-    }
-    .profile-class-link a:hover {
-        color: var(--primary-dark, #1d4ed8);
-        text-decoration: underline;
-    }
-
-    .profile-roll {
-        font-size: 0.8rem;
-        color: var(--muted);
-        background: var(--surface-alt);
-        padding: 0.15rem 0.7rem;
-        border-radius: 2rem;
-        display: inline-block;
-        border: 1px solid var(--border);
-        font-weight: 500;
-    }
-
-    /* ══════════════════════════════════════════════════
-       ── REDESIGNED HEADER ACTIONS (Visible Buttons) ──
-       ══════════════════════════════════════════════════ */
-    .profile-actions {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.6rem;
-        flex: 0 0 auto;
-    }
-
-    .profile-actions .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.65rem 1.25rem;
-        border-radius: 0.7rem;
-        font-weight: 600;
-        font-size: 0.85rem;
-        letter-spacing: 0.01em;
-        text-decoration: none;
-        border: 1.5px solid transparent;
-        cursor: pointer;
-        transition: transform 0.15s ease, box-shadow 0.2s ease,
-                    background 0.2s ease, border-color 0.2s ease,
-                    color 0.2s ease;
-        white-space: nowrap;
-        line-height: 1;
-        position: relative;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-    }
-    .profile-actions .btn:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
-    }
-    .profile-actions .btn:active {
-        transform: translateY(0);
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
-    }
-    .profile-actions .btn .inline-icon {
-        width: 16px;
-        height: 16px;
-        stroke-width: 2;
-    }
-
-    /* Manage Attendance – Indigo (distinct, always visible) */
-    .profile-actions .btn-attendance {
-        background: linear-gradient(135deg, #6366f1, #4f46e5);
-        color: #ffffff;
-        border-color: #4f46e5;
-        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
-    }
-    .profile-actions .btn-attendance:hover {
-        background: linear-gradient(135deg, #4f46e5, #4338ca);
-        box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4);
-    }
-
-    /* Voucher – Amber */
-    .profile-actions .btn-voucher {
-        background: linear-gradient(135deg, #f59e0b, #d97706);
-        color: #ffffff;
-        border-color: #d97706;
-        box-shadow: 0 2px 8px rgba(217, 119, 6, 0.28);
-    }
-    .profile-actions .btn-voucher:hover {
-        background: linear-gradient(135deg, #d97706, #b45309);
-        box-shadow: 0 6px 18px rgba(217, 119, 6, 0.4);
-    }
-
-    /* Edit – Slate */
-    .profile-actions .btn-edit {
-        background: linear-gradient(135deg, #64748b, #475569);
-        color: #ffffff;
-        border-color: #475569;
-        box-shadow: 0 2px 8px rgba(71, 85, 105, 0.28);
-    }
-    .profile-actions .btn-edit:hover {
-        background: linear-gradient(135deg, #475569, #334155);
-        box-shadow: 0 6px 18px rgba(71, 85, 105, 0.4);
-    }
-
-    /* Collect Pending – Emerald (kept prominent) */
-    .profile-actions .btn-collect {
-        background: linear-gradient(135deg, #10b981, #059669);
-        color: #ffffff;
-        border-color: #059669;
-        box-shadow: 0 2px 8px rgba(5, 150, 105, 0.28);
-    }
-    .profile-actions .btn-collect:hover {
-        background: linear-gradient(135deg, #059669, #047857);
-        box-shadow: 0 6px 18px rgba(5, 150, 105, 0.4);
-    }
-
-    /* Back – light outline but with real contrast */
-    .profile-actions .btn-back {
-        background: var(--surface-alt);
-        color: var(--text);
-        border-color: var(--border);
-    }
-    .profile-actions .btn-back:hover {
-        background: var(--border);
-        border-color: var(--muted);
-        color: var(--text);
-    }
-
-    /* ── Info Grid ── */
-    .info-grid-modern {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 2rem;
-    }
-
-    .info-item {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius, 0.75rem);
-        padding: 1rem 1.1rem;
-        transition: border-color 0.2s;
-    }
-    .info-item:hover {
-        border-color: var(--primary);
-    }
-
-    .info-item .label {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: var(--muted);
-        font-weight: 600;
-        margin-bottom: 0.2rem;
-    }
-
-    .info-item .value {
-        font-weight: 600;
-        font-size: 1rem;
-        color: var(--text);
-        word-break: break-word;
-    }
-
-    .info-item .value .status-badge {
-        display: inline-block;
-        padding: 0.15rem 0.7rem;
-        border-radius: 2rem;
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: capitalize;
-    }
-    .status-active {
-        background: #d1fae5;
-        color: #065f46;
-    }
-    .status-inactive {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-    .status-graduated {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-    .status-enrolled {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    /* ══════════════════════════════════════════════════
-       ── REDESIGNED TEACHER SECTION (Clear & Visible) ──
-       ══════════════════════════════════════════════════ */
-    .teacher-section {
-        display: grid;
-        grid-template-columns: minmax(240px, 1fr) minmax(320px, 2fr);
-        gap: 1rem;
-        margin-bottom: 2rem;
-    }
-
-    .teacher-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius, 0.85rem);
-        padding: 1.15rem 1.25rem;
-        box-shadow: var(--shadow-sm);
-        position: relative;
-        overflow: hidden;
-    }
-    .teacher-card::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 4px;
-        height: 100%;
-        background: linear-gradient(180deg, #6366f1, #4f46e5);
-    }
-    .teacher-card.subjects-card::before {
-        background: linear-gradient(180deg, #0ea5e9, #0284c7);
-    }
-
-    .teacher-card-head {
-        display: flex;
-        align-items: center;
-        gap: 0.55rem;
-        margin-bottom: 0.9rem;
-    }
-    .teacher-card-head .tc-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 0.5rem;
-        background: linear-gradient(135deg, #6366f1, #4f46e5);
-        color: #fff;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-    }
-    .teacher-card.subjects-card .teacher-card-head .tc-icon {
-        background: linear-gradient(135deg, #0ea5e9, #0284c7);
-    }
-    .teacher-card-head .tc-icon svg {
-        width: 15px;
-        height: 15px;
-    }
-    .teacher-card-head .tc-title {
-        font-size: 0.72rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-        color: var(--muted);
-    }
-
-    /* Class teacher display */
-    .ct-name-row {
-        display: flex;
-        align-items: center;
-        gap: 0.85rem;
-    }
-    .ct-avatar {
-        width: 46px;
-        height: 46px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #6366f1, #4f46e5);
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.05rem;
-        font-weight: 700;
-        flex-shrink: 0;
-        text-transform: uppercase;
-        box-shadow: 0 3px 10px rgba(79, 70, 229, 0.3);
-    }
-    .ct-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.1rem;
-        min-width: 0;
-    }
-    .ct-name {
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--text);
-        text-decoration: none;
-        line-height: 1.25;
-        transition: color 0.15s;
-    }
-    .ct-name:hover {
-        color: #4f46e5;
-        text-decoration: underline;
-    }
-    .ct-role {
-        font-size: 0.72rem;
-        color: var(--muted);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .ct-empty {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.55rem 0.75rem;
-        background: var(--surface-alt);
-        border: 1px dashed var(--border);
-        border-radius: 0.6rem;
-        color: var(--muted);
-        font-size: 0.86rem;
-        font-style: italic;
-    }
-
-    /* Subject teachers list */
-    .subject-list-modern {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-        gap: 0.55rem;
-    }
-    .subject-list-modern li {
-        display: flex;
-        align-items: center;
-        gap: 0.65rem;
-        padding: 0.6rem 0.75rem;
-        border-radius: 0.65rem;
-        background: var(--surface-alt);
-        border: 1px solid var(--border);
-        transition: border-color 0.2s, transform 0.12s, box-shadow 0.2s;
-        min-width: 0;
-    }
-    .subject-list-modern li:hover {
-        border-color: #0284c7;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.12);
-    }
-    .subject-list-modern .sub-avatar {
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #0ea5e9, #0284c7);
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.78rem;
-        font-weight: 700;
-        flex-shrink: 0;
-        text-transform: uppercase;
-        letter-spacing: 0.02em;
-    }
-    .subject-list-modern .sub-avatar.unassigned-avatar {
-        background: linear-gradient(135deg, #cbd5e1, #94a3b8);
-        color: #fff;
-    }
-    .subject-list-modern .sub-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.05rem;
-        min-width: 0;
-        flex: 1 1 auto;
-    }
-    .subject-list-modern .sub-subject {
-        font-size: 0.68rem;
-        font-weight: 800;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        line-height: 1.2;
-    }
-    .subject-list-modern .sub-teacher {
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: var(--text);
-        text-decoration: none;
-        line-height: 1.25;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        transition: color 0.15s;
-    }
-    .subject-list-modern .sub-teacher:hover {
-        color: #0284c7;
-        text-decoration: underline;
-    }
-    .subject-list-modern .sub-teacher.unassigned {
-        color: var(--muted);
-        font-style: italic;
-        font-weight: 500;
-    }
-
-    /* ── Fee Summary ── */
-    .fee-summary-modern {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 1rem;
-        margin-bottom: 2rem;
-    }
-
-    .fee-summary-modern .fee-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius, 0.75rem);
-        padding: 1.1rem 1.2rem;
-        text-align: center;
-        transition: border-color 0.2s, transform 0.15s;
-    }
-    .fee-summary-modern .fee-card:hover {
-        border-color: var(--primary);
-        transform: translateY(-2px);
-    }
-
-    .fee-summary-modern .fee-card .fee-label {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--muted);
-        font-weight: 600;
-    }
-
-    .fee-summary-modern .fee-card .fee-value {
-        font-size: 1.7rem;
-        font-weight: 700;
-        color: var(--text);
-        margin-top: 0.15rem;
-    }
-
-    .fee-summary-modern .fee-card .fee-value.pending {
-        color: var(--danger, #dc2626);
-    }
-    .fee-summary-modern .fee-card .fee-value.paid {
-        color: #10b981;
-    }
-
-    /* ── Table Cards ── */
-    .table-card-modern {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius, 0.75rem);
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 2rem;
-        box-shadow: var(--shadow-sm);
-    }
-
-    .table-card-modern .table-header {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .table-card-modern .table-header h3 {
-        font-size: 1.1rem;
-        font-weight: 600;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--text);
-    }
-
-    .table-card-modern .table-header .search-form {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        flex-wrap: wrap;
-    }
-
-    .table-card-modern .table-header .search-form input[type="date"] {
-        padding: 0.3rem 0.6rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--border);
-        background: var(--surface-alt);
-        color: var(--text);
-        font-size: 0.82rem;
-    }
-
-    .table-card-modern .table-header .search-form .btn-filter {
-        padding: 0.3rem 0.9rem;
-        border-radius: 2rem;
-        background: var(--primary);
-        color: #fff;
-        border: none;
-        cursor: pointer;
-        font-weight: 500;
-        font-size: 0.78rem;
-        transition: background 0.2s;
-    }
-    .table-card-modern .table-header .search-form .btn-filter:hover {
-        background: var(--primary-dark, #1d4ed8);
-    }
-
-    .table-card-modern .table-header .search-form .btn-reset {
-        padding: 0.3rem 0.9rem;
-        border-radius: 2rem;
-        background: var(--surface-alt);
-        color: var(--text);
-        border: 1px solid var(--border);
-        text-decoration: none;
-        font-size: 0.78rem;
-        font-weight: 500;
-        transition: background 0.2s;
-    }
-    .table-card-modern .table-header .search-form .btn-reset:hover {
-        background: var(--border);
-    }
-
-    /* ── Tables ── */
-    .table-responsive {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .data-table-modern {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.88rem;
-    }
-
-    .data-table-modern thead th {
-        text-align: left;
-        padding: 0.6rem 0.75rem;
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--muted);
-        font-weight: 600;
-        border-bottom: 2px solid var(--border);
-        background: var(--surface-alt);
-    }
-
-    .data-table-modern tbody td {
-        padding: 0.6rem 0.75rem;
-        border-bottom: 1px solid var(--border-light, #f1f5f9);
-        color: var(--text);
-        vertical-align: middle;
-    }
-
-    .data-table-modern tbody tr:last-child td {
-        border-bottom: none;
-    }
-    .data-table-modern tbody tr:hover {
-        background: var(--surface-alt);
-    }
-
-    .data-table-modern .empty-row {
-        text-align: center;
-        padding: 1.5rem !important;
-        color: var(--muted);
-        font-style: italic;
-    }
-
-    /* ── Badges ── */
-    .badge {
-        display: inline-block;
-        padding: 0.15rem 0.7rem;
-        border-radius: 2rem;
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: capitalize;
-    }
-    .badge-pending {
-        background: #fed7aa;
-        color: #9a3412;
-    }
-    .badge-partial {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-    .badge-paid {
-        background: #d1fae5;
-        color: #065f46;
-    }
-    .badge-overdue {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .payment-type-badge {
-        display: inline-block;
-        padding: 0.1rem 0.6rem;
-        border-radius: 2rem;
-        font-size: 0.7rem;
-        font-weight: 500;
-        background: var(--surface-alt);
-        border: 1px solid var(--border);
-        color: var(--text);
-    }
-
-    .receipt-link {
-        color: var(--primary);
-        text-decoration: none;
-        font-family: 'SF Mono', 'Menlo', monospace;
-        font-size: 0.82rem;
-        font-weight: 500;
-    }
-    .receipt-link:hover {
-        text-decoration: underline;
-    }
-
-    /* ── Pagination ── */
-    .pagination-modern {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: center;
-        gap: 0.4rem;
-        margin-top: 1.25rem;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--border);
-    }
-
-    .pagination-modern .page-link {
-        display: inline-block;
-        padding: 0.3rem 0.8rem;
-        border-radius: 2rem;
-        background: var(--surface-alt);
-        color: var(--text);
-        text-decoration: none;
-        font-size: 0.8rem;
-        font-weight: 500;
-        border: 1px solid var(--border);
-        transition: all 0.2s;
-    }
-    .pagination-modern .page-link:hover {
-        background: var(--primary);
-        color: #fff;
-        border-color: var(--primary);
-    }
-
-    .pagination-modern .current-page {
-        padding: 0.3rem 0.8rem;
-        font-size: 0.8rem;
-        color: var(--muted);
-        font-weight: 500;
-    }
-
-    /* ── Modal ── */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.45);
-        backdrop-filter: blur(3px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        padding: 1rem;
-    }
-
-    .modal-overlay .modal-box {
-        background: var(--surface);
-        border-radius: 1.25rem;
-        max-width: 460px;
-        width: 100%;
-        padding: 1.75rem 2rem;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-        animation: modalIn 0.2s ease-out;
-    }
-
-    @keyframes modalIn {
-        from {
-            opacity: 0;
-            transform: scale(0.96) translateY(10px);
-        }
-        to {
-            opacity: 1;
-            transform: scale(1) translateY(0);
-        }
-    }
-
-    .modal-box h2 {
-        font-size: 1.3rem;
-        font-weight: 700;
-        margin-top: 0;
-        margin-bottom: 0.25rem;
-        color: var(--text);
-    }
-
-    .modal-box .modal-sub {
-        color: var(--muted);
-        font-size: 0.9rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .modal-box label {
-        font-weight: 600;
-        font-size: 0.82rem;
-        color: var(--text);
-        display: block;
-        margin-bottom: 0.2rem;
-    }
-
-    .modal-box input,
-    .modal-box select,
-    .modal-box textarea {
-        width: 100%;
-        padding: 0.5rem 0.75rem;
-        border-radius: 0.6rem;
-        border: 1px solid var(--border);
-        background: var(--surface-alt);
-        color: var(--text);
-        font-size: 0.95rem;
-        transition: border-color 0.2s;
-        margin-bottom: 0.5rem;
-    }
-    .modal-box input:focus,
-    .modal-box select:focus,
-    .modal-box textarea:focus {
-        outline: none;
-        border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-    }
-
-    .modal-box .default-fee-display {
-        font-size: 0.9rem;
-        color: var(--muted);
-        margin-bottom: 0.75rem;
-        padding: 0.3rem 0.6rem;
-        background: var(--surface-alt);
-        border-radius: 0.4rem;
-        display: inline-block;
-    }
-
-    .modal-box .modal-info-box {
-        background: var(--surface-alt);
-        border-radius: 0.6rem;
-        padding: 0.75rem 1rem;
-        margin: 0.5rem 0 1rem;
-        border-left: 3px solid var(--primary);
-    }
-    .modal-box .modal-info-box p {
-        margin: 0.2rem 0;
-        font-size: 0.92rem;
-    }
-
-    .modal-actions {
-        display: flex;
-        gap: 0.6rem;
-        justify-content: flex-end;
-        margin-top: 1.25rem;
-    }
-
-    .modal-actions .btn {
-        padding: 0.45rem 1.4rem;
-        border-radius: 2rem;
-        font-weight: 600;
-        font-size: 0.85rem;
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .modal-actions .btn-primary {
-        background: var(--primary);
-        color: #fff;
-    }
-    .modal-actions .btn-primary:hover {
-        background: var(--primary-dark, #1d4ed8);
-    }
-    .modal-actions .btn-secondary {
-        background: var(--surface-alt);
-        color: var(--text);
-        border: 1px solid var(--border);
-    }
-    .modal-actions .btn-secondary:hover {
-        background: var(--border);
-    }
-
-    /* ── Responsive ── */
-    @media (max-width: 900px) {
-        .teacher-section {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    @media (max-width: 768px) {
-        .profile-header-card {
-            flex-direction: column;
-            align-items: stretch;
-            padding: 1.25rem;
-        }
-        .profile-identity {
-            flex: 1 1 auto;
-        }
-        .profile-actions {
-            justify-content: flex-start;
-            flex-wrap: wrap;
-        }
-        .profile-actions .btn {
-            font-size: 0.78rem;
-            padding: 0.55rem 1rem;
-        }
-        .info-grid-modern {
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        }
-        .fee-summary-modern {
-            grid-template-columns: repeat(3, 1fr);
-        }
-        .fee-summary-modern .fee-card .fee-value {
-            font-size: 1.3rem;
-        }
-        .table-card-modern {
-            padding: 0.75rem 0.75rem;
-        }
-        .table-card-modern .table-header {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        .modal-box {
-            padding: 1.25rem;
-            margin: 0.5rem;
-        }
-        .profile-avatar {
-            width: 52px;
-            height: 52px;
-            font-size: 1.4rem;
-        }
-        .profile-name-group h1 {
-            font-size: 1.3rem;
-        }
-        .subject-list-modern {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    @media (max-width: 480px) {
-        .fee-summary-modern {
-            grid-template-columns: 1fr;
-        }
-        .info-grid-modern {
-            grid-template-columns: 1fr 1fr;
-        }
-        .profile-actions .btn {
-            flex: 1 1 auto;
-            justify-content: center;
-        }
-    }
-
-    /* ── Misc Helpers ── */
-    .hidden {
-        display: none !important;
-    }
-    .inline-icon {
-        width: 18px;
-        height: 18px;
-        flex-shrink: 0;
-    }
-    .gap-1 {
-        gap: 0.25rem;
-    }
-    .mt-1 {
-        margin-top: 0.5rem;
-    }
-    .mb-1 {
-        margin-bottom: 0.5rem;
-    }
-    .text-muted {
-        color: var(--muted);
-    }
-    .fw-600 {
-        font-weight: 600;
-    }
+  :root{
+    --pf-accent:#6366f1;
+    --pf-accent-2:#8b5cf6;
+    --pf-accent-3:#ec4899;
+    --pf-radius:20px;
+    --pf-radius-sm:14px;
+    --pf-shadow:0 8px 28px rgba(15,23,42,.07);
+    --pf-shadow-lg:0 24px 60px rgba(15,23,42,.14);
+  }
+  /* STUDENT_PROFILE_FULL_WIDTH_FIX_V1: the previous rule was
+     `max-width:1280px;margin:0 auto`, which centred the wrapper
+     inside .content-area and left a visible dead gutter on
+     screens wider than ~1280px. Every other tenant page
+     (dashboard, student list, fee collection, etc.) simply
+     fills .content-area. This wrapper now does the same. */
+  .pf-wrapper{width:100%;padding:.5rem 0 2rem}
+
+  /* ── HERO ── */
+  .pf-hero{
+    position:relative;overflow:hidden;
+    border-radius:24px;
+    padding:26px 30px;
+    margin-bottom:22px;
+    color:#fff;
+    background:
+      radial-gradient(circle at 12% 0%,rgba(255,255,255,.22),transparent 45%),
+      radial-gradient(circle at 100% 100%,rgba(236,72,153,.35),transparent 50%),
+      linear-gradient(135deg,var(--pf-accent) 0%,var(--pf-accent-2) 55%,#4f46e5 100%);
+    box-shadow:0 20px 48px rgba(99,102,241,.32);
+    display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:20px;
+  }
+  .pf-hero::before,.pf-hero::after{content:'';position:absolute;border-radius:50%;background:rgba(255,255,255,.07);pointer-events:none}
+  .pf-hero::before{width:280px;height:280px;top:-120px;right:-100px}
+  .pf-hero::after{width:180px;height:180px;bottom:-80px;left:-50px}
+
+  .pf-hero-id{display:flex;align-items:center;gap:18px;position:relative;z-index:2;flex:1 1 320px;min-width:280px}
+  .pf-hero-avatar{
+    width:82px;height:82px;border-radius:50%;
+    background:rgba(255,255,255,.18);
+    border:2px solid rgba(255,255,255,.32);
+    display:flex;align-items:center;justify-content:center;
+    font-size:34px;font-weight:800;letter-spacing:-.02em;
+    flex-shrink:0;backdrop-filter:blur(10px);
+    box-shadow:0 10px 28px rgba(0,0,0,.2);text-transform:uppercase;
+  }
+  .pf-hero-text{min-width:0}
+  .pf-hero-text h1{font-size:1.8rem;font-weight:800;margin:0 0 4px;letter-spacing:-.02em;line-height:1.15;text-shadow:0 2px 12px rgba(0,0,0,.12)}
+  .pf-hero-text .father-line{font-size:.92rem;opacity:.92;font-weight:500;margin-bottom:8px}
+  .pf-hero-text .father-line strong{font-weight:700}
+  .pf-hero-text .father-line .relation-prefix{opacity:.75;font-weight:400;margin-right:3px}
+  .pf-hero-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .pf-hero-chip{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:4px 11px;border-radius:999px;
+    background:rgba(255,255,255,.15);
+    border:1px solid rgba(255,255,255,.22);
+    font-size:.72rem;font-weight:700;letter-spacing:.02em;
+    backdrop-filter:blur(6px);
+  }
+  .pf-hero-chip svg{width:12px;height:12px;stroke-width:2.5}
+
+  .pf-hero-actions{display:flex;flex-wrap:wrap;gap:8px;position:relative;z-index:2}
+  .pf-hero-actions .btn{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:10px 16px;border-radius:12px;
+    font-size:.82rem;font-weight:700;letter-spacing:.01em;
+    text-decoration:none;border:1px solid rgba(255,255,255,.2);
+    background:rgba(255,255,255,.14);color:#fff;
+    cursor:pointer;transition:all .2s cubic-bezier(.2,.7,.2,1);
+    backdrop-filter:blur(8px);white-space:nowrap;line-height:1;
+  }
+  .pf-hero-actions .btn:hover{transform:translateY(-2px);background:rgba(255,255,255,.24)}
+  .pf-hero-actions .btn-primary{background:#fff;color:var(--pf-accent);border-color:transparent;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+  .pf-hero-actions .btn-primary:hover{background:#fff;color:var(--pf-accent)}
+  .pf-hero-actions svg{width:15px;height:15px;stroke-width:2.2}
+
+  /* ── STATS ── */
+  .pf-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:22px}
+  .pf-stat{
+    background:var(--surface,#fff);
+    border:1px solid rgba(148,163,184,.15);
+    border-radius:var(--pf-radius);
+    padding:18px 20px;
+    box-shadow:var(--pf-shadow);
+    position:relative;overflow:hidden;
+    transition:transform .18s,border-color .2s;
+  }
+  .pf-stat::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent 60%,rgba(99,102,241,.05));pointer-events:none}
+  .pf-stat:hover{transform:translateY(-3px);border-color:rgba(99,102,241,.3)}
+  .pf-stat .s-head{display:flex;align-items:center;gap:8px;font-size:.68rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted,#64748b);font-weight:800}
+  .pf-stat .s-icon{
+    width:30px;height:30px;border-radius:10px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.15));
+    color:var(--pf-accent);flex-shrink:0;
+  }
+  .pf-stat .s-icon svg{width:15px;height:15px;stroke-width:2.4}
+  .pf-stat .s-value{font-size:1.7rem;font-weight:800;margin-top:10px;color:var(--text,#0f172a);letter-spacing:-.02em}
+  .pf-stat .s-value.paid{color:#059669}
+  .pf-stat .s-value.pending{color:#e11d48}
+
+  /* ── INFO ── */
+  .pf-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:22px}
+  .pf-info{
+    background:var(--surface,#fff);
+    border:1px solid rgba(148,163,184,.15);
+    border-radius:var(--pf-radius-sm);
+    padding:14px 16px;
+    box-shadow:var(--pf-shadow);
+    transition:border-color .2s;
+  }
+  .pf-info:hover{border-color:rgba(99,102,241,.35)}
+  .pf-info .label{font-size:.62rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#64748b);font-weight:800;margin-bottom:4px}
+  .pf-info .value{font-size:.98rem;font-weight:700;color:var(--text,#0f172a);word-break:break-word}
+
+  /* ── BADGES ── */
+  .pf-badge{display:inline-block;padding:.2rem .7rem;border-radius:999px;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+  .pf-badge.pending,.pf-badge.overdue{background:#fee2e2;color:#991b1b}
+  .pf-badge.partial{background:#dbeafe;color:#1e40af}
+  .pf-badge.paid{background:#d1fae5;color:#065f46}
+  .pf-badge.active{background:#d1fae5;color:#065f46}
+  .pf-badge.suspended{background:#fed7aa;color:#9a3412}
+  .pf-badge.inactive{background:#fee2e2;color:#991b1b}
+  .pf-badge.graduated{background:#e0e7ff;color:#3730a3}
+  .pf-badge.enrolled{background:#dbeafe;color:#1e40af}
+
+  /* ── TEACHER SECTION ── */
+  .pf-teacher-section{display:grid;grid-template-columns:minmax(260px,1fr) minmax(340px,1.8fr);gap:14px;margin-bottom:22px}
+  @media(max-width:900px){.pf-teacher-section{grid-template-columns:1fr}}
+
+  .pf-t-card{
+    background:var(--surface,#fff);
+    border:1px solid rgba(148,163,184,.15);
+    border-radius:var(--pf-radius);
+    padding:18px 20px;
+    box-shadow:var(--pf-shadow);
+    position:relative;overflow:hidden;
+  }
+  .pf-t-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:linear-gradient(180deg,#6366f1,#4f46e5)}
+  .pf-t-card.subjects::before{background:linear-gradient(180deg,#0ea5e9,#0284c7)}
+  .pf-t-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .pf-t-head .tc-icon{
+    width:34px;height:34px;border-radius:10px;
+    background:linear-gradient(135deg,#6366f1,#4f46e5);
+    color:#fff;display:inline-flex;align-items:center;justify-content:center;
+    flex-shrink:0;box-shadow:0 4px 12px rgba(79,70,229,.35);
+  }
+  .pf-t-card.subjects .pf-t-head .tc-icon{background:linear-gradient(135deg,#0ea5e9,#0284c7);box-shadow:0 4px 12px rgba(2,132,199,.35)}
+  .pf-t-head .tc-icon svg{width:17px;height:17px;stroke-width:2.2}
+  .pf-t-head .tc-title{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--muted,#64748b)}
+
+  .pf-ct-row{display:flex;align-items:center;gap:14px}
+  .pf-ct-avatar{
+    width:52px;height:52px;border-radius:50%;
+    background:linear-gradient(135deg,#6366f1,#4f46e5);
+    color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:1.15rem;font-weight:800;flex-shrink:0;text-transform:uppercase;
+    box-shadow:0 6px 16px rgba(79,70,229,.35);
+  }
+  .pf-ct-meta{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .pf-ct-name{font-size:1rem;font-weight:800;color:var(--text,#0f172a);text-decoration:none;line-height:1.25;transition:color .15s}
+  .pf-ct-name:hover{color:#4f46e5;text-decoration:underline}
+  .pf-ct-role{font-size:.68rem;color:var(--muted,#64748b);font-weight:800;text-transform:uppercase;letter-spacing:.5px}
+  .pf-ct-empty{
+    display:flex;align-items:center;gap:8px;
+    padding:.75rem .9rem;
+    background:var(--surface-alt,#f8fafc);
+    border:1.5px dashed rgba(148,163,184,.3);
+    border-radius:12px;
+    color:var(--muted,#64748b);
+    font-size:.85rem;font-style:italic;
+  }
+  .pf-ct-empty svg{width:16px;height:16px;flex-shrink:0;color:#f59e0b}
+
+  .pf-sub-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
+  .pf-sub-list li{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 12px;border-radius:12px;
+    background:var(--surface-alt,#f8fafc);
+    border:1px solid rgba(148,163,184,.15);
+    transition:all .18s;min-width:0;
+  }
+  .pf-sub-list li:hover{border-color:#0284c7;transform:translateY(-1px);box-shadow:0 6px 16px rgba(2,132,199,.12)}
+  .pf-sub-avatar{
+    width:38px;height:38px;border-radius:50%;
+    background:linear-gradient(135deg,#0ea5e9,#0284c7);
+    color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:.82rem;font-weight:800;flex-shrink:0;text-transform:uppercase;
+  }
+  .pf-sub-avatar.un{background:linear-gradient(135deg,#cbd5e1,#94a3b8)}
+  .pf-sub-meta{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+  .pf-sub-subject{font-size:.65rem;font-weight:800;color:var(--muted,#64748b);text-transform:uppercase;letter-spacing:.6px;line-height:1.2}
+  .pf-sub-teacher{font-size:.9rem;font-weight:700;color:var(--text,#0f172a);text-decoration:none;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .15s}
+  .pf-sub-teacher:hover{color:#0284c7;text-decoration:underline}
+  .pf-sub-teacher.un{color:var(--muted,#64748b);font-style:italic;font-weight:500}
+
+  /* ── FEE SUMMARY ── */
+  .pf-fee-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+  .pf-fee-card{
+    background:var(--surface,#fff);
+    border:1px solid rgba(148,163,184,.15);
+    border-radius:var(--pf-radius);
+    padding:20px;text-align:center;
+    box-shadow:var(--pf-shadow);
+    transition:transform .18s,border-color .2s;
+  }
+  .pf-fee-card:hover{transform:translateY(-3px);border-color:rgba(99,102,241,.35)}
+  .pf-fee-card .fc-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#64748b);font-weight:800}
+  .pf-fee-card .fc-value{font-size:2rem;font-weight:800;color:var(--text,#0f172a);margin-top:6px;letter-spacing:-.02em}
+  .pf-fee-card .fc-value.paid{color:#059669}
+  .pf-fee-card .fc-value.pending{color:#e11d48}
+
+  /* ── TABLES ── */
+  .pf-table-card{
+    background:var(--surface,#fff);
+    border:1px solid rgba(148,163,184,.15);
+    border-radius:var(--pf-radius);
+    padding:20px 22px;margin-bottom:22px;
+    box-shadow:var(--pf-shadow);
+  }
+  .pf-table-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+  .pf-table-head h3{font-size:1.1rem;font-weight:800;margin:0;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
+  .pf-table-head h3 .h-icon{
+    width:32px;height:32px;border-radius:10px;
+    background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.15));
+    color:var(--pf-accent);display:inline-flex;align-items:center;justify-content:center;
+  }
+  .pf-table-head h3 .h-icon svg{width:16px;height:16px;stroke-width:2.2}
+
+  .pf-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:8px 14px;border-radius:10px;
+    font-size:.78rem;font-weight:700;
+    border:1.5px solid rgba(148,163,184,.25);
+    background:var(--surface-alt,#f8fafc);
+    color:var(--text,#0f172a);
+    cursor:pointer;text-decoration:none;
+    transition:all .18s;line-height:1;
+  }
+  .pf-btn:hover{background:#eef2ff;border-color:var(--pf-accent);color:var(--pf-accent)}
+  .pf-btn.primary{background:linear-gradient(135deg,var(--pf-accent),var(--pf-accent-2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(99,102,241,.3)}
+  .pf-btn.primary:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(99,102,241,.4)}
+
+  .pf-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .pf-table{width:100%;border-collapse:collapse;font-size:.88rem}
+  .pf-table thead th{
+    text-align:left;padding:.7rem .85rem;
+    font-size:.65rem;text-transform:uppercase;letter-spacing:.5px;
+    color:var(--muted,#64748b);font-weight:800;
+    border-bottom:2px solid rgba(148,163,184,.15);
+    background:var(--surface-alt,#f8fafc);
+  }
+  .pf-table tbody td{padding:.75rem .85rem;border-bottom:1px solid rgba(148,163,184,.1);color:var(--text,#0f172a);vertical-align:middle}
+  .pf-table tbody tr:last-child td{border-bottom:none}
+  .pf-table tbody tr:hover{background:var(--surface-alt,#f8fafc)}
+  .pf-table .empty-row{text-align:center;padding:2rem 1rem!important;color:var(--muted,#64748b);font-style:italic}
+
+  .pf-receipt{color:var(--pf-accent);text-decoration:none;font-family:ui-monospace,Menlo,monospace;font-size:.82rem;font-weight:700}
+  .pf-receipt:hover{text-decoration:underline}
+
+  /* ── PAGINATION ── */
+  .pf-pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.4rem;margin-top:1.25rem;padding-top:.9rem;border-top:1px solid rgba(148,163,184,.15)}
+  .pf-pager .pg{display:inline-block;padding:.4rem .9rem;border-radius:999px;background:var(--surface-alt,#f8fafc);color:var(--text,#0f172a);text-decoration:none;font-size:.78rem;font-weight:700;border:1px solid rgba(148,163,184,.2);transition:all .18s}
+  .pf-pager .pg:hover{background:var(--pf-accent);color:#fff;border-color:var(--pf-accent)}
+  .pf-pager .cur{padding:.4rem .9rem;font-size:.78rem;color:var(--muted,#64748b);font-weight:700}
+
+  /* ── MODALS ── */
+  .pf-modal{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem}
+  .pf-modal-box{background:var(--surface,#fff);border-radius:22px;max-width:480px;width:100%;padding:26px 28px;box-shadow:var(--pf-shadow-lg);animation:pfMIn .22s cubic-bezier(.2,.7,.2,1)}
+  @keyframes pfMIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  .pf-modal-box h2{font-size:1.2rem;font-weight:800;margin:0 0 4px;letter-spacing:-.01em}
+  .pf-modal-box .m-sub{color:var(--muted,#64748b);font-size:.85rem;margin-bottom:1.1rem}
+  .pf-modal-box label{font-weight:800;font-size:.68rem;color:var(--muted,#64748b);display:block;margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.4px}
+  .pf-modal-box input,.pf-modal-box select,.pf-modal-box textarea{
+    width:100%;padding:.65rem .9rem;border-radius:11px;
+    border:1.5px solid rgba(148,163,184,.25);
+    background:var(--surface-alt,#f8fafc);
+    color:var(--text,#0f172a);font-size:.9rem;
+    transition:all .18s;box-sizing:border-box;font-family:inherit;
+  }
+  .pf-modal-box input:focus,.pf-modal-box select:focus,.pf-modal-box textarea:focus{outline:none;border-color:var(--pf-accent);box-shadow:0 0 0 4px rgba(99,102,241,.13);background:#fff}
+  .pf-modal-actions{display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.15rem}
+  .pf-modal-actions .btn{padding:.65rem 1.4rem;border-radius:11px;font-weight:800;font-size:.82rem;border:none;cursor:pointer;transition:all .18s}
+  .pf-modal-actions .btn.cancel{background:var(--surface-alt,#f8fafc);color:var(--text,#0f172a);border:1.5px solid rgba(148,163,184,.25)}
+  .pf-modal-actions .btn.save{background:linear-gradient(135deg,var(--pf-accent),var(--pf-accent-2));color:#fff;box-shadow:0 6px 18px rgba(99,102,241,.35)}
+  .pf-modal-actions .btn.save:hover{transform:translateY(-2px)}
+
+  /* ── ATTENDANCE MANAGER (compact premium) ── */
+  .satt-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:.6rem;padding:1rem 1.4rem;background:var(--surface-alt,#f8fafc);border-bottom:1px solid rgba(148,163,184,.15)}
+  .satt-kpi{text-align:center}
+  .satt-kpi .k-label{font-size:.6rem;text-transform:uppercase;color:var(--muted,#64748b);font-weight:800;letter-spacing:.5px}
+  .satt-kpi .k-val{font-size:1.35rem;font-weight:800;margin-top:.15rem;color:var(--text,#0f172a)}
+  .satt-kpi .k-val.ok{color:#10b981}
+  .satt-kpi .k-val.bad{color:#ef4444}
+  .satt-kpi .k-val.warn{color:#f59e0b}
+
+  .satt-filter-bar,.satt-quick-bar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.75rem 1.4rem;border-bottom:1px solid rgba(148,163,184,.15);background:var(--surface,#fff)}
+  .satt-quick-bar{font-size:.72rem;padding:.55rem 1.4rem}
+  .satt-quick-label{color:var(--muted,#64748b);font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-right:.25rem;font-size:.68rem}
+  .satt-filter-bar label{font-size:.68rem;font-weight:800;color:var(--muted,#64748b);text-transform:uppercase;letter-spacing:.5px}
+  .satt-filter-bar input,.satt-filter-bar select{padding:.5rem .7rem;border-radius:10px;border:1.5px solid rgba(148,163,184,.25);background:var(--surface-alt,#f8fafc);color:var(--text,#0f172a);font-size:.82rem;font-family:inherit}
+  .satt-qbtn{padding:.4rem .8rem;border-radius:999px;border:1.5px solid rgba(148,163,184,.25);background:var(--surface-alt,#f8fafc);color:var(--text,#0f172a);font-size:.72rem;font-weight:800;cursor:pointer;transition:all .15s}
+  .satt-qbtn:hover{border-color:var(--pf-accent);color:var(--pf-accent)}
+  .satt-qbtn.active{background:linear-gradient(135deg,var(--pf-accent),var(--pf-accent-2));color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(99,102,241,.3)}
+  .satt-active-filter{margin-left:auto;display:none;padding:.3rem .8rem;border-radius:999px;background:#dbeafe;color:#1e40af;font-weight:800;font-size:.68rem}
+  .satt-btn{padding:.5rem 1rem;border-radius:10px;border:1.5px solid rgba(148,163,184,.25);background:var(--surface-alt,#f8fafc);color:var(--text,#0f172a);font-weight:800;font-size:.78rem;cursor:pointer;transition:all .15s}
+  .satt-btn:hover{border-color:var(--pf-accent);color:var(--pf-accent)}
+  .satt-btn.primary{background:linear-gradient(135deg,var(--pf-accent),var(--pf-accent-2));color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(99,102,241,.3)}
+  .satt-btn.primary:hover{transform:translateY(-1px);filter:brightness(1.05)}
+  .satt-btn:disabled{opacity:.45;cursor:not-allowed}
+
+  .satt-table-wrap{flex:1 1 auto;min-height:0;overflow:auto}
+  .satt-table{width:100%;border-collapse:collapse;font-size:.86rem}
+  .satt-table thead th{text-align:left;padding:.6rem .9rem;font-size:.65rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#64748b);font-weight:800;border-bottom:2px solid rgba(148,163,184,.15);background:var(--surface-alt,#f8fafc);position:sticky;top:0;z-index:1}
+  .satt-table tbody td{padding:.6rem .9rem;border-bottom:1px solid rgba(148,163,184,.1);color:var(--text,#0f172a);vertical-align:middle}
+  .satt-table tbody tr:hover{background:var(--surface-alt,#f8fafc)}
+  .satt-table .empty-row{text-align:center;color:var(--muted,#64748b);padding:1.8rem 1rem;font-style:italic}
+  .satt-mini-badge{display:inline-block;padding:.18rem .6rem;border-radius:999px;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+  .satt-mini-badge.present{background:#d1fae5;color:#065f46}
+  .satt-mini-badge.absent{background:#fee2e2;color:#991b1b}
+  .satt-mini-badge.late{background:#fef3c7;color:#92400e}
+  .satt-mini-badge.half_day{background:#e0e7ff;color:#3730a3}
+  .satt-mini-badge.excused{background:#dbeafe;color:#1e40af}
+  .satt-mini-badge.holiday{background:#e5e7eb;color:#374151}
+  .satt-pager{display:flex;justify-content:space-between;align-items:center;padding:.75rem 1.4rem;border-top:1px solid rgba(148,163,184,.15);background:var(--surface-alt,#f8fafc);gap:.5rem}
+  .satt-pager .info{font-size:.78rem;color:var(--muted,#64748b);font-weight:700}
+
+  #sattEditStatus input[type="radio"]{display:none}
+  #sattEditStatus label{display:inline-flex;align-items:center;justify-content:center;min-width:52px;padding:.5rem .8rem;border-radius:10px;font-size:.76rem;font-weight:800;cursor:pointer;border:1.5px solid rgba(148,163,184,.25);background:var(--surface-alt,#f8fafc);color:var(--muted,#64748b);user-select:none;transition:all .15s}
+  #sattEditStatus input[value="present"]:checked + label{background:#10b981;color:#fff;border-color:#10b981}
+  #sattEditStatus input[value="absent"]:checked + label{background:#ef4444;color:#fff;border-color:#ef4444}
+  #sattEditStatus input[value="late"]:checked + label{background:#f59e0b;color:#fff;border-color:#f59e0b}
+  #sattEditStatus input[value="half_day"]:checked + label{background:#8b5cf6;color:#fff;border-color:#8b5cf6}
+  #sattEditStatus input[value="excused"]:checked + label{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+
+  @media(max-width:768px){
+    .pf-hero{padding:20px;flex-direction:column;align-items:stretch}
+    .pf-hero-id{flex-direction:row}
+    .pf-hero-avatar{width:64px;height:64px;font-size:26px}
+    .pf-hero-text h1{font-size:1.4rem}
+    .pf-hero-actions{justify-content:flex-start}
+    .pf-hero-actions .btn{flex:1 1 auto;justify-content:center;font-size:.76rem;padding:.7rem 1rem}
+    .pf-stats{grid-template-columns:repeat(2,1fr)}
+    .pf-info-grid{grid-template-columns:repeat(2,1fr)}
+    .pf-sub-list{grid-template-columns:1fr}
+  }
 </style>
 
-<div class="profile-wrapper">
+<div class="pf-wrapper">
 
-    {# ─── HEADER ─── #}
-    <div class="profile-header-card">
-        <div class="profile-identity">
-            <div class="profile-avatar">
-                {{ student.name|slice:":1" }}
-            </div>
-            <div class="profile-name-group">
-                <h1>{{ student.name }}</h1>
-                <div class="profile-class-link">
-                    <span class="profile-roll">Roll: {{ student.roll_number }}</span>
-                    <span>•</span>
-                    {{ student|display_class:tenant }}
+  <!-- ═══ HERO ═══ -->
+  <div class="pf-hero">
+    <div class="pf-hero-id">
+      <div class="pf-hero-avatar">{{ student.name|slice:":1" }}</div>
+      <div class="pf-hero-text">
+        <h1>{{ student.name }}</h1>
+        <div class="father-line">
+          {% if student.gender == 'male' %}<span class="relation-prefix">Son of</span>
+          {% elif student.gender == 'female' %}<span class="relation-prefix">Daughter of</span>
+          {% else %}<span class="relation-prefix">Child of</span>{% endif %}
+          <strong>{{ student.father_name }}</strong>
+        </div>
+        <div class="pf-hero-chips">
+          <span class="pf-hero-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+            {{ student|display_class:tenant }}
+          </span>
+          <span class="pf-hero-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+            Roll {{ student.roll_number }}
+          </span>
+          <span class="pf-hero-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6L9 17l-5-5"/></svg>
+            {{ student.get_status_display }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pf-hero-actions">
+      {% if tenant|has_feature:'attendance_management' %}
+      <button class="btn btn-primary" onclick="AXIS_STUDENT_ATT.open()" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 15l2 2 4-4"/></svg>
+        Attendance
+      </button>
+      {% endif %}
+      <button class="btn" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
+        Voucher
+      </button>
+      <a href="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}" class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+        Edit
+      </a>
+      <a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8"/></svg>
+        Collect
+      </a>
+      <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 18l-6-6 6-6"/></svg>
+        Back
+      </a>
+    </div>
+  </div>
+
+  <!-- ═══ STATS ═══ -->
+  <div class="pf-stats">
+    <div class="pf-stat">
+      <div class="s-head"><span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></span>Total Fee</div>
+      <div class="s-value">₹{{ total_fee|floatformat:2 }}</div>
+    </div>
+    <div class="pf-stat">
+      <div class="s-head"><span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6L9 17l-5-5"/></svg></span>Total Paid</div>
+      <div class="s-value paid">₹{{ total_paid|floatformat:2 }}</div>
+    </div>
+    <div class="pf-stat">
+      <div class="s-head"><span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>Pending</div>
+      <div class="s-value {% if pending_total > 0 %}pending{% endif %}">₹{{ pending_total|floatformat:2 }}</div>
+    </div>
+    <div class="pf-stat">
+      <div class="s-head"><span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg></span>Items Cost</div>
+      <div class="s-value">₹{{ item_purchase_total|floatformat:2 }}</div>
+    </div>
+  </div>
+
+  <!-- ═══ INFO ═══ -->
+  <div class="pf-info-grid">
+    <div class="pf-info"><div class="label">Father Name</div><div class="value">{{ student.father_name }}</div></div>
+    <div class="pf-info"><div class="label">Father CNIC</div><div class="value">{{ student.father_cnic }}</div></div>
+    <div class="pf-info"><div class="label">Mobile</div><div class="value">{{ student.parent_mobile }}</div></div>
+    <div class="pf-info"><div class="label">Admission</div><div class="value">{{ student.admission_date|date:"Y-m-d" }}</div></div>
+    <div class="pf-info"><div class="label">Status</div><div class="value"><span class="pf-badge {{ student.status }}">{{ student.get_status_display }}</span></div></div>
+    <div class="pf-info"><div class="label">Custom Fee</div><div class="value">₹{{ student.custom_fee }}</div></div>
+  </div>
+
+  <!-- ═══ TEACHERS ═══ -->
+  <div class="pf-teacher-section">
+    <div class="pf-t-card">
+      <div class="pf-t-head">
+        <span class="tc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2l3 6 6 .9-4.5 4.3L17.8 20 12 17l-5.8 3 1.3-6.8L3 8.9 9 8z"/></svg></span>
+        <span class="tc-title">Class Teacher</span>
+      </div>
+      {% if class_teacher %}
+        <div class="pf-ct-row">
+          <div class="pf-ct-avatar">{{ class_teacher.full_name|slice:":1" }}</div>
+          <div class="pf-ct-meta">
+            <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="pf-ct-name">{{ class_teacher.full_name }}</a>
+            <span class="pf-ct-role">Assigned</span>
+          </div>
+        </div>
+      {% else %}
+        <div class="pf-ct-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Not assigned yet
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="pf-t-card subjects">
+      <div class="pf-t-head">
+        <span class="tc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></span>
+        <span class="tc-title">Subject Teachers</span>
+      </div>
+      {% if subject_teachers %}
+        <ul class="pf-sub-list">
+          {% for item in subject_teachers %}
+            <li>
+              {% if item.teacher %}
+                <div class="pf-sub-avatar">{{ item.teacher.full_name|slice:":1" }}</div>
+                <div class="pf-sub-meta">
+                  <span class="pf-sub-subject">{{ item.subject }}</span>
+                  <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="pf-sub-teacher">{{ item.teacher.full_name }}</a>
                 </div>
-            </div>
-        </div>
-
-        <div class="profile-actions">
-            <button class="btn btn-attendance" onclick="AXIS_STUDENT_ATT.open()" type="button">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 15l2 2 4-4"/></svg>
-                Manage Attendance
-            </button>
-            <button class="btn btn-voucher" onclick="openVoucherModal({{ student.id }}, '{{ tenant.schema_name }}')" type="button">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
-                Voucher
-            </button>
-            <a href="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-edit">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
-                Edit
-            </a>
-            <a href="{% url 'fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn btn-collect">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8"/></svg>
-                Collect Pending
-            </a>
-            <a href="{% url 'student_list' schema_name=tenant.schema_name %}" class="btn btn-back">
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
-                Back
-            </a>
-        </div>
-    </div>
-
-    {# ─── INFO GRID ─── #}
-    <div class="info-grid-modern">
-        <div class="info-item">
-            <div class="label">Father Name</div>
-            <div class="value">{{ student.father_name }}</div>
-        </div>
-        <div class="info-item">
-            <div class="label">Father CNIC</div>
-            <div class="value">{{ student.father_cnic }}</div>
-        </div>
-        <div class="info-item">
-            <div class="label">Mobile</div>
-            <div class="value">{{ student.parent_mobile }}</div>
-        </div>
-        <div class="info-item">
-            <div class="label">Admission Date</div>
-            <div class="value">{{ student.admission_date|date:"Y-m-d" }}</div>
-        </div>
-        <div class="info-item">
-            <div class="label">Status</div>
-            <div class="value">
-                <span class="status-badge status-{{ student.status }}">
-                    {{ student.get_status_display }}
-                </span>
-            </div>
-        </div>
-        <div class="info-item">
-            <div class="label">Custom Fee</div>
-            <div class="value">₹{{ student.custom_fee }}</div>
-        </div>
-    </div>
-
-    {# ─── TEACHER SECTION (Redesigned) ─── #}
-    <div class="teacher-section">
-
-        {# Class Teacher Card #}
-        <div class="teacher-card">
-            <div class="teacher-card-head">
-                <span class="tc-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l3 6 6 .9-4.5 4.3L17.8 20 12 17l-5.8 3 1.3-6.8L3 8.9 9 8z"/></svg>
-                </span>
-                <span class="tc-title">Class Teacher</span>
-            </div>
-
-            {% if class_teacher %}
-                <div class="ct-name-row">
-                    <div class="ct-avatar">{{ class_teacher.full_name|slice:":1" }}</div>
-                    <div class="ct-meta">
-                        <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="ct-name">
-                            {{ class_teacher.full_name }}
-                        </a>
-                        <span class="ct-role">Assigned</span>
-                    </div>
+              {% else %}
+                <div class="pf-sub-avatar un">?</div>
+                <div class="pf-sub-meta">
+                  <span class="pf-sub-subject">{{ item.subject }}</span>
+                  <span class="pf-sub-teacher un">Unassigned</span>
                 </div>
-            {% else %}
-                <div class="ct-empty">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    Not assigned yet
-                </div>
-            {% endif %}
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="pf-ct-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          No subject assignments yet
         </div>
-
-        {# Subject Teachers Card #}
-        <div class="teacher-card subjects-card">
-            <div class="teacher-card-head">
-                <span class="tc-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
-                </span>
-                <span class="tc-title">Subject Teachers</span>
-            </div>
-
-            {% if subject_teachers %}
-                <ul class="subject-list-modern">
-                    {% for item in subject_teachers %}
-                        <li>
-                            {% if item.teacher %}
-                                <div class="sub-avatar">{{ item.teacher.full_name|slice:":1" }}</div>
-                                <div class="sub-meta">
-                                    <span class="sub-subject">{{ item.subject }}</span>
-                                    <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="sub-teacher">
-                                        {{ item.teacher.full_name }}
-                                    </a>
-                                </div>
-                            {% else %}
-                                <div class="sub-avatar unassigned-avatar">?</div>
-                                <div class="sub-meta">
-                                    <span class="sub-subject">{{ item.subject }}</span>
-                                    <span class="sub-teacher unassigned">Unassigned</span>
-                                </div>
-                            {% endif %}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <div class="ct-empty">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    No subject assignments yet
-                </div>
-            {% endif %}
-        </div>
+      {% endif %}
     </div>
+  </div>
 
-    {# ─── FEE SUMMARY ─── #}
-    <div class="fee-summary-modern" id="feeSummary">
-        <div class="fee-card">
-            <div class="fee-label">Total Fee</div>
-            <div class="fee-value" id="totalFee">₹{{ total_fee|floatformat:2 }}</div>
-        </div>
-        <div class="fee-card">
-            <div class="fee-label">Total Paid</div>
-            <div class="fee-value paid" id="totalPaid">₹{{ total_paid|floatformat:2 }}</div>
-        </div>
-        <div class="fee-card">
-            <div class="fee-label">Pending</div>
-            <div class="fee-value pending" id="pendingTotal">₹{{ pending_total|floatformat:2 }}</div>
-        </div>
+  <!-- ═══ FEE SUMMARY ═══ -->
+  <div class="pf-fee-summary">
+    <div class="pf-fee-card"><div class="fc-label">Total Fee</div><div class="fc-value">₹{{ total_fee|floatformat:2 }}</div></div>
+    <div class="pf-fee-card"><div class="fc-label">Total Paid</div><div class="fc-value paid">₹{{ total_paid|floatformat:2 }}</div></div>
+    <div class="pf-fee-card"><div class="fc-label">Pending</div><div class="fc-value pending">₹{{ pending_total|floatformat:2 }}</div></div>
+  </div>
+
+  <!-- ═══ FEE HISTORY ═══ -->
+  <div class="pf-table-card">
+    <div class="pf-table-head">
+      <h3>
+        <span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></span>
+        Fee History
+      </h3>
+      <button class="pf-btn primary" id="genFeeBtn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+        Generate Fee
+      </button>
     </div>
-
-    {# ─── FEE HISTORY TABLE ─── #}
-    <div class="table-card-modern">
-        <div class="table-header">
-            <h3>
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-                Fee History
-            </h3>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                <button class="btn btn-outline" id="genFeeBtn" style="font-size:0.78rem; padding:0.3rem 1rem;">
-                    <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
-                    Generate Fee
-                </button>
-            </div>
-        </div>
-
-        <div class="table-responsive">
-            <table class="data-table-modern" id="feeTable">
-                <thead>
-                    <tr>
-                        <th>Month / Year</th>
-                        <th>Amount</th>
-                        <th>Paid</th>
-                        <th>Status</th>
-                        <th>Receipt</th>
-                    </tr>
-                </thead>
-                <tbody id="feeTableBody">
-                    {% for r in fee_records %}
-                        <tr>
-                            <td>{{ r.month }}/{{ r.year }}</td>
-                            <td>₹{{ r.total_amount|floatformat:2 }}</td>
-                            <td>₹{{ r.paid_amount|floatformat:2 }}</td>
-                            <td><span class="badge badge-{{ r.status|lower }}">{{ r.get_status_display }}</span></td>
-                            <td>
-                                {% if r.payments.exists %}
-                                    {% for rc in r.payments.all %}
-                                        <a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ rc.id }}/" class="receipt-link">{{ rc.receipt_number }}</a>{% if not forloop.last %}, {% endif %}
-                                    {% endfor %}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% empty %}
-                        <tr><td colspan="5" class="empty-row">No fee records found. Use the "Generate Fee" button above to create one.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <div class="pf-table-wrap">
+      <table class="pf-table">
+        <thead><tr><th>Month / Year</th><th>Amount</th><th>Paid</th><th>Status</th><th>Receipt</th></tr></thead>
+        <tbody>
+          {% for r in fee_records %}
+            <tr>
+              <td><strong>{{ r.month }}/{{ r.year }}</strong></td>
+              <td>₹{{ r.total_amount|floatformat:2 }}</td>
+              <td>₹{{ r.paid_amount|floatformat:2 }}</td>
+              <td><span class="pf-badge {{ r.status|lower }}">{{ r.get_status_display }}</span></td>
+              <td>
+                {% if r.payments.exists %}
+                  {% for rc in r.payments.all %}
+                    <a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ rc.id }}/" class="pf-receipt">{{ rc.receipt_number }}</a>{% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty-row">No fee records found. Use "Generate Fee" above.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </div>
 
-    {# ─── PAYMENT HISTORY TABLE ─── #}
-    <div class="table-card-modern">
-        <div class="table-header">
-            <h3>
-                <svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2" ry="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                Payment History
-            </h3>
-            <form method="get" action="" class="search-form">
-                <input type="date" name="date" value="{{ search_date }}" placeholder="Filter by date">
-                <button type="submit" class="btn-filter">Search</button>
-                {% if search_date %}
-                    <a href="?page=1" class="btn-reset">Clear</a>
-                {% endif %}
-            </form>
-        </div>
-
-        <div class="table-responsive">
-            <table class="data-table-modern" id="paymentTable">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Day</th>
-                        <th>Total Due</th>
-                        <th>Paid</th>
-                        <th>Remaining</th>
-                        <th>Mode</th>
-                        <th>Type</th>
-                        <th>Receipt</th>
-                    </tr>
-                </thead>
-                <tbody id="paymentTableBody">
-                    {% for item in payments %}
-                        <tr>
-                            <td>{{ item.payment.payment_date|date:"Y-m-d" }}</td>
-                            <td>{{ item.payment.payment_date|date:"D" }}</td>
-                            <td>₹{{ item.total_due_before|floatformat:2 }}</td>
-                            <td>₹{{ item.payment.amount|floatformat:2 }}</td>
-                            <td>₹{{ item.remaining_balance|floatformat:2 }}</td>
-                            <td>{{ item.payment.get_payment_mode_display }}</td>
-                            <td><span class="payment-type-badge">{{ item.payment.payment_type_display }}</span></td>
-                            <td><a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ item.payment.id }}/" class="receipt-link" target="_blank">{{ item.payment.receipt_number }}</a></td>
-                        </tr>
-                    {% empty %}
-                        <tr><td colspan="8" class="empty-row">No payments recorded yet.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        {% if payments.has_other_pages %}
-            <div class="pagination-modern">
-                {% if payments.has_previous %}
-                    <a href="?page=1{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">&laquo; First</a>
-                    <a href="?page={{ payments.previous_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Previous</a>
-                {% endif %}
-                <span class="current-page">Page {{ payments.number }} of {{ payments.paginator.num_pages }}</span>
-                {% if payments.has_next %}
-                    <a href="?page={{ payments.next_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Next</a>
-                    <a href="?page={{ payments.paginator.num_pages }}{% if search_date %}&date={{ search_date }}{% endif %}" class="page-link">Last &raquo;</a>
-                {% endif %}
-            </div>
+  <!-- ═══ PAYMENT HISTORY ═══ -->
+  <div class="pf-table-card">
+    <div class="pf-table-head">
+      <h3>
+        <span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+        Payment History
+      </h3>
+      <form method="get" action="" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <input type="date" name="date" value="{{ search_date }}" style="padding:.5rem .8rem;border-radius:10px;border:1.5px solid rgba(148,163,184,.25);background:var(--surface-alt,#f8fafc);color:var(--text,#0f172a);font-size:.82rem;font-family:inherit">
+        <button type="submit" class="pf-btn primary">Search</button>
+        {% if search_date %}<a href="?page=1" class="pf-btn">Clear</a>{% endif %}
+      </form>
+    </div>
+    <div class="pf-table-wrap">
+      <table class="pf-table">
+        <thead><tr><th>Date</th><th>Day</th><th>Total Due</th><th>Paid</th><th>Remaining</th><th>Mode</th><th>Type</th><th>Receipt</th></tr></thead>
+        <tbody>
+          {% for item in payments %}
+            <tr>
+              <td>{{ item.payment.payment_date|date:"Y-m-d" }}</td>
+              <td>{{ item.payment.payment_date|date:"D" }}</td>
+              <td>₹{{ item.total_due_before|floatformat:2 }}</td>
+              <td><strong>₹{{ item.payment.amount|floatformat:2 }}</strong></td>
+              <td>₹{{ item.remaining_balance|floatformat:2 }}</td>
+              <td>{{ item.payment.get_payment_mode_display }}</td>
+              <td><span class="pf-badge partial">{{ item.payment.payment_type_display }}</span></td>
+              <td><a href="/portal/{{ tenant.schema_name }}/fee/receipt/{{ item.payment.id }}/" class="pf-receipt" target="_blank">{{ item.payment.receipt_number }}</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="8" class="empty-row">No payments recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if payments.has_other_pages %}
+      <div class="pf-pager">
+        {% if payments.has_previous %}
+          <a href="?page=1{% if search_date %}&date={{ search_date }}{% endif %}" class="pg">« First</a>
+          <a href="?page={{ payments.previous_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="pg">Previous</a>
         {% endif %}
-    </div>
-
+        <span class="cur">Page {{ payments.number }} of {{ payments.paginator.num_pages }}</span>
+        {% if payments.has_next %}
+          <a href="?page={{ payments.next_page_number }}{% if search_date %}&date={{ search_date }}{% endif %}" class="pg">Next</a>
+          <a href="?page={{ payments.paginator.num_pages }}{% if search_date %}&date={{ search_date }}{% endif %}" class="pg">Last »</a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
 </div>
 
-{# ─── MODAL ─── #}
-<div class="modal-overlay" id="customFeeModal" style="display:none;">
-    <div class="modal-box">
-        <h2 id="modalTitle">Generate Current Month Fee</h2>
-        <div class="modal-sub" id="modalSub">Create or update the fee record for this student.</div>
-
-        <div id="modalInfoContainer"></div>
-
-        <div id="feeAmountGroup">
-            <label for="customFeeAmount">Amount (₹)</label>
-            <input type="number" id="customFeeAmount" step="0.01" min="0" placeholder="Enter amount">
-            <div class="default-fee-display" id="defaultFeeDisplay">Default: ₹0.00</div>
-        </div>
-
-        <div class="modal-actions">
-            <button class="btn btn-secondary" id="cancelFeeModalBtn">Cancel</button>
-            <button class="btn btn-primary" id="confirmFeeModalBtn">Confirm</button>
-        </div>
+<!-- ═══ VOUCHER MODAL ═══ -->
+<div class="pf-modal" id="voucherModal" style="display:none;z-index:1002">
+  <div class="pf-modal-box" style="max-width:780px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <h2 style="margin:0">Fee Voucher</h2>
+      <button type="button" id="voucherModalClose" style="background:transparent;border:none;font-size:1.5rem;line-height:1;color:var(--muted,#64748b);cursor:pointer;padding:0 .35rem" aria-label="Close">&times;</button>
     </div>
+    <div id="voucherModalBody" style="max-height:70vh;overflow:auto;background:var(--surface-alt,#f8fafc);border-radius:14px;padding:.85rem">
+      <div style="padding:1.5rem;text-align:center;color:var(--muted,#64748b)">Loading…</div>
+    </div>
+    <div class="pf-modal-actions"><button type="button" class="btn save" id="voucherModalPrint">Print</button></div>
+  </div>
 </div>
 
-
-{# ============ STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 ============ #}
-<style>
-    .satt-kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-        gap: .5rem;
-        padding: .85rem 1.4rem;
-        background: var(--surface-alt);
-        border-bottom: 1px solid var(--border);
-    }
-    .satt-kpi { text-align: center; }
-    .satt-kpi .k-label {
-        font-size: .62rem;
-        text-transform: uppercase;
-        color: var(--muted);
-        font-weight: 800;
-        letter-spacing: .05em;
-    }
-    .satt-kpi .k-val {
-        font-size: 1.25rem;
-        font-weight: 800;
-        margin-top: .1rem;
-        color: var(--text);
-    }
-    .satt-kpi .k-val.ok   { color: #10b981; }
-    .satt-kpi .k-val.bad  { color: #ef4444; }
-    .satt-kpi .k-val.warn { color: #f59e0b; }
-
-    .satt-filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .5rem;
-        align-items: center;
-        padding: .75rem 1.4rem;
-        border-bottom: 1px solid var(--border);
-        background: var(--surface);
-    }
-    .satt-filter-bar label {
-        font-size: .68rem;
-        font-weight: 800;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: .05em;
-    }
-    .satt-filter-bar input[type="date"],
-    .satt-filter-bar select {
-        padding: .4rem .55rem;
-        border-radius: .5rem;
-        border: 1px solid var(--border);
-        background: var(--surface-alt);
-        color: var(--text);
-        font-size: .82rem;
-    }
-
-    /* STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 */
-    .satt-quick-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .35rem;
-        align-items: center;
-        padding: .55rem 1.4rem;
-        border-bottom: 1px solid var(--border);
-        background: var(--surface);
-        font-size: .72rem;
-    }
-    .satt-quick-label {
-        color: var(--muted);
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        margin-right: .25rem;
-    }
-    .satt-qbtn {
-        padding: .35rem .75rem;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        background: var(--surface-alt);
-        color: var(--text);
-        font-size: .72rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all .12s ease;
-    }
-    .satt-qbtn:hover {
-        border-color: var(--primary);
-        color: var(--primary);
-    }
-    .satt-qbtn.active {
-        background: var(--primary);
-        color: #fff;
-        border-color: var(--primary);
-    }
-    .satt-active-filter {
-        margin-left: auto;
-        display: none;
-        padding: .25rem .7rem;
-        border-radius: 999px;
-        background: #dbeafe;
-        color: #1e40af;
-        font-weight: 800;
-        font-size: .7rem;
-        letter-spacing: .02em;
-    }
-    .satt-btn {
-        padding: .45rem .9rem;
-        border-radius: .55rem;
-        border: 1px solid var(--border);
-        background: var(--surface-alt);
-        color: var(--text);
-        font-weight: 700;
-        font-size: .78rem;
-        cursor: pointer;
-    }
-    .satt-btn.primary {
-        background: var(--primary);
-        color: #fff;
-        border-color: var(--primary);
-    }
-    .satt-btn.primary:hover { filter: brightness(1.08); }
-    .satt-btn:disabled { opacity: .45; cursor: not-allowed; }
-
-    .satt-table-wrap {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-    .satt-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: .86rem;
-    }
-    .satt-table thead th {
-        text-align: left;
-        padding: .55rem .85rem;
-        font-size: .68rem;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        color: var(--muted);
-        font-weight: 800;
-        border-bottom: 2px solid var(--border);
-        background: var(--surface-alt);
-        position: sticky;
-        top: 0;
-        z-index: 1;
-    }
-    .satt-table tbody td {
-        padding: .55rem .85rem;
-        border-bottom: 1px solid var(--border);
-        color: var(--text);
-        vertical-align: middle;
-    }
-    .satt-table tbody tr:hover { background: var(--surface-alt); }
-    .satt-table .empty-row {
-        text-align: center;
-        color: var(--muted);
-        padding: 1.8rem 1rem;
-        font-style: italic;
-    }
-    .satt-mini-badge {
-        display: inline-block;
-        padding: .12rem .55rem;
-        border-radius: 999px;
-        font-size: .7rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .04em;
-    }
-    .satt-mini-badge.present  { background: #d1fae5; color: #065f46; }
-    .satt-mini-badge.absent   { background: #fee2e2; color: #991b1b; }
-    .satt-mini-badge.late     { background: #fef3c7; color: #92400e; }
-    .satt-mini-badge.half_day { background: #e0e7ff; color: #3730a3; }
-    .satt-mini-badge.excused  { background: #dbeafe; color: #1e40af; }
-    .satt-mini-badge.holiday  { background: #e5e7eb; color: #374151; }
-
-    .satt-pager {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: .7rem 1.4rem;
-        border-top: 1px solid var(--border);
-        background: var(--surface-alt);
-        gap: .5rem;
-    }
-    .satt-pager .info {
-        font-size: .78rem;
-        color: var(--muted);
-        font-weight: 600;
-    }
-
-    /* submodal status group */
-    #sattEditStatus input[type="radio"] { display: none; }
-    #sattEditStatus label {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 48px;
-        padding: .45rem .7rem;
-        border-radius: .55rem;
-        font-size: .78rem;
-        font-weight: 800;
-        cursor: pointer;
-        border: 1px solid var(--border);
-        background: var(--surface-alt);
-        color: var(--muted);
-        user-select: none;
-    }
-    #sattEditStatus input[value="present"]:checked  + label { background:#10b981; color:#fff; border-color:#10b981; }
-    #sattEditStatus input[value="absent"]:checked   + label { background:#ef4444; color:#fff; border-color:#ef4444; }
-    #sattEditStatus input[value="late"]:checked     + label { background:#f59e0b; color:#fff; border-color:#f59e0b; }
-    #sattEditStatus input[value="half_day"]:checked + label { background:#8b5cf6; color:#fff; border-color:#8b5cf6; }
-    #sattEditStatus input[value="excused"]:checked  + label { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
-</style>
-
-<div class="modal-overlay" id="studentAttModal"
-     style="display:none; z-index: 1000; padding: 1rem;">
-    <div class="modal-box"
-         style="max-width: 980px; width: 100%; padding: 0;
-                max-height: 92vh; display: flex; flex-direction: column;">
-
-        <div style="display:flex; justify-content:space-between;
-                    align-items:center; gap:.6rem;
-                    padding:1rem 1.4rem;
-                    border-bottom:1px solid var(--border);">
-            <div>
-                <h2 style="margin:0; font-size:1.15rem;">
-                    Manage Attendance — {{ student.name }}
-                </h2>
-                <div style="font-size:.78rem; color:var(--muted);
-                            margin-top:.15rem;">
-                    Roll {{ student.roll_number }} &middot;
-                    {{ student|display_class:tenant }}
-                </div>
-            </div>
-            <button type="button" onclick="AXIS_STUDENT_ATT.close()"
-                    style="background:transparent; border:none;
-                           font-size:1.5rem; color:var(--muted);
-                           cursor:pointer; line-height:1;
-                           padding:0 .35rem;"
-                    aria-label="Close">&times;</button>
-        </div>
-
-        <div class="satt-kpi-grid" id="sattKpiGrid">
-            <div class="satt-kpi">
-                <div class="k-label">Present</div>
-                <div class="k-val ok" id="sattKpiPresent">0</div>
-            </div>
-            <div class="satt-kpi">
-                <div class="k-label">Absent</div>
-                <div class="k-val bad" id="sattKpiAbsent">0</div>
-            </div>
-            <div class="satt-kpi">
-                <div class="k-label">Late</div>
-                <div class="k-val warn" id="sattKpiLate">0</div>
-            </div>
-            <div class="satt-kpi">
-                <div class="k-label">Half Day</div>
-                <div class="k-val" id="sattKpiHalfDay">0</div>
-            </div>
-            <div class="satt-kpi">
-                <div class="k-label">Excused</div>
-                <div class="k-val" id="sattKpiExcused">0</div>
-            </div>
-            <div class="satt-kpi">
-                <div class="k-label">Total</div>
-                <div class="k-val" id="sattKpiTotal">0</div>
-            </div>
-            <div class="satt-kpi">
-                <div class="k-label">Attendance</div>
-                <div class="k-val" id="sattKpiPct">0%</div>
-            </div>
-        </div>
-
-        <div class="satt-filter-bar">
-            <label for="sattFilterStart">From</label>
-            <input type="date" id="sattFilterStart">
-            <label for="sattFilterEnd">To</label>
-            <input type="date" id="sattFilterEnd">
-            <label for="sattFilterStatus">Status</label>
-            <select id="sattFilterStatus">
-                <option value="">All</option>
-                <option value="present">Present</option>
-                <option value="absent">Absent</option>
-                <option value="late">Late</option>
-                <option value="half_day">Half Day</option>
-                <option value="excused">Excused</option>
-                <option value="holiday">Holiday</option>
-            </select>
-            <button type="button" class="satt-btn primary"
-                    id="sattApplyBtn">Apply</button>
-            <button type="button" class="satt-btn"
-                    id="sattResetBtn">Reset</button>
-        </div>
-
-        <!-- STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 -->
-        <div class="satt-quick-bar" id="sattQuickBar">
-            <span class="satt-quick-label">Quick range:</span>
-            <button type="button" class="satt-qbtn" data-range="0">Today</button>
-            <button type="button" class="satt-qbtn" data-range="7">Last 7 days</button>
-            <button type="button" class="satt-qbtn" data-range="30">Last 30 days</button>
-            <button type="button" class="satt-qbtn" data-range="90">Last 90 days</button>
-            <button type="button" class="satt-qbtn" data-range="365">Last year</button>
-            <button type="button" class="satt-qbtn active" data-range="all">All time</button>
-            <span class="satt-active-filter" id="sattActiveFilter"></span>
-        </div>
-
-        <div class="satt-table-wrap">
-            <table class="satt-table">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Day</th>
-                        <th>Slot</th>
-                        <th>Status</th>
-                        <th>Marked By</th>
-                        <th style="text-align:right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody id="sattTableBody">
-                    <tr><td colspan="6" class="empty-row">Loading…</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="satt-pager">
-            <span class="info" id="sattPagerInfo">—</span>
-            <div style="display:flex; gap:.4rem;">
-                <button type="button" class="satt-btn" id="sattPrevBtn"
-                        disabled>&lsaquo; Prev</button>
-                <button type="button" class="satt-btn" id="sattNextBtn"
-                        disabled>Next &rsaquo;</button>
-            </div>
-        </div>
+<!-- ═══ FEE GEN MODAL ═══ -->
+<div class="pf-modal" id="customFeeModal" style="display:none">
+  <div class="pf-modal-box">
+    <h2 id="modalTitle">Generate Current Month Fee</h2>
+    <div class="m-sub" id="modalSub">Create or update the fee record for this student.</div>
+    <div id="modalInfoContainer"></div>
+    <div id="feeAmountGroup">
+      <label for="customFeeAmount">Amount (₹)</label>
+      <input type="number" id="customFeeAmount" step="0.01" min="0" placeholder="Enter amount">
+      <div style="font-size:.8rem;color:var(--muted,#64748b);margin-top:.4rem" id="defaultFeeDisplay">Default: ₹0.00</div>
     </div>
+    <div class="pf-modal-actions">
+      <button class="btn cancel" id="cancelFeeModalBtn" type="button">Cancel</button>
+      <button class="btn save" id="confirmFeeModalBtn" type="button">Confirm</button>
+    </div>
+  </div>
 </div>
 
-<div class="modal-overlay" id="sattEditModal"
-     style="display:none; z-index: 1001; padding: 1rem;">
-    <div class="modal-box" style="max-width: 500px;">
-        <h2 style="margin-top:0; font-size:1.1rem;">Edit Attendance</h2>
-        <div style="font-size:.82rem; color:var(--muted);
-                    margin-bottom:.85rem;">
-            <div id="sattEditDate" style="font-weight:700;
-                                          color:var(--text);"></div>
-            <div id="sattEditSlot"></div>
-        </div>
-
-        <label style="font-size:.72rem; font-weight:800; color:var(--muted);
-                      text-transform:uppercase; letter-spacing:.05em;
-                      display:block; margin-bottom:.35rem;">
-            Status
-        </label>
-        <div id="sattEditStatus"
-             style="display:flex; gap:.35rem; flex-wrap:wrap;
-                    margin-bottom:.85rem;">
-            <input type="radio" name="satt_edit_status"
-                   id="satt_s_present" value="present">
-            <label for="satt_s_present">Present</label>
-
-            <input type="radio" name="satt_edit_status"
-                   id="satt_s_absent" value="absent">
-            <label for="satt_s_absent">Absent</label>
-
-            <input type="radio" name="satt_edit_status"
-                   id="satt_s_late" value="late">
-            <label for="satt_s_late">Late</label>
-
-            <input type="radio" name="satt_edit_status"
-                   id="satt_s_half_day" value="half_day">
-            <label for="satt_s_half_day">Half Day</label>
-
-            <input type="radio" name="satt_edit_status"
-                   id="satt_s_excused" value="excused">
-            <label for="satt_s_excused">Excused</label>
-        </div>
-
-        <label style="font-size:.72rem; font-weight:800; color:var(--muted);
-                      text-transform:uppercase; letter-spacing:.05em;
-                      display:block; margin-bottom:.35rem;">
-            Remarks (optional)
-        </label>
-        <textarea id="sattEditRemarks" rows="2"
-                  style="width:100%; padding:.5rem .7rem;
-                         border-radius:.55rem;
-                         border:1px solid var(--border);
-                         background:var(--surface-alt);
-                         color:var(--text); font-size:.88rem;
-                         margin-bottom:.4rem;"></textarea>
-
-        <div style="display:flex; gap:.5rem; align-items:center;
-                    justify-content:flex-end; margin-top:.85rem;">
-            <span id="sattEditMsg"
-                  style="margin-right:auto; font-size:.82rem;
-                         color:var(--muted);"></span>
-            <button type="button" class="satt-btn"
-                    id="sattEditCancelBtn">Cancel</button>
-            <button type="button" class="satt-btn primary"
-                    id="sattEditSaveBtn">Save</button>
-        </div>
+<!-- ═══ ATTENDANCE MANAGER ═══ -->
+<div class="pf-modal" id="studentAttModal" style="display:none;z-index:1000;padding:1rem">
+  <div class="pf-modal-box" style="max-width:980px;width:100%;padding:0;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;padding:1.1rem 1.5rem;border-bottom:1px solid rgba(148,163,184,.15)">
+      <div>
+        <h2 style="margin:0;font-size:1.2rem">Manage Attendance — {{ student.name }}</h2>
+        <div style="font-size:.78rem;color:var(--muted,#64748b);margin-top:.2rem">Roll {{ student.roll_number }} &middot; {{ student|display_class:tenant }}</div>
+      </div>
+      <button type="button" onclick="AXIS_STUDENT_ATT.close()" style="background:transparent;border:none;font-size:1.5rem;color:var(--muted,#64748b);cursor:pointer;line-height:1;padding:0 .35rem" aria-label="Close">&times;</button>
     </div>
+    <div class="satt-kpi-grid">
+      <div class="satt-kpi"><div class="k-label">Present</div><div class="k-val ok" id="sattKpiPresent">0</div></div>
+      <div class="satt-kpi"><div class="k-label">Absent</div><div class="k-val bad" id="sattKpiAbsent">0</div></div>
+      <div class="satt-kpi"><div class="k-label">Late</div><div class="k-val warn" id="sattKpiLate">0</div></div>
+      <div class="satt-kpi"><div class="k-label">Half Day</div><div class="k-val" id="sattKpiHalfDay">0</div></div>
+      <div class="satt-kpi"><div class="k-label">Excused</div><div class="k-val" id="sattKpiExcused">0</div></div>
+      <div class="satt-kpi"><div class="k-label">Total</div><div class="k-val" id="sattKpiTotal">0</div></div>
+      <div class="satt-kpi"><div class="k-label">%</div><div class="k-val" id="sattKpiPct">0%</div></div>
+    </div>
+    <div class="satt-filter-bar">
+      <label for="sattFilterStart">From</label>
+      <input type="date" id="sattFilterStart">
+      <label for="sattFilterEnd">To</label>
+      <input type="date" id="sattFilterEnd">
+      <label for="sattFilterStatus">Status</label>
+      <select id="sattFilterStatus">
+        <option value="">All</option>
+        <option value="present">Present</option>
+        <option value="absent">Absent</option>
+        <option value="late">Late</option>
+        <option value="half_day">Half Day</option>
+        <option value="excused">Excused</option>
+        <option value="holiday">Holiday</option>
+      </select>
+      <button type="button" class="satt-btn primary" id="sattApplyBtn">Apply</button>
+      <button type="button" class="satt-btn" id="sattResetBtn">Reset</button>
+    </div>
+    <div class="satt-quick-bar">
+      <span class="satt-quick-label">Quick:</span>
+      <button type="button" class="satt-qbtn" data-range="0">Today</button>
+      <button type="button" class="satt-qbtn" data-range="7">7d</button>
+      <button type="button" class="satt-qbtn" data-range="30">30d</button>
+      <button type="button" class="satt-qbtn" data-range="90">90d</button>
+      <button type="button" class="satt-qbtn" data-range="365">1y</button>
+      <button type="button" class="satt-qbtn active" data-range="all">All time</button>
+      <span class="satt-active-filter" id="sattActiveFilter"></span>
+    </div>
+    <div class="satt-table-wrap">
+      <table class="satt-table">
+        <thead><tr><th>Date</th><th>Day</th><th>Slot</th><th>Status</th><th>Marked By</th><th style="text-align:right">Action</th></tr></thead>
+        <tbody id="sattTableBody"><tr><td colspan="6" class="empty-row">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="satt-pager">
+      <span class="info" id="sattPagerInfo">—</span>
+      <div style="display:flex;gap:.4rem">
+        <button type="button" class="satt-btn" id="sattPrevBtn" disabled>‹ Prev</button>
+        <button type="button" class="satt-btn" id="sattNextBtn" disabled>Next ›</button>
+      </div>
+    </div>
+  </div>
 </div>
-{# ============ /STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 ============ #}
 
-{# ─── SCRIPTS ─── #}
+<div class="pf-modal" id="sattEditModal" style="display:none;z-index:1001;padding:1rem">
+  <div class="pf-modal-box" style="max-width:500px">
+    <h2 style="margin-top:0;font-size:1.15rem">Edit Attendance</h2>
+    <div style="font-size:.82rem;color:var(--muted,#64748b);margin-bottom:.9rem">
+      <div id="sattEditDate" style="font-weight:800;color:var(--text,#0f172a)"></div>
+      <div id="sattEditSlot"></div>
+    </div>
+    <label style="font-size:.68rem;font-weight:800;color:var(--muted,#64748b);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:.4rem">Status</label>
+    <div id="sattEditStatus" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.9rem">
+      <input type="radio" name="satt_edit_status" id="satt_s_present" value="present"><label for="satt_s_present">Present</label>
+      <input type="radio" name="satt_edit_status" id="satt_s_absent" value="absent"><label for="satt_s_absent">Absent</label>
+      <input type="radio" name="satt_edit_status" id="satt_s_late" value="late"><label for="satt_s_late">Late</label>
+      <input type="radio" name="satt_edit_status" id="satt_s_half_day" value="half_day"><label for="satt_s_half_day">Half Day</label>
+      <input type="radio" name="satt_edit_status" id="satt_s_excused" value="excused"><label for="satt_s_excused">Excused</label>
+    </div>
+    <label style="font-size:.68rem;font-weight:800;color:var(--muted,#64748b);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:.4rem">Remarks (optional)</label>
+    <textarea id="sattEditRemarks" rows="2"></textarea>
+    <div style="display:flex;gap:.5rem;align-items:center;justify-content:flex-end;margin-top:.9rem">
+      <span id="sattEditMsg" style="margin-right:auto;font-size:.82rem;color:var(--muted,#64748b)"></span>
+      <button type="button" class="satt-btn" id="sattEditCancelBtn">Cancel</button>
+      <button type="button" class="satt-btn primary" id="sattEditSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SCRIPTS ═══ -->
 <script>
-    (function() {
-        // ── Helpers ──
-        function getCookie(name) {
-            let v = null;
-            if (document.cookie && document.cookie !== '') {
-                const parts = document.cookie.split(';');
-                for (let p of parts) {
-                    const trimmed = p.trim();
-                    if (trimmed.substring(0, name.length + 1) === (name + '=')) {
-                        v = decodeURIComponent(trimmed.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return v;
+(function(){
+  function getCookie(n){
+    var name = n + '=', parts = (document.cookie||'').split(';');
+    for (var i=0;i<parts.length;i++){ var c=parts[i].trim(); if(c.indexOf(name)===0) return decodeURIComponent(c.substring(name.length)); }
+    return null;
+  }
+  var csrfToken = getCookie('csrftoken');
+  var schema = '{{ tenant.schema_name }}';
+  var studentId = {{ student.id }};
+
+  var modal = document.getElementById('customFeeModal');
+  var modalTitle = document.getElementById('modalTitle');
+  var modalSub = document.getElementById('modalSub');
+  var modalInfoContainer = document.getElementById('modalInfoContainer');
+  var feeAmountGroup = document.getElementById('feeAmountGroup');
+  var amountInput = document.getElementById('customFeeAmount');
+  var defaultFeeDisplay = document.getElementById('defaultFeeDisplay');
+  var confirmBtn = document.getElementById('confirmFeeModalBtn');
+  var cancelBtn = document.getElementById('cancelFeeModalBtn');
+
+  function openModal(){ modal.style.display = 'flex'; }
+  function closeModal(){ modal.style.display = 'none'; }
+
+  async function getCurrentFeeStatus(){
+    var resp = await fetch('/portal/' + schema + '/api/student/' + studentId + '/current-fee-status/');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return resp.json();
+  }
+
+  async function showFeeModal(){
+    try {
+      var status = await getCurrentFeeStatus();
+      var defaultFee = status.default_fee !== undefined ? status.default_fee : {{ student.custom_fee|default:0 }};
+      amountInput.value = '';
+      modalTitle.innerText = 'Generate Current Month Fee';
+      modalSub.innerText = 'Create or update the fee record for this student.';
+      modalInfoContainer.innerHTML = '';
+      feeAmountGroup.style.display = 'block';
+      confirmBtn.style.display = 'inline-block';
+      confirmBtn.innerText = 'Confirm';
+
+      if (status.exists) {
+        if (status.paid_amount > 0) {
+          modalTitle.innerText = 'Fee Already Processed';
+          modalSub.innerText = "This month's fee has been paid.";
+          modalInfoContainer.innerHTML =
+            '<div style="background:var(--surface-alt,#f8fafc);border-radius:12px;padding:1rem;border-left:3px solid #6366f1;margin:.5rem 0 1rem">' +
+            '<p style="margin:.2rem 0"><strong>Amount:</strong> ₹' + status.amount.toFixed(2) + '</p>' +
+            '<p style="margin:.2rem 0"><strong>Paid:</strong> ₹' + status.paid_amount.toFixed(2) + '</p>' +
+            '<p style="margin:.2rem 0"><strong>Status:</strong> ' + status.status + '</p></div>';
+          feeAmountGroup.style.display = 'none';
+          confirmBtn.style.display = 'none';
+          openModal(); return;
         }
+        modalTitle.innerText = 'Update Current Month Fee';
+        modalSub.innerText = "This month's fee is unpaid. You can update the amount.";
+        defaultFeeDisplay.innerText = 'Current fee: ₹' + status.amount.toFixed(2) + ' (unpaid)';
+        amountInput.placeholder = 'Leave empty to keep ₹' + status.amount.toFixed(2);
+        confirmBtn.innerText = 'Update Fee';
+        openModal(); return;
+      }
+      if (defaultFee === 0) {
+        defaultFeeDisplay.innerText = 'No fee structure set — enter a custom amount';
+        amountInput.placeholder = 'Enter custom amount';
+      } else {
+        defaultFeeDisplay.innerText = 'Default fee: ₹' + defaultFee.toFixed(2);
+        amountInput.placeholder = 'Leave empty for default';
+      }
+      confirmBtn.innerText = 'Generate';
+      openModal();
+    } catch(e){
+      console.error(e);
+      alert('Failed to load fee status: ' + e.message);
+    }
+  }
 
-        const csrfToken = getCookie('csrftoken');
-        const schema = '{{ tenant.schema_name }}';
-        const studentId = {{ student.id }};
+  async function generateWithCustom(customAmount){
+    confirmBtn.disabled = true;
+    var orig = confirmBtn.innerText;
+    confirmBtn.innerText = 'Processing…';
+    try {
+      var fd = new URLSearchParams();
+      fd.append('student_id', studentId);
+      if (customAmount !== undefined && customAmount !== null && customAmount !== '') fd.append('custom_amount', customAmount);
+      var resp = await fetch('/api/manual-generate-single/', {
+        method:'POST',
+        headers:{'X-CSRFToken': csrfToken, 'Content-Type':'application/x-www-form-urlencoded'},
+        body: fd.toString()
+      });
+      var data = await resp.json();
+      if (data.error) { alert('Error: ' + data.error); }
+      else { alert(data.message || 'Fee processed successfully.'); window.location.href = '/portal/' + schema + '/fee/collection/' + studentId + '/'; }
+    } catch(e){ console.error(e); alert('Error: ' + e.message); }
+    finally { confirmBtn.disabled = false; confirmBtn.innerText = orig; closeModal(); }
+  }
 
-        // ── DOM refs ──
-        const modal = document.getElementById('customFeeModal');
-        const modalTitle = document.getElementById('modalTitle');
-        const modalSub = document.getElementById('modalSub');
-        const modalInfoContainer = document.getElementById('modalInfoContainer');
-        const feeAmountGroup = document.getElementById('feeAmountGroup');
-        const amountInput = document.getElementById('customFeeAmount');
-        const defaultFeeDisplay = document.getElementById('defaultFeeDisplay');
-        const confirmBtn = document.getElementById('confirmFeeModalBtn');
-        const cancelBtn = document.getElementById('cancelFeeModalBtn');
+  document.getElementById('genFeeBtn').addEventListener('click', showFeeModal);
+  confirmBtn.addEventListener('click', function(){
+    var raw = amountInput.value.trim();
+    if (raw === '') return generateWithCustom(undefined);
+    var num = parseFloat(raw);
+    if (isNaN(num) || num <= 0) { alert('Please enter a valid positive amount.'); return; }
+    generateWithCustom(num);
+  });
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
 
-        // ── API calls ──
-        async function getCurrentFeeStatus() {
-            const url = `/portal/${schema}/api/student/${studentId}/current-fee-status/`;
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            return await resp.json();
-        }
-
-        async function loadFeeRecords() {
-            try {
-                const resp = await fetch(`/portal/${schema}/api/student/${studentId}/fee-records/`);
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                const data = await resp.json();
-                const tbody = document.getElementById('feeTableBody');
-                if (!data.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No fee records found. Use the "Generate Fee" button above to create one.</td></tr>';
-                    document.getElementById('totalFee').innerHTML = '₹0';
-                    document.getElementById('totalPaid').innerHTML = '₹0';
-                    document.getElementById('pendingTotal').innerHTML = '₹0';
-                    return;
-                }
-                let totalFee = 0, totalPaid = 0;
-                let html = '';
-                for (let r of data) {
-                    totalFee += r.total_amount;
-                    totalPaid += r.paid_amount;
-                    let receiptsHtml = '—';
-                    if (r.receipts && r.receipts.length) {
-                        receiptsHtml = r.receipts.map(rc =>
-                            `<a href="/portal/${schema}/fee/receipt/${rc.id}/" class="receipt-link">${rc.number}</a>`
-                        ).join(', ');
-                    }
-                    html += `<tr>
-                        <td>${r.month}/${r.year}</td>
-                        <td>₹${r.total_amount.toFixed(2)}</td>
-                        <td>₹${r.paid_amount.toFixed(2)}</td>
-                        <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
-                        <td>${receiptsHtml}</td>
-                    </tr>`;
-                }
-                tbody.innerHTML = html;
-                const pending = totalFee - totalPaid;
-                document.getElementById('totalFee').innerHTML = `₹${totalFee.toFixed(2)}`;
-                document.getElementById('totalPaid').innerHTML = `₹${totalPaid.toFixed(2)}`;
-                const pendingEl = document.getElementById('pendingTotal');
-                pendingEl.innerHTML = `₹${pending.toFixed(2)}`;
-                pendingEl.className = 'fee-value' + (pending > 0 ? ' pending' : '');
-            } catch (e) {
-                console.error('Fee load error:', e);
-            }
-        }
-
-        async function loadPayments() {
-            try {
-                const resp = await fetch(`/portal/${schema}/api/student/${studentId}/payments/`);
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                const data = await resp.json();
-                const tbody = document.getElementById('paymentTableBody');
-                if (!data.length) {
-                    tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No payments recorded yet.</td></tr>';
-                    return;
-                }
-                let html = '';
-                for (let p of data) {
-                    const remarks = p.remarks ? p.remarks.replace(/\n/g, '<br>') : '—';
-                    html += `<tr>
-                        <td>${p.date}</td>
-                        <td>${p.day || '—'}</td>
-                        <td>₹${(p.total_due_before || 0).toFixed(2)}</td>
-                        <td>₹${p.amount.toFixed(2)}</td>
-                        <td>₹${(p.remaining_balance || 0).toFixed(2)}</td>
-                        <td>${p.mode}</td>
-                        <td><span class="payment-type-badge">${p.type}</span></td>
-                        <td><a href="${p.url}" class="receipt-link" target="_blank">${p.receipt_number}</a></td>
-                    </tr>`;
-                }
-                tbody.innerHTML = html;
-            } catch (e) {
-                console.error('Payment load error:', e);
-            }
-        }
-
-        // ── Modal logic ──
-        function openModal() { modal.style.display = 'flex'; }
-        function closeModal() { modal.style.display = 'none'; }
-
-        async function showFeeModal() {
-            try {
-                const status = await getCurrentFeeStatus();
-                const defaultFee = status.default_fee !== undefined ? status.default_fee : {{ student.custom_fee|default:0 }};
-
-                // Reset UI
-                amountInput.value = '';
-                modalTitle.innerText = 'Generate Current Month Fee';
-                modalSub.innerText = 'Create or update the fee record for this student.';
-                modalInfoContainer.innerHTML = '';
-                feeAmountGroup.style.display = 'block';
-                confirmBtn.style.display = 'inline-block';
-                confirmBtn.innerText = 'Confirm';
-
-                if (status.exists) {
-                    if (status.paid_amount > 0) {
-                        // Already paid – read-only
-                        modalTitle.innerText = 'Fee Already Processed';
-                        modalSub.innerText = 'This month\'s fee has been paid.';
-                        modalInfoContainer.innerHTML = `
-                            <div class="modal-info-box">
-                                <p><strong>Amount:</strong> ₹${status.amount.toFixed(2)}</p>
-                                <p><strong>Paid:</strong> ₹${status.paid_amount.toFixed(2)}</p>
-                                <p><strong>Status:</strong> ${status.status}</p>
-                            </div>
-                        `;
-                        feeAmountGroup.style.display = 'none';
-                        confirmBtn.style.display = 'none';
-                        openModal();
-                        return;
-                    } else {
-                        // Exists but unpaid – allow update
-                        modalTitle.innerText = 'Update Current Month Fee';
-                        modalSub.innerText = 'This month\'s fee is unpaid. You can update the amount.';
-                        defaultFeeDisplay.innerText = `Current fee: ₹${status.amount.toFixed(2)} (unpaid)`;
-                        amountInput.placeholder = `Leave empty to keep ₹${status.amount.toFixed(2)}`;
-                        confirmBtn.innerText = 'Update Fee';
-                        openModal();
-                        return;
-                    }
-                }
-
-                // No fee – create
-                if (defaultFee === 0) {
-                    defaultFeeDisplay.innerText = 'No fee structure set — enter a custom amount';
-                    amountInput.placeholder = 'Enter custom amount';
-                } else {
-                    defaultFeeDisplay.innerText = `Default fee: ₹${defaultFee.toFixed(2)}`;
-                    amountInput.placeholder = 'Leave empty for default';
-                }
-                confirmBtn.innerText = 'Generate';
-                openModal();
-
-            } catch (e) {
-                console.error('showFeeModal error:', e);
-                alert('Failed to load fee status: ' + e.message);
-            }
-        }
-
-        async function generateWithCustom(customAmount) {
-            confirmBtn.disabled = true;
-            const originalText = confirmBtn.innerText;
-            confirmBtn.innerText = 'Processing…';
-            try {
-                const formData = new URLSearchParams();
-                formData.append('student_id', studentId);
-                if (customAmount !== undefined && customAmount !== null && customAmount !== '') {
-                    formData.append('custom_amount', customAmount);
-                }
-                const resp = await fetch('/api/manual-generate-single/', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': csrfToken,
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: formData.toString()
-                });
-                const data = await resp.json();
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                } else {
-                    alert(data.message || 'Fee processed successfully.');
-                    await loadFeeRecords();
-                    await loadPayments();
-                    window.location.href = `/portal/${schema}/fee/collection/${studentId}/`;
-                }
-            } catch (e) {
-                console.error('Generation error:', e);
-                alert('Error: ' + e.message);
-            } finally {
-                confirmBtn.disabled = false;
-                confirmBtn.innerText = originalText;
-                closeModal();
-            }
-        }
-
-        // ── Event bindings ──
-        document.getElementById('genFeeBtn').addEventListener('click', showFeeModal);
-
-        confirmBtn.addEventListener('click', function() {
-            const raw = amountInput.value.trim();
-            if (raw === '') {
-                generateWithCustom(undefined);
-            } else {
-                const num = parseFloat(raw);
-                if (isNaN(num) || num <= 0) {
-                    alert('Please enter a valid positive amount.');
-                    return;
-                }
-                generateWithCustom(num);
-            }
-        });
-
-        cancelBtn.addEventListener('click', closeModal);
-        modal.addEventListener('click', function(e) {
-            if (e.target === modal) closeModal();
-        });
-
-        // ── Mobile redirect ──
-        if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
-            const currentPath = window.location.pathname.replace(/\/+$|\?.*$/, '');
-            const mobilePath = "{% url 'mobile_student_profile' schema_name=tenant.schema_name student_id=student.id %}";
-            if (currentPath !== mobilePath) {
-                window.location.replace(mobilePath);
-            }
-        }
-
-        // ── Initial load ──
-        loadFeeRecords();
-        loadPayments();
-
-        // Expose for any inline onclick (voucher)
-        window.openVoucherModal = function(studentId, schema) {
-            // Voucher modal logic – placeholder
-            alert('Voucher modal for student ' + studentId + ' (schema: ' + schema + ')');
-        };
-
-    })();
+  window.openVoucherModal = function(sid, sch){
+    var m = document.getElementById('voucherModal');
+    var b = document.getElementById('voucherModalBody');
+    if (!m || !b) return;
+    m.style.display = 'flex';
+    b.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--muted,#64748b)">Loading voucher…</div>';
+    fetch('/portal/' + sch + '/api/student/' + sid + '/voucher-html/', { credentials:'same-origin' })
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        b.innerHTML = (html && html.trim()) ? html : '<p style="padding:1.5rem;text-align:center;color:var(--muted,#64748b)">No voucher exists for the current month yet.</p>';
+      })
+      .catch(function(){ b.innerHTML = '<p style="padding:1.5rem;text-align:center;color:#dc2626">Failed to load voucher.</p>'; });
+  };
+  (function bindVoucher(){
+    var m = document.getElementById('voucherModal'); if (!m) return;
+    var c = document.getElementById('voucherModalClose'); if (c) c.addEventListener('click', function(){ m.style.display = 'none'; });
+    m.addEventListener('click', function(e){ if(e.target===m) m.style.display = 'none'; });
+    var p = document.getElementById('voucherModalPrint');
+    if (p) p.addEventListener('click', function(){
+      var b = document.getElementById('voucherModalBody'); if (!b) return;
+      var w = window.open('', '_blank'); if (!w) return;
+      w.document.write('<html><head><title>Voucher</title></head><body>' + b.innerHTML + '</body></html>');
+      w.document.close(); w.focus(); w.print();
+    });
+  })();
+})();
 </script>
 
 <script>
-/* ============ STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 ============ */
-window.AXIS_STUDENT_ATT = (function() {
-    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
-    var STUDENT_ID = {{ student.id }};
-    var PAGE_SIZE = 30;
+/* STUDENT_PROFILE_ATTENDANCE_MANAGER_V1 */
+window.AXIS_STUDENT_ATT = (function(){
+  var SCHEMA='{{ tenant.schema_name|escapejs }}', STUDENT_ID={{ student.id }}, PAGE_SIZE=30;
+  var state={page:1,num_pages:1,total:0,records:[],class_id:0,start_date:'',end_date:'',status:''};
+  function q(s,r){return (r||document).querySelector(s);}
+  function qa(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function csrf(){var m=document.querySelector('meta[name="csrf-token"]');if(m&&m.getAttribute('content'))return m.getAttribute('content');var n='csrftoken=',p=(document.cookie||'').split(';');for(var i=0;i<p.length;i++){var c=p[i].trim();if(c.indexOf(n)===0)return c.substring(n.length);}return '';}
+  function sClass(s){return 'satt-mini-badge '+(s||'present');}
+  function sLabel(s){var m={present:'Present',absent:'Absent',late:'Late',half_day:'Half Day',excused:'Excused',holiday:'Holiday'};return m[s]||s;}
 
-    var state = {
-        page: 1,
-        num_pages: 1,
-        total: 0,
-        records: [],
-        class_id: 0,
-        start_date: '',
-        end_date: '',
-        status: '',
-    };
+  function open(){var m=q('#studentAttModal');if(!m)return;m.style.display='flex';state.page=1;load(1);}
+  function close(){var m=q('#studentAttModal');if(m)m.style.display='none';}
 
-    function q(s, r) { return (r || document).querySelector(s); }
-    function qa(s, r) {
-        return Array.prototype.slice.call((r || document).querySelectorAll(s));
-    }
-    function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
-            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
-        });
-    }
-    function csrf() {
-        var m = document.querySelector('meta[name="csrf-token"]');
-        if (m && m.getAttribute('content')) return m.getAttribute('content');
-        var name = 'csrftoken=';
-        var parts = (document.cookie || '').split(';');
-        for (var i = 0; i < parts.length; i++) {
-            var c = parts[i].trim();
-            if (c.indexOf(name) === 0) return c.substring(name.length);
-        }
-        return '';
-    }
+  function load(page){
+    state.page=page||1;
+    var url='/portal/'+SCHEMA+'/api/attendance/student/'+STUDENT_ID+'/history-paginated/?page='+state.page+'&page_size='+PAGE_SIZE;
+    if(state.start_date)url+='&start_date='+encodeURIComponent(state.start_date);
+    if(state.end_date)url+='&end_date='+encodeURIComponent(state.end_date);
+    if(state.status)url+='&status='+encodeURIComponent(state.status);
+    q('#sattTableBody').innerHTML='<tr><td colspan="6" class="empty-row">Loading…</td></tr>';
+    q('#sattPagerInfo').textContent='Loading…';
+    fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest'}})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(!j.ok){q('#sattTableBody').innerHTML='<tr><td colspan="6" class="empty-row">'+esc(j.error||'Failed')+'</td></tr>';q('#sattPagerInfo').textContent='—';return;}
+        state.records=j.records||[];state.total=(j.pagination&&j.pagination.total)||0;state.num_pages=(j.pagination&&j.pagination.num_pages)||1;state.class_id=(j.student&&j.student.class_id)||0;
+        renderSummary(j.summary||{});renderTable();renderPager();
+      })
+      .catch(function(){q('#sattTableBody').innerHTML='<tr><td colspan="6" class="empty-row">Network error.</td></tr>';q('#sattPagerInfo').textContent='—';});
+  }
 
-    function statusClass(s) {
-        return 'satt-mini-badge ' + (s || 'present');
-    }
-    function statusLabel(s) {
-        var m = {
-            present: 'Present',
-            absent: 'Absent',
-            late: 'Late',
-            half_day: 'Half Day',
-            excused: 'Excused',
-            holiday: 'Holiday'
-        };
-        return m[s] || s;
-    }
-
-    function open() {
-        var modal = q('#studentAttModal');
-        if (!modal) return;
-        modal.style.display = 'flex';
-        state.page = 1;
-        load(state.page);
-    }
-    function close() {
-        var modal = q('#studentAttModal');
-        if (modal) modal.style.display = 'none';
-    }
-
-    function load(page) {
-        state.page = page || 1;
-        var url = '/portal/' + SCHEMA
-                + '/api/attendance/student/' + STUDENT_ID
-                + '/history-paginated/'
-                + '?page=' + state.page
-                + '&page_size=' + PAGE_SIZE;
-        if (state.start_date) {
-            url += '&start_date=' + encodeURIComponent(state.start_date);
-        }
-        if (state.end_date) {
-            url += '&end_date=' + encodeURIComponent(state.end_date);
-        }
-        if (state.status) {
-            url += '&status=' + encodeURIComponent(state.status);
-        }
-
-        q('#sattTableBody').innerHTML =
-            '<tr><td colspan="6" class="empty-row">Loading…</td></tr>';
-        q('#sattPagerInfo').textContent = 'Loading…';
-
-        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
-            .then(function(r) { return r.json(); })
-            .then(function(j) {
-                if (!j.ok) {
-                    q('#sattTableBody').innerHTML =
-                        '<tr><td colspan="6" class="empty-row">'
-                        + esc(j.error || 'Failed') + '</td></tr>';
-                    q('#sattPagerInfo').textContent = '—';
-                    return;
-                }
-                state.records = j.records || [];
-                state.total = (j.pagination && j.pagination.total) || 0;
-                state.num_pages = (j.pagination && j.pagination.num_pages) || 1;
-                state.class_id = (j.student && j.student.class_id) || 0;
-
-                renderSummary(j.summary || {});
-                renderTable();
-                renderPager();
-            })
-            .catch(function() {
-                q('#sattTableBody').innerHTML =
-                    '<tr><td colspan="6" class="empty-row">'
-                    + 'Network error.</td></tr>';
-                q('#sattPagerInfo').textContent = '—';
-            });
-    }
-
-    function renderSummary(s) {
-        q('#sattKpiPresent').textContent  = s.present  || 0;
-        q('#sattKpiAbsent').textContent   = s.absent   || 0;
-        q('#sattKpiLate').textContent     = s.late     || 0;
-        q('#sattKpiHalfDay').textContent  = s.half_day || 0;
-        q('#sattKpiExcused').textContent  = s.excused  || 0;
-        q('#sattKpiTotal').textContent    = s.total    || 0;
-        q('#sattKpiPct').textContent =
-            (s.attendance_percentage || 0) + '%';
-    }
-
-    function renderTable() {
-        var tbody = q('#sattTableBody');
-        if (!state.records.length) {
-            tbody.innerHTML =
-                '<tr><td colspan="6" class="empty-row">'
-                + 'No attendance records match your filters.</td></tr>';
-            return;
-        }
-        var h = '';
-        state.records.forEach(function(r) {
-            var slot = r.period_order
-                ? 'Period ' + r.period_order
-                : 'Full day';
-            var markedBy = r.marked_by
-                ? esc(r.marked_by)
-                : '<span style="color:var(--muted);">—</span>';
-            h += '<tr>';
-            h +=   '<td>' + esc(r.date) + '</td>';
-            h +=   '<td>' + esc(r.day_name) + '</td>';
-            h +=   '<td>' + esc(slot) + '</td>';
-            h +=   '<td><span class="' + statusClass(r.status) + '">'
-                 + esc(statusLabel(r.status)) + '</span></td>';
-            h +=   '<td>' + markedBy + '</td>';
-            h +=   '<td style="text-align:right;">'
-                 +   '<button type="button" class="satt-btn" '
-                 +     'data-rid="' + r.id + '">Edit</button>'
-                 + '</td>';
-            h += '</tr>';
-        });
-        tbody.innerHTML = h;
-
-        qa('#sattTableBody button[data-rid]').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                var rid = btn.getAttribute('data-rid');
-                var rec = state.records.filter(function(x) {
-                    return String(x.id) === String(rid);
-                })[0];
-                if (rec) openEdit(rec);
-            });
-        });
-    }
-
-    function renderPager() {
-        q('#sattPagerInfo').textContent =
-            'Page ' + state.page + ' of ' + state.num_pages
-            + ' · ' + state.total + ' record(s)';
-        q('#sattPrevBtn').disabled = state.page <= 1;
-        q('#sattNextBtn').disabled = state.page >= state.num_pages;
-    }
-
-    function applyFilters() {
-        var s  = q('#sattFilterStart').value || '';
-        var e  = q('#sattFilterEnd').value || '';
-        var st = q('#sattFilterStatus').value || '';
-
-        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1: if the admin
-        // picked an inverted range (from > to), silently swap them
-        // instead of returning zero rows.
-        if (s && e && s > e) {
-            var tmp = s; s = e; e = tmp;
-            q('#sattFilterStart').value = s;
-            q('#sattFilterEnd').value   = e;
-        }
-
-        state.start_date = s;
-        state.end_date   = e;
-        state.status     = st;
-        renderActiveFilter();
-        load(1);
-    }
-    function resetFilters() {
-        q('#sattFilterStart').value = '';
-        q('#sattFilterEnd').value = '';
-        q('#sattFilterStatus').value = '';
-        state.start_date = '';
-        state.end_date = '';
-        state.status = '';
-        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — reset the quick
-        // bar so "All time" is the one that looks selected again.
-        qa('.satt-qbtn').forEach(function(x) {
-            x.classList.toggle('active', x.getAttribute('data-range') === 'all');
-        });
-        renderActiveFilter();
-        load(1);
-    }
-
-    // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — quick range helper.
-    function applyQuickRange(days) {
-        var today = new Date();
-        var endIso = today.toISOString().slice(0, 10);
-        if (days === 'all' || days === '' || days === null ||
-            days === undefined) {
-            q('#sattFilterStart').value = '';
-            q('#sattFilterEnd').value = '';
-        } else {
-            var d = new Date(today);
-            d.setDate(d.getDate() - parseInt(days, 10));
-            q('#sattFilterStart').value = d.toISOString().slice(0, 10);
-            q('#sattFilterEnd').value   = endIso;
-        }
-        applyFilters();
-    }
-
-    // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — active filter chip.
-    function renderActiveFilter() {
-        var el = q('#sattActiveFilter');
-        if (!el) return;
-        var parts = [];
-        if (state.start_date) parts.push('from ' + state.start_date);
-        if (state.end_date)   parts.push('to '   + state.end_date);
-        if (state.status)     parts.push('status: ' + state.status);
-        if (!parts.length) {
-            el.textContent = '';
-            el.style.display = 'none';
-        } else {
-            el.textContent = 'Showing ' + parts.join(' · ');
-            el.style.display = 'inline-block';
-        }
-    }
-
-    // ---------------- edit submodal ----------------
-
-    var editingRecord = null;
-
-    function openEdit(rec) {
-        editingRecord = rec;
-        q('#sattEditDate').textContent = rec.date + ' (' + rec.day_name + ')';
-        q('#sattEditSlot').textContent = rec.period_order
-            ? 'Period ' + rec.period_order
-            : 'Full day';
-        q('#sattEditRemarks').value = rec.remarks || '';
-        qa('#sattEditStatus input[type="radio"]').forEach(function(el) {
-            el.checked = (el.value === rec.status);
-        });
-        var msg = q('#sattEditMsg');
-        msg.textContent = '';
-        msg.style.color = 'var(--muted)';
-        msg.style.fontWeight = '400';
-        q('#sattEditModal').style.display = 'flex';
-    }
-    function closeEdit() {
-        q('#sattEditModal').style.display = 'none';
-        editingRecord = null;
-    }
-
-    function saveEdit() {
-        if (!editingRecord) return;
-        var checked = q('#sattEditStatus input[type="radio"]:checked');
-        if (!checked) {
-            var m = q('#sattEditMsg');
-            m.textContent = 'Choose a status first.';
-            m.style.color = '#ef4444';
-            m.style.fontWeight = '700';
-            return;
-        }
-        var status = checked.value;
-        var remarks = q('#sattEditRemarks').value || '';
-
-        var payload = {
-            class_id: state.class_id,
-            date: editingRecord.date,
-            records: [{
-                student_id: STUDENT_ID,
-                status: status,
-                remarks: remarks
-            }]
-        };
-        if (editingRecord.period_order) {
-            payload.period_order = editingRecord.period_order;
-        }
-
-        var m2 = q('#sattEditMsg');
-        m2.textContent = 'Saving…';
-        m2.style.color = 'var(--muted)';
-        m2.style.fontWeight = '400';
-        q('#sattEditSaveBtn').disabled = true;
-
-        fetch('/portal/' + SCHEMA + '/api/attendance/mark/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrf(),
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify(payload)
-        })
-            .then(function(r) { return r.json(); })
-            .then(function(j) {
-                q('#sattEditSaveBtn').disabled = false;
-                if (!j.ok) {
-                    m2.textContent = j.error || 'Save failed.';
-                    m2.style.color = '#ef4444';
-                    m2.style.fontWeight = '700';
-                    return;
-                }
-                m2.textContent = 'Saved.';
-                m2.style.color = '#10b981';
-                m2.style.fontWeight = '700';
-                setTimeout(function() {
-                    closeEdit();
-                    load(state.page);
-                }, 500);
-            })
-            .catch(function() {
-                q('#sattEditSaveBtn').disabled = false;
-                m2.textContent = 'Network error.';
-                m2.style.color = '#ef4444';
-                m2.style.fontWeight = '700';
-            });
-    }
-
-    // ---------------- wire up ----------------
-
-    document.addEventListener('DOMContentLoaded', function() {
-        var pb = q('#sattPrevBtn');
-        if (pb) pb.addEventListener('click', function() {
-            if (state.page > 1) load(state.page - 1);
-        });
-        var nb = q('#sattNextBtn');
-        if (nb) nb.addEventListener('click', function() {
-            if (state.page < state.num_pages) load(state.page + 1);
-        });
-        var af = q('#sattApplyBtn');
-        if (af) af.addEventListener('click', applyFilters);
-        var rf = q('#sattResetBtn');
-        if (rf) rf.addEventListener('click', resetFilters);
-
-        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — quick range
-        // buttons.  Clicking one sets From/To and immediately
-        // re-fetches the first page.
-        qa('.satt-qbtn').forEach(function(b) {
-            b.addEventListener('click', function() {
-                qa('.satt-qbtn').forEach(function(x) {
-                    x.classList.remove('active');
-                });
-                b.classList.add('active');
-                var r = b.getAttribute('data-range');
-                applyQuickRange(r === 'all' ? null : r);
-            });
-        });
-
-        // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1 — auto-apply on
-        // date / status change with a 600 ms debounce, so the admin
-        // does not have to click Apply after every edit.
-        var autoApplyTimer = null;
-        function scheduleAutoApply() {
-            if (autoApplyTimer) clearTimeout(autoApplyTimer);
-            autoApplyTimer = setTimeout(applyFilters, 600);
-        }
-        var startEl = q('#sattFilterStart');
-        if (startEl) startEl.addEventListener('change', scheduleAutoApply);
-        var endEl = q('#sattFilterEnd');
-        if (endEl) endEl.addEventListener('change', scheduleAutoApply);
-        var statusEl = q('#sattFilterStatus');
-        if (statusEl) statusEl.addEventListener('change', scheduleAutoApply);
-
-        var sv = q('#sattEditSaveBtn');
-        if (sv) sv.addEventListener('click', saveEdit);
-        var cn = q('#sattEditCancelBtn');
-        if (cn) cn.addEventListener('click', closeEdit);
-
-        var mainModal = q('#studentAttModal');
-        if (mainModal) mainModal.addEventListener('click', function(e) {
-            if (e.target === mainModal) close();
-        });
-        var editModal = q('#sattEditModal');
-        if (editModal) editModal.addEventListener('click', function(e) {
-            if (e.target === editModal) closeEdit();
-        });
-
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                // STUDENT_PROFILE_ATTENDANCE_FILTER_FIX_V1:
-                // Never hijack Escape while the user is inside an
-                // input / select / textarea.  Pressing Escape there
-                // is the standard way to dismiss a native date picker
-                // or clear a text field.  Previously the global
-                // handler also closed the whole attendance modal, so
-                // picking a date and pressing Escape wiped every
-                // From/To value the admin had just typed.
-                var target = e.target || document.activeElement || {};
-                var tag = String(target.tagName || '').toLowerCase();
-                if (tag === 'input' || tag === 'textarea' ||
-                    tag === 'select') {
-                    return;
-                }
-                var em = q('#sattEditModal');
-                if (em && em.style.display === 'flex') {
-                    closeEdit();
-                } else {
-                    close();
-                }
-            }
-        });
+  function renderSummary(s){
+    q('#sattKpiPresent').textContent=s.present||0;
+    q('#sattKpiAbsent').textContent=s.absent||0;
+    q('#sattKpiLate').textContent=s.late||0;
+    q('#sattKpiHalfDay').textContent=s.half_day||0;
+    q('#sattKpiExcused').textContent=s.excused||0;
+    q('#sattKpiTotal').textContent=s.total||0;
+    q('#sattKpiPct').textContent=(s.attendance_percentage||0)+'%';
+  }
+  function renderTable(){
+    var tb=q('#sattTableBody');
+    if(!state.records.length){tb.innerHTML='<tr><td colspan="6" class="empty-row">No attendance records match your filters.</td></tr>';return;}
+    var h='';
+    state.records.forEach(function(r){
+      var slot=r.period_order?'Period '+r.period_order:'Full day';
+      var mb=r.marked_by?esc(r.marked_by):'<span style="color:var(--muted,#64748b)">—</span>';
+      h+='<tr><td>'+esc(r.date)+'</td><td>'+esc(r.day_name)+'</td><td>'+esc(slot)+'</td><td><span class="'+sClass(r.status)+'">'+esc(sLabel(r.status))+'</span></td><td>'+mb+'</td><td style="text-align:right"><button type="button" class="satt-btn" data-rid="'+r.id+'">Edit</button></td></tr>';
     });
+    tb.innerHTML=h;
+    qa('#sattTableBody button[data-rid]').forEach(function(b){
+      b.addEventListener('click',function(){
+        var rid=b.getAttribute('data-rid');
+        var rec=state.records.filter(function(x){return String(x.id)===String(rid);})[0];
+        if(rec)openEdit(rec);
+      });
+    });
+  }
+  function renderPager(){
+    q('#sattPagerInfo').textContent='Page '+state.page+' of '+state.num_pages+' · '+state.total+' record(s)';
+    q('#sattPrevBtn').disabled=state.page<=1;
+    q('#sattNextBtn').disabled=state.page>=state.num_pages;
+  }
+  function applyFilters(){
+    var s=q('#sattFilterStart').value||'',e=q('#sattFilterEnd').value||'',st=q('#sattFilterStatus').value||'';
+    if(s&&e&&s>e){var t=s;s=e;e=t;q('#sattFilterStart').value=s;q('#sattFilterEnd').value=e;}
+    state.start_date=s;state.end_date=e;state.status=st;
+    renderActiveFilter();load(1);
+  }
+  function resetFilters(){
+    q('#sattFilterStart').value='';q('#sattFilterEnd').value='';q('#sattFilterStatus').value='';
+    state.start_date='';state.end_date='';state.status='';
+    qa('.satt-qbtn').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-range')==='all');});
+    renderActiveFilter();load(1);
+  }
+  // TENANT_STUDENT_PROFILE_JS_SYNTAX_FIX_V1: the previous
+  // version of this function started with a stray `'';`
+  // immediately before `}else{`, with NO matching `if`. The
+  // whole <script> block failed to parse, so
+  // `window.AXIS_STUDENT_ATT` was never assigned and the
+  // Attendance button on this page threw
+  // `ReferenceError: AXIS_STUDENT_ATT is not defined`.
+  // Restored the if / else / branch structure.
+  function applyQuickRange(days){
+    var today=new Date(),endIso=today.toISOString().slice(0,10);
+    if(days==='all'||days===''||days===null||days===undefined){
+      q('#sattFilterStart').value='';
+      q('#sattFilterEnd').value='';
+    }else{
+      var d=new Date(today);
+      d.setDate(d.getDate()-parseInt(days,10));
+      q('#sattFilterStart').value=d.toISOString().slice(0,10);
+      q('#sattFilterEnd').value=endIso;
+    }
+    applyFilters();
+  }
 
-    return {
-        open: open,
-        close: close,
-        load: load,
-        applyFilters: applyFilters,
-        resetFilters: resetFilters
-    };
+  function renderActiveFilter(){
+    var el=q('#sattActiveFilter');
+    if(!el)return;
+    var parts=[];
+    if(state.start_date)parts.push('from '+state.start_date);
+    if(state.end_date)parts.push('to '+state.end_date);
+    if(state.status)parts.push('status: '+state.status);
+    if(!parts.length){el.textContent='';el.style.display='none';}
+    else{el.textContent='Showing '+parts.join(' \u00b7 ');el.style.display='inline-block';}
+  }
+
+  var editingRecord=null;
+
+  function openEdit(rec){
+    editingRecord=rec;
+    q('#sattEditDate').textContent=rec.date+' ('+rec.day_name+')';
+    q('#sattEditSlot').textContent=rec.period_order?'Period '+rec.period_order:'Full day';
+    q('#sattEditRemarks').value=rec.remarks||'';
+    qa('#sattEditStatus input[type="radio"]').forEach(function(el){el.checked=(el.value===rec.status);});
+    var msg=q('#sattEditMsg');
+    msg.textContent='';msg.style.color='var(--muted,#64748b)';msg.style.fontWeight='400';
+    q('#sattEditModal').style.display='flex';
+  }
+  function closeEdit(){q('#sattEditModal').style.display='none';editingRecord=null;}
+
+  function saveEdit(){
+    if(!editingRecord)return;
+    var checked=q('#sattEditStatus input[type="radio"]:checked');
+    if(!checked){
+      var m=q('#sattEditMsg');
+      m.textContent='Choose a status first.';
+      m.style.color='#ef4444';m.style.fontWeight='700';
+      return;
+    }
+    var status=checked.value;
+    var remarks=q('#sattEditRemarks').value||'';
+    var payload={class_id:state.class_id,date:editingRecord.date,records:[{student_id:STUDENT_ID,status:status,remarks:remarks}]};
+    if(editingRecord.period_order)payload.period_order=editingRecord.period_order;
+    var m2=q('#sattEditMsg');
+    m2.textContent='Saving\u2026';m2.style.color='var(--muted,#64748b)';m2.style.fontWeight='400';
+    q('#sattEditSaveBtn').disabled=true;
+    fetch('/portal/'+SCHEMA+'/api/attendance/mark/',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRFToken':csrf(),'X-Requested-With':'XMLHttpRequest'},
+      body:JSON.stringify(payload)
+    })
+    .then(function(r){return r.json();})
+    .then(function(j){
+      q('#sattEditSaveBtn').disabled=false;
+      if(!j.ok){
+        m2.textContent=j.error||'Save failed.';
+        m2.style.color='#ef4444';m2.style.fontWeight='700';
+        return;
+      }
+      m2.textContent='Saved.';
+      m2.style.color='#10b981';m2.style.fontWeight='700';
+      setTimeout(function(){closeEdit();load(state.page);},500);
+    })
+    .catch(function(){
+      q('#sattEditSaveBtn').disabled=false;
+      m2.textContent='Network error.';
+      m2.style.color='#ef4444';m2.style.fontWeight='700';
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded',function(){
+    var pb=q('#sattPrevBtn');
+    if(pb)pb.addEventListener('click',function(){if(state.page>1)load(state.page-1);});
+    var nb=q('#sattNextBtn');
+    if(nb)nb.addEventListener('click',function(){if(state.page<state.num_pages)load(state.page+1);});
+    var af=q('#sattApplyBtn');
+    if(af)af.addEventListener('click',applyFilters);
+    var rf=q('#sattResetBtn');
+    if(rf)rf.addEventListener('click',resetFilters);
+    qa('.satt-qbtn').forEach(function(b){
+      b.addEventListener('click',function(){
+        qa('.satt-qbtn').forEach(function(x){x.classList.remove('active');});
+        b.classList.add('active');
+        var r=b.getAttribute('data-range');
+        applyQuickRange(r==='all'?null:r);
+      });
+    });
+    var autoApplyTimer=null;
+    function scheduleAutoApply(){
+      if(autoApplyTimer)clearTimeout(autoApplyTimer);
+      autoApplyTimer=setTimeout(applyFilters,600);
+    }
+    var startEl=q('#sattFilterStart');if(startEl)startEl.addEventListener('change',scheduleAutoApply);
+    var endEl=q('#sattFilterEnd');if(endEl)endEl.addEventListener('change',scheduleAutoApply);
+    var statusEl=q('#sattFilterStatus');if(statusEl)statusEl.addEventListener('change',scheduleAutoApply);
+    var sv=q('#sattEditSaveBtn');if(sv)sv.addEventListener('click',saveEdit);
+    var cn=q('#sattEditCancelBtn');if(cn)cn.addEventListener('click',closeEdit);
+    var mainModal=q('#studentAttModal');
+    if(mainModal)mainModal.addEventListener('click',function(e){if(e.target===mainModal)close();});
+    var editModal=q('#sattEditModal');
+    if(editModal)editModal.addEventListener('click',function(e){if(e.target===editModal)closeEdit();});
+    document.addEventListener('keydown',function(e){
+      if(e.key==='Escape'){
+        var target=e.target||document.activeElement||{};
+        var tag=String(target.tagName||'').toLowerCase();
+        if(tag==='input'||tag==='textarea'||tag==='select')return;
+        var em=q('#sattEditModal');
+        if(em&&em.style.display==='flex'){closeEdit();}else{close();}
+      }
+    });
+  });
+
+  return {open:open,close:close,load:load,applyFilters:applyFilters,resetFilters:resetFilters};
 })();
 </script>
 

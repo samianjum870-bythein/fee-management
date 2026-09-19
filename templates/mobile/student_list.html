@@ -1,944 +1,686 @@
 {% extends 'mobile/base.html' %}
 {% load class_display %}
 {% load fee_extras %}
-{% load fee_extras %}
 {% block title %}Students | {{ tenant.name }}{% endblock %}
 
 {% block extra_head %}
 <style>
-  /* ===== All styles use base CSS variables ===== */
+/* ============================================================
+   MOBILE STUDENT LIST — PREMIUM UI
+   ============================================================ */
+.msp {
+  --m-primary: #6366f1;
+  --m-primary-soft: rgba(99,102,241,.12);
+  --m-success: #10b981;
+  --m-success-soft: rgba(16,185,129,.14);
+  --m-danger: #ef4444;
+  --m-danger-soft: rgba(239,68,68,.12);
+  --m-warning: #f59e0b;
+  --m-warning-soft: rgba(245,158,11,.14);
+  --m-purple: #8b5cf6;
+  --m-purple-soft: rgba(139,92,246,.14);
+  --m-surface: #ffffff;
+  --m-surface-2: #f8fafc;
+  --m-surface-3: #f1f5f9;
+  --m-text: #0f172a;
+  --m-text-2: #475569;
+  --m-muted: #94a3b8;
+  --m-border: #e5e9f0;
+  --m-radius: 14px;
+  --m-radius-sm: 10px;
+  --m-shadow: 0 4px 14px -6px rgba(15,23,42,.10);
+  color: var(--m-text);
+}
+[data-theme="dark"] .msp {
+  --m-surface: #1e293b;
+  --m-surface-2: #0f172a;
+  --m-surface-3: #334155;
+  --m-text: #e2e8f0;
+  --m-text-2: #cbd5e1;
+  --m-muted: #94a3b8;
+  --m-border: #334155;
+}
 
-  /* ---- Analytics Strip ---- */
-  .analytics-strip {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    text-align: center;
-    transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
-  }
-  .analytics-strip .stat-item {
-    display: flex;
-    flex-direction: column;
-    padding: 0.4rem 0.2rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    text-decoration: none;
-    color: var(--text);
-    transition: background 0.15s;
-  }
-  .analytics-strip .stat-item:hover {
-    background: var(--surface-alt);
-  }
-  .analytics-strip .stat-item:active {
-    transform: scale(0.96);
-  }
-  .analytics-strip .stat-number {
-    font-size: 1.2rem;
-    font-weight: 800;
-    color: var(--text);
-    line-height: 1.2;
-  }
-  .analytics-strip .stat-label {
-    font-size: 0.55rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-    font-weight: 600;
-  }
-  .analytics-strip .stat-item.pending .stat-number {
-    color: #EF4444; /* keep red for danger */
-  }
-  .analytics-strip .stat-item.active .stat-number {
-    color: var(--accent);
-  }
-  .analytics-strip .stat-item.total .stat-number {
-    color: var(--text);
-  }
+.msp-page-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  margin: .25rem 0 .75rem;
+  padding: 0 .25rem;
+  color: var(--m-text);
+}
 
-  /* ---- Page Header ---- */
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 0.2rem;
-    padding: 0 0.25rem;
-  }
-  .page-header h1 {
-    font-size: 1.6rem;
-    font-weight: 800;
-    margin: 0;
-    color: var(--text);
-    letter-spacing: -0.02em;
-  }
+/* ---------- Stats ---------- */
+.msp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .55rem;
+  margin-bottom: 1rem;
+}
+.msp-stat {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  padding: .7rem .5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--m-shadow);
+  transition: transform .15s ease;
+}
+.msp-stat:active { transform: scale(.96); }
+.msp-stat-value {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--m-text);
+  line-height: 1.2;
+}
+.msp-stat-label {
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--m-muted);
+  margin-top: .2rem;
+}
+.msp-stat.total   .msp-stat-value { color: var(--m-primary); }
+.msp-stat.active  .msp-stat-value { color: var(--m-success); }
+.msp-stat.pending .msp-stat-value { color: var(--m-danger); }
 
-  /* ---- FAB ---- */
-  .fab-add {
-    position: fixed;
-    bottom: 80px;
-    right: 1.5rem;
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 999px;
-    width: 48px;
-    height: 48px;
-    font-size: 1.6rem;
-    box-shadow: var(--shadow);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 30;
-    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s, background 0.25s;
-  }
-  .fab-add:hover {
-    transform: scale(1.06);
-    box-shadow: var(--shadow);
-    background: var(--accent-hover);
-  }
-  .fab-add:active {
-    transform: scale(0.92);
-  }
-  .fab-add svg {
-    width: 24px;
-    height: 24px;
-    stroke-width: 2.5;
-  }
+/* ---------- Search Bar ---------- */
+.msp-search-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--m-surface-2);
+  padding: .4rem 0 .6rem;
+}
+.msp-search {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: 999px;
+  padding: .25rem .25rem .25rem .9rem;
+  box-shadow: var(--m-shadow);
+}
+.msp-search svg { width: 16px; height: 16px; color: var(--m-muted); flex-shrink: 0; }
+.msp-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--m-text);
+  padding: .45rem 0;
+  min-width: 0;
+  font-family: inherit;
+}
+.msp-search input::placeholder { color: var(--m-muted); }
+.msp-search-btn {
+  background: var(--m-primary);
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  padding: .5rem 1rem;
+  font-size: .75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.msp-search-btn:active { background: #4f46e5; }
+.msp-filter-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--m-muted);
+  padding: .45rem .6rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: .15rem;
+  font-size: .7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+  flex-shrink: 0;
+}
+.msp-filter-toggle:active { background: var(--m-surface-3); color: var(--m-text); }
+.msp-filter-toggle svg { width: 16px; height: 16px; }
 
-  /* ---- Search & Filter ---- */
-  .search-section {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--bg);
-    padding: 0.3rem 0 0.5rem;
-    transition: background 0.25s;
-  }
-  .search-bar {
-    display: flex;
-    gap: 0.4rem;
-    align-items: center;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 3rem;
-    padding: 0.1rem 0.1rem 0.1rem 0.8rem;
-    box-shadow: var(--shadow);
-    transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
-  }
-  .search-bar input {
-    flex: 1;
-    border: none;
-    background: transparent;
-    font-size: 0.8rem;
-    padding: 0.3rem 0;
-    outline: none;
-    color: var(--text);
-    font-weight: 500;
-  }
-  .search-bar input::placeholder {
-    color: var(--muted);
-    font-weight: 400;
-  }
-  .search-bar button {
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 2.5rem;
-    padding: 0.4rem 1rem;
-    font-weight: 700;
-    font-size: 0.7rem;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-    white-space: nowrap;
-    box-shadow: var(--shadow);
-  }
-  .search-bar button:hover {
-    background: var(--accent-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow);
-  }
-  .filter-toggle {
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    padding: 0.3rem 0.5rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-    font-size: 0.7rem;
-    font-weight: 500;
-    border-radius: var(--radius);
-    transition: background 0.2s, color 0.2s;
-  }
-  .filter-toggle:hover {
-    background: var(--surface-alt);
-    color: var(--text);
-  }
-  .filter-toggle svg {
-    width: 18px;
-    height: 18px;
-  }
+/* ---------- Filter Drawer ---------- */
+.msp-drawer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .35s ease, margin .3s ease, padding .3s ease;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  margin-top: 0;
+  box-shadow: var(--m-shadow);
+  opacity: 0;
+  padding: 0 1rem;
+}
+.msp-drawer.open {
+  max-height: 500px;
+  margin-top: .6rem;
+  padding: .9rem 1rem;
+  opacity: 1;
+}
+.msp-drawer-field { margin-bottom: .7rem; }
+.msp-drawer-field:last-of-type { margin-bottom: .9rem; }
+.msp-drawer-field label {
+  display: block;
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--m-muted);
+  margin-bottom: .3rem;
+}
+.msp-drawer-field select {
+  width: 100%;
+  height: 38px;
+  padding: 0 2rem 0 .75rem;
+  border-radius: var(--m-radius-sm);
+  border: 1px solid var(--m-border);
+  background: var(--m-surface-2);
+  color: var(--m-text);
+  font-size: .82rem;
+  font-weight: 500;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right .7rem center;
+  font-family: inherit;
+}
+.msp-drawer-field select:focus {
+  outline: 0;
+  border-color: var(--m-primary);
+  box-shadow: 0 0 0 3px var(--m-primary-soft);
+}
+.msp-clear-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+  padding: .55rem 1rem;
+  background: transparent;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm);
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--m-text-2);
+  text-decoration: none;
+  transition: all .2s;
+}
+.msp-clear-btn:hover { border-color: var(--m-primary); color: var(--m-primary); }
+.msp-clear-btn svg { width: 14px; height: 14px; }
 
-  /* ---- Filter Drawer ---- */
-  .filter-drawer {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.35s ease, padding 0.35s ease, opacity 0.3s;
-    opacity: 0;
-    padding: 0 0.5rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-top: none;
-    border-radius: 0 0 var(--radius) var(--radius);
-    margin: 0 0 0.8rem 0;
-    box-shadow: var(--shadow);
-    transition: max-height 0.35s ease, padding 0.35s ease, opacity 0.3s, background 0.25s, border-color 0.25s;
-  }
-  .filter-drawer.open {
-    max-height: 400px;
-    padding: 0.5rem 0.5rem 0.8rem;
-    opacity: 1;
-  }
-  .filter-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    align-items: center;
-  }
-  .filter-chips select {
-    flex: 1 1 100px;
-    padding: 0.3rem 0.6rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface-alt);
-    font-size: 0.7rem;
-    font-weight: 500;
-    color: var(--text);
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.6rem center;
-    padding-right: 1.8rem;
-    transition: background 0.25s, border-color 0.25s;
-  }
-  .filter-chips select:focus {
-    border-color: var(--accent);
-  }
-  .filter-chips .clear-link {
-    background: var(--surface-alt);
-    color: var(--text);
-    padding: 0.3rem 0.8rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    font-weight: 600;
-    text-decoration: none;
-    font-size: 0.7rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.2rem;
-    transition: all 0.2s;
-  }
-  .filter-chips .clear-link:hover {
-    background: var(--surface);
-  }
+/* ---------- Student Cards ---------- */
+.msp-list {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  margin-top: .5rem;
+}
+.msp-card {
+  position: relative;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  padding: .85rem .9rem .75rem 1.15rem;
+  box-shadow: var(--m-shadow);
+  overflow: hidden;
+  transition: transform .15s ease;
+}
+.msp-card:active { transform: scale(.985); }
+.msp-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--m-primary);
+  border-radius: 0 4px 4px 0;
+}
+.msp-card.status-active::before    { background: var(--m-success); }
+.msp-card.status-suspended::before { background: var(--m-warning); }
+.msp-card.status-graduated::before { background: var(--m-purple); }
 
-  /* ---- Student Cards ---- */
-  .student-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    animation: fadeInUp 0.4s ease;
-  }
-  .student-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.4rem 0.7rem 0.3rem 0.7rem;
-    box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    transition: background 0.25s, border-color 0.25s, box-shadow 0.25s, transform 0.2s;
-    position: relative;
-    overflow: hidden;
-  }
-  /* Left accent bar – status color */
-  .student-card::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    border-radius: 0 2px 2px 0;
-    background: var(--accent);
-  }
-  .student-card.status-active::before {
-    background: #10B981;
-  }
-  .student-card.status-suspended::before {
-    background: #F59E0B;
-  }
-  .student-card.status-graduated::before {
-    background: #8B5CF6;
-  }
-  .student-card:active {
-    transform: scale(0.98);
-  }
+.msp-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.msp-student-cell { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.msp-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 800;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.msp-name {
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--m-text);
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: .2rem .55rem;
+  border-radius: 999px;
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.msp-badge-active    { background: var(--m-success-soft); color: #047857; }
+.msp-badge-suspended { background: var(--m-warning-soft); color: #b45309; }
+.msp-badge-graduated { background: var(--m-purple-soft);  color: #6d28d9; }
+[data-theme="dark"] .msp-badge-active    { color: #6ee7b7; }
+[data-theme="dark"] .msp-badge-suspended { color: #fcd34d; }
+[data-theme="dark"] .msp-badge-graduated { color: #c4b5fd; }
 
-  .card-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .student-name {
-    font-weight: 700;
-    font-size: 0.85rem;
-    color: var(--text);
-    letter-spacing: -0.01em;
-  }
-  .badge {
-    display: inline-block;
-    padding: 0.05rem 0.5rem;
-    border-radius: 999px;
-    font-size: 0.5rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .badge-active { background: #D1FAE5; color: #065F46; }
-  .badge-suspended { background: #FEF3C7; color: #92400E; }
-  .badge-graduated { background: #EDE9FE; color: #5B21B6; }
+.msp-meta {
+  font-size: .72rem;
+  color: var(--m-muted);
+  margin-top: .4rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem;
+}
+.msp-meta .dot {
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--m-muted);
+  display: inline-block;
+}
+.msp-father {
+  font-size: .7rem;
+  color: var(--m-text-2);
+  margin-top: .25rem;
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+}
+.msp-father svg { width: 12px; height: 12px; color: var(--m-muted); }
 
-  .student-meta {
-    font-size: 0.7rem;
-    color: var(--muted);
-    margin-top: 0.05rem;
-  }
-  .student-meta .separator {
-    margin: 0 0.2rem;
-    opacity: 0.4;
-  }
-  .student-father {
-    font-size: 0.6rem;
-    color: var(--muted);
-    margin-top: 0.02rem;
-  }
-  .student-father svg {
-    display: inline;
-    vertical-align: middle;
-    margin-right: 0.15rem;
-    width: 12px;
-    height: 12px;
-    stroke: var(--muted);
-  }
+.msp-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  margin-top: .5rem;
+  padding: .3rem .6rem;
+  border-radius: 999px;
+  background: var(--m-danger-soft);
+  color: var(--m-danger);
+  font-size: .72rem;
+  font-weight: 800;
+  width: fit-content;
+}
+.msp-pending .pulse-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: mspPulse 1.5s infinite;
+}
+@keyframes mspPulse {
+  0%, 100% { opacity: .4; transform: scale(.85); }
+  50%      { opacity: 1;  transform: scale(1.15); }
+}
 
-  .student-pending {
-    font-weight: 700;
-    font-size: 0.7rem;
-    margin-top: 0.05rem;
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-  }
-  .student-pending .pending-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    display: inline-block;
-    background: #EF4444;
-    animation: pulse 1.5s infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 0.4; transform: scale(0.9); }
-    50% { opacity: 1; transform: scale(1.2); }
-  }
-  .student-pending .pending-amount {
-    color: #EF4444;
-  }
+.msp-actions {
+  display: flex;
+  gap: .4rem;
+  margin-top: .65rem;
+  justify-content: flex-end;
+}
+.msp-action {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .35rem .65rem;
+  font-size: .68rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--m-text-2);
+  background: var(--m-surface-2);
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  transition: all .18s;
+}
+.msp-action svg { width: 14px; height: 14px; }
+.msp-action:active { background: var(--m-primary); border-color: var(--m-primary); color: #fff; }
 
-  .student-actions {
-    display: flex;
-    gap: 0.2rem;
-    margin-top: 0.1rem;
-    justify-content: flex-end;
-  }
-  .student-actions a {
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.15rem 0.4rem;
-    font-size: 0.6rem;
-    font-weight: 600;
-    text-decoration: none;
-    color: var(--text);
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 0.1rem;
-  }
-  .student-actions a:hover {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-  .student-actions a svg {
-    width: 14px;
-    height: 14px;
-  }
+/* ---------- FAB ---------- */
+.msp-fab {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 82px;
+  width: 54px; height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 28px -8px rgba(99,102,241,.7);
+  z-index: 30;
+  text-decoration: none;
+  transition: transform .2s ease;
+}
+.msp-fab:active { transform: scale(.92); }
+.msp-fab svg { width: 24px; height: 24px; }
 
-  /* ---- Pagination ---- */
-  .pagination {
-    display: flex;
-    justify-content: center;
-    gap: 0.3rem;
-    margin-top: 1rem;
-    flex-wrap: wrap;
-  }
-  .pagination a, .pagination span {
-    padding: 0.3rem 0.7rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    text-decoration: none;
-    color: var(--text);
-    font-size: 0.7rem;
-    font-weight: 500;
-    transition: all 0.2s;
-  }
-  .pagination a:hover {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-  .pagination .active {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-  .pagination .disabled {
-    opacity: 0.4;
-    pointer-events: none;
-  }
+/* ---------- Pagination ---------- */
+.msp-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: .35rem;
+  margin-top: 1.1rem;
+  flex-wrap: wrap;
+}
+.msp-page {
+  min-width: 34px; height: 34px;
+  padding: 0 .7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  font-size: .75rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--m-text-2);
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  transition: all .18s;
+}
+.msp-page:active { background: var(--m-primary); color: #fff; border-color: var(--m-primary); }
+.msp-page.disabled { opacity: .4; pointer-events: none; }
+.msp-page.current {
+  background: var(--m-primary-soft);
+  color: var(--m-primary);
+  border-color: transparent;
+}
 
-  /* ---- Empty State ---- */
-  .empty-state {
-    text-align: center;
-    padding: 2rem 1.5rem;
-    color: var(--muted);
-  }
-  .empty-state svg {
-    width: 60px;
-    height: 60px;
-    stroke: var(--muted);
-    opacity: 0.3;
-    margin-bottom: 0.8rem;
-  }
-  .empty-state h3 {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: var(--text);
-    margin-bottom: 0.2rem;
-  }
-  .empty-state p {
-    font-size: 0.8rem;
-    margin-bottom: 0.8rem;
-  }
-  .empty-state a {
-    color: var(--accent);
-    font-weight: 600;
-    text-decoration: none;
-    border: 1px solid var(--accent);
-    padding: 0.4rem 1rem;
-    border-radius: var(--radius);
-    display: inline-block;
-    transition: all 0.2s;
-  }
-  .empty-state a:hover {
-    background: var(--accent);
-    color: white;
-  }
-
-  /* ---- Animations ---- */
-  @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  /* ---- Responsive ---- */
-  @media (max-width: 480px) {
-    .page-header h1 {
-      font-size: 1.4rem;
-    }
-    .analytics-strip {
-      gap: 0.4rem;
-      padding: 0.2rem 0.1rem;
-    }
-    .analytics-strip .stat-number {
-      font-size: 1rem;
-    }
-    .search-bar input {
-      font-size: 0.8rem;
-      padding: 0.3rem 0;
-    }
-    .search-bar button {
-      font-size: 0.7rem;
-      padding: 0.3rem 0.8rem;
-    }
-    .fab-add {
-      width: 44px;
-      height: 44px;
-      bottom: 75px;
-      right: 1rem;
-    }
-    .fab-add svg {
-      width: 22px;
-      height: 22px;
-    }
-    .student-card {
-      padding: 0.3rem 0.6rem 0.2rem 0.6rem;
-    }
-    .student-name {
-      font-size: 0.8rem;
-    }
-    .student-meta {
-      font-size: 0.65rem;
-    }
-    .student-father {
-      font-size: 0.55rem;
-    }
-    .student-pending {
-      font-size: 0.65rem;
-    }
-    .student-actions a {
-      padding: 0.1rem 0.35rem;
-      font-size: 0.55rem;
-    }
-  }
-
-    /* ---- Compact, Clean Filter Bar (Override) ---- */
-    .filter-card {
-        padding: 0.6rem 1rem !important;
-        margin-bottom: 1rem !important;
-        background: var(--surface, #fff) !important;
-        border-radius: var(--radius, 0.75rem) !important;
-        border: 1px solid var(--border, #e2e8f0) !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
-    }
-    .filter-form {
-        display: flex !important;
-        flex-wrap: wrap !important;
-        gap: 0.5rem !important;
-        align-items: center !important;
-        justify-content: flex-start !important;
-    }
-    .filter-group {
-        flex: 0 1 auto !important;
-        min-width: 120px !important;
-        margin: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 0.3rem !important;
-    }
-    .filter-group label {
-        font-size: 0.7rem !important;
-        font-weight: 600 !important;
-        color: var(--muted, #6b7280) !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.3px !important;
-        margin: 0 !important;
-        white-space: nowrap !important;
-    }
-    .filter-input, .filter-select {
-        padding: 0.25rem 0.6rem !important;
-        font-size: 0.8rem !important;
-        border-radius: 0.4rem !important;
-        border: 1px solid var(--border, #e2e8f0) !important;
-        background: var(--surface-alt, #f1f5f9) !important;
-        color: var(--text, #1f2937) !important;
-        height: 2rem !important;
-        min-width: 100px !important;
-        transition: border-color 0.2s, box-shadow 0.2s !important;
-    }
-    .filter-input:focus, .filter-select:focus {
-        outline: none !important;
-        border-color: var(--primary, #3b82f6) !important;
-        box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
-    }
-    .filter-select {
-        appearance: auto !important;
-        -webkit-appearance: auto !important;
-        background-image: none !important;
-        padding-right: 0.6rem !important;
-    }
-    .filter-actions {
-        display: flex !important;
-        gap: 0.4rem !important;
-        align-items: center !important;
-        margin-left: auto !important;
-    }
-    .btn-filter {
-        display: none !important; /* hide Apply button */
-    }
-    .btn-reset {
-        background: transparent !important;
-        color: var(--muted, #6b7280) !important;
-        border: 1px solid var(--border, #e2e8f0) !important;
-        padding: 0.2rem 0.8rem !important;
-        border-radius: 2rem !important;
-        font-size: 0.75rem !important;
-        font-weight: 500 !important;
-        cursor: pointer !important;
-        transition: all 0.2s !important;
-        text-decoration: none !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        gap: 0.2rem !important;
-        height: 2rem !important;
-    }
-    .btn-reset:hover {
-        background: var(--surface-alt, #f1f5f9) !important;
-        color: var(--text, #1f2937) !important;
-        border-color: var(--primary, #3b82f6) !important;
-    }
-    .btn-reset svg {
-        width: 14px !important;
-        height: 14px !important;
-    }
-    @media (max-width: 640px) {
-        .filter-form {
-            flex-direction: column !important;
-            align-items: stretch !important;
-        }
-        .filter-group {
-            flex: 1 !important;
-            min-width: 100% !important;
-        }
-        .filter-actions {
-            margin-left: 0 !important;
-            justify-content: flex-end !important;
-        }
-        .filter-input, .filter-select {
-            width: 100% !important;
-            min-width: 0 !important;
-        }
-    }
-    
-    /* ---- Compact, Clean Filter Bar (Override) ---- */
-    .filter-card {
-        padding: 0.6rem 1rem !important;
-        margin-bottom: 1rem !important;
-        background: var(--surface, #fff) !important;
-        border-radius: var(--radius, 0.75rem) !important;
-        border: 1px solid var(--border, #e2e8f0) !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
-    }
-    .filter-form {
-        display: flex !important;
-        flex-wrap: wrap !important;
-        gap: 0.5rem !important;
-        align-items: center !important;
-        justify-content: flex-start !important;
-    }
-    .filter-group {
-        flex: 0 1 auto !important;
-        min-width: 120px !important;
-        margin: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 0.3rem !important;
-    }
-    .filter-group label {
-        font-size: 0.7rem !important;
-        font-weight: 600 !important;
-        color: var(--muted, #6b7280) !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.3px !important;
-        margin: 0 !important;
-        white-space: nowrap !important;
-    }
-    .filter-input, .filter-select {
-        padding: 0.25rem 0.6rem !important;
-        font-size: 0.8rem !important;
-        border-radius: 0.4rem !important;
-        border: 1px solid var(--border, #e2e8f0) !important;
-        background: var(--surface-alt, #f1f5f9) !important;
-        color: var(--text, #1f2937) !important;
-        height: 2rem !important;
-        min-width: 100px !important;
-        transition: border-color 0.2s, box-shadow 0.2s !important;
-    }
-    .filter-input:focus, .filter-select:focus {
-        outline: none !important;
-        border-color: var(--primary, #3b82f6) !important;
-        box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
-    }
-    .filter-select {
-        appearance: auto !important;
-        -webkit-appearance: auto !important;
-        background-image: none !important;
-        padding-right: 0.6rem !important;
-    }
-    .filter-actions {
-        display: flex !important;
-        gap: 0.4rem !important;
-        align-items: center !important;
-        margin-left: auto !important;
-    }
-    .btn-filter {
-        display: none !important;
-    }
-    .btn-reset {
-        background: transparent !important;
-        color: var(--muted, #6b7280) !important;
-        border: 1px solid var(--border, #e2e8f0) !important;
-        padding: 0.2rem 0.8rem !important;
-        border-radius: 2rem !important;
-        font-size: 0.75rem !important;
-        font-weight: 500 !important;
-        cursor: pointer !important;
-        transition: all 0.2s !important;
-        text-decoration: none !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        gap: 0.2rem !important;
-        height: 2rem !important;
-    }
-    .btn-reset:hover {
-        background: var(--surface-alt, #f1f5f9) !important;
-        color: var(--text, #1f2937) !important;
-        border-color: var(--primary, #3b82f6) !important;
-    }
-    .btn-reset svg {
-        width: 14px !important;
-        height: 14px !important;
-    }
-    @media (max-width: 640px) {
-        .filter-form {
-            flex-direction: column !important;
-            align-items: stretch !important;
-        }
-        .filter-group {
-            flex: 1 !important;
-            min-width: 100% !important;
-        }
-        .filter-actions {
-            margin-left: 0 !important;
-            justify-content: flex-end !important;
-        }
-        .filter-input, .filter-select {
-            width: 100% !important;
-            min-width: 0 !important;
-        }
-    }
+/* ---------- Empty ---------- */
+.msp-empty {
+  text-align: center;
+  padding: 2.5rem 1rem;
+}
+.msp-empty svg { width: 56px; height: 56px; color: var(--m-muted); opacity: .35; margin-bottom: .6rem; }
+.msp-empty h3 { font-size: 1rem; font-weight: 700; color: var(--m-text); margin: 0 0 .3rem; }
+.msp-empty p { font-size: .8rem; color: var(--m-muted); margin: 0 0 .9rem; }
+.msp-empty a {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .55rem 1.1rem;
+  background: var(--m-primary); color: #fff;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
 </style>
 {% endblock %}
 
 {% block body %}
-<div class="page-header">
-  <h1>Students</h1>
-</div>
+<div class="msp">
 
-<!-- ===== Analytics Strip (clickable) ===== -->
-<div class="analytics-strip">
-  <a href="?{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" class="stat-item total">
-    <span class="stat-number">{{ students.paginator.count|default:0 }}</span>
-    <span class="stat-label">Total</span>
-  </a>
-  <a href="?pending_only=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" class="stat-item pending">
-    <span class="stat-number">₹{{ total_pending_all|default:0|floatformat:2 }}</span>
-    <span class="stat-label">Pending</span>
-  </a>
-  <a href="?status=active{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" class="stat-item active">
-    <span class="stat-number">{{ total_active|default:0 }}</span>
-    <span class="stat-label">Active</span>
-  </a>
-</div>
+  <h1 class="msp-page-title">Students</h1>
 
-<!-- Sticky Search & Filter -->
-<div class="search-section">
-  <div class="search-bar">
-    <input type="search" id="searchInput" placeholder="Search name, roll, father..." value="{{ search_query }}" autocomplete="off">
-    <button id="searchBtn">Search</button>
-    <button class="filter-toggle" id="filterToggle" aria-label="Toggle filters">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M4 6h16M4 12h16M4 18h16"/>
-      </svg>
-      <span>Filter</span>
-    </button>
+  <!-- Stats -->
+  <div class="msp-stats">
+    <a href="?" class="msp-stat total">
+      <span class="msp-stat-value">{{ students.paginator.count|default:0 }}</span>
+      <span class="msp-stat-label">Total</span>
+    </a>
+    <a href="?status=active" class="msp-stat active">
+      <span class="msp-stat-value">{{ total_active|default:0 }}</span>
+      <span class="msp-stat-label">Active</span>
+    </a>
+    <a href="?pending_only=1" class="msp-stat pending">
+      <span class="msp-stat-value">₹{{ total_pending_all|default:0|floatformat:0 }}</span>
+      <span class="msp-stat-label">Pending</span>
+    </a>
   </div>
-  <div class="filter-drawer" id="filterDrawer">
-    <div class="filter-chips">
-      
-        
-        <div class="filter-group">
-            {% if tenant.tenant_type == 'wing_school' %}<select name="category_id" id="categorySelect" class="filter-select"><option value="">All Campuses / Wings</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>{% endif %}
-            <select name="class_id" id="classSelect" class="filter-select">
-                <option value="">All Classes</option>
-                {% for cls in classes %}
-                <option value="{{ cls.id }}" {% if request.GET.class_id == cls.id|stringformat:"s" %}selected{% endif %}>{{ cls.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        
-      <select name="section" id="sectionSelect">
-            <option value="">All Sections</option>
+
+  <!-- Search + Filter -->
+  <div class="msp-search-wrap">
+    <div class="msp-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="search" id="mspSearch" placeholder="Name, roll, father…" value="{{ search_query }}" autocomplete="off">
+      <button class="msp-search-btn" id="mspSearchBtn">Search</button>
+      <button class="msp-filter-toggle" id="mspFilterToggle" type="button" aria-label="Toggle filters">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+      </button>
+    </div>
+
+    <div class="msp-drawer" id="mspDrawer">
+      {% if tenant.tenant_type == 'wing_school' %}
+      <div class="msp-drawer-field">
+        <label for="mspCategory">Campus / Wing</label>
+        <select id="mspCategory">
+          <option value="">All Campuses / Wings</option>
+          {% for category in categories %}
+          <option value="{{ category.id }}" {% if selected_category == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>
+          {% endfor %}
         </select>
-      <select name="status" id="statusSelect">
-        <option value="">All Status</option>
-        {% for k,v in status_choices %}
-        <option value="{{ k }}" {% if request.GET.status == k %}selected{% endif %}>{{ v }}</option>
-        {% endfor %}
-      </select>
-      <a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="clear-link">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg>
-        Clear
+      </div>
+      {% endif %}
+
+      <div class="msp-drawer-field">
+        <label for="mspClass">Class</label>
+        <select id="mspClass">
+          <option value="">All Classes</option>
+          {% for cls in classes %}
+          <option value="{{ cls.id }}" {% if request.GET.class_id == cls.id|stringformat:"s" %}selected{% endif %}>{{ cls.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="msp-drawer-field">
+        <label for="mspSection">Section</label>
+        <select id="mspSection">
+          <option value="">All Sections</option>
+        </select>
+      </div>
+
+      <div class="msp-drawer-field">
+        <label for="mspStatus">Status</label>
+        <select id="mspStatus">
+          <option value="">All Status</option>
+          {% for k,v in status_choices %}
+          <option value="{{ k }}" {% if request.GET.status == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="msp-clear-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 18L18 6M6 6l12 12"/></svg>
+        Clear All Filters
       </a>
     </div>
   </div>
-</div>
 
-<!-- Student Cards -->
-<div class="student-list" id="studentContainer">
-  {% if students %}
-    {% for s in students %}
-    <div class="student-card status-{{ s.status }}" data-student-id="{{ s.id }}" data-name="{{ s.name|lower }}" data-roll="{{ s.roll_number|lower }}" data-father="{{ s.father_name|lower }}" {% if tenant.tenant_type == 'wing_school' or tenant.tenant_type == 'single_small_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
-      <div class="card-top">
-        <div class="student-name">{{ s.name }}</div>
-        <span class="badge badge-{{ s.status }}">{{ s.get_status_display }}</span>
-      </div>
-      {% if tenant.tenant_type == 'wing_school' %}<div class="student-category" style="background-color: {{ s|student_row_color }};">{{ s.wing_category|default:'Unassigned' }}</div>{% endif %}
-      <div class="student-meta">
-        {{ s.grade }}<span class="separator">•</span>{{ s.section }}
-        <span class="separator">•</span>Roll {{ s.roll_number }}
-      </div>
-      <div class="student-father">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-          <circle cx="9" cy="7" r="4"/>
-          <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-          <path d="M16 3.13a4 4 0 010 7.75"/>
-        </svg>
-        {{ s.father_name }}
-      </div>
-      {% if s.pending_amount > 0 %}
-        <div class="student-pending">
-          <span class="pending-dot"></span>
-          <span class="pending-amount">Pending: ₹{{ s.pending_amount|floatformat:2 }}</span>
+  <!-- List -->
+  <div class="msp-list">
+    {% if students %}
+      {% for s in students %}
+      <div class="msp-card status-{{ s.status }}" {% if tenant.tenant_type == 'wing_school' or tenant.tenant_type == 'single_small_school' %}style="background-color: {{ s|student_row_color }};"{% endif %}>
+        <div class="msp-card-top">
+          <div class="msp-student-cell">
+            <span class="msp-avatar">{{ s.name|slice:":1"|upper }}</span>
+            <span class="msp-name">{{ s.name }}</span>
+          </div>
+          <span class="msp-badge msp-badge-{{ s.status }}">{{ s.get_status_display }}</span>
         </div>
-      {% endif %}
-      <div class="student-actions">
-        <a href="{% url 'mobile_student_profile' schema_name=tenant.schema_name student_id=s.id %}" title="Profile">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-        </a>
-        <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=s.id %}" title="Collect">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
-        </a>
+
+        <div class="msp-meta">
+          <span>{{ s.grade }}</span>
+          <span class="dot"></span>
+          <span>{{ s.section }}</span>
+          <span class="dot"></span>
+          <span>Roll {{ s.roll_number }}</span>
+        </div>
+
+        {% if s.father_name %}
+        <div class="msp-father">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          {{ s.father_name }}
+        </div>
+        {% endif %}
+
+        {% if s.pending_amount and s.pending_amount > 0 %}
+        <div class="msp-pending">
+          <span class="pulse-dot"></span>
+          Pending ₹{{ s.pending_amount|floatformat:2 }}
+        </div>
+        {% endif %}
+
+        <div class="msp-actions">
+          <a href="{% url 'mobile_student_profile' schema_name=tenant.schema_name student_id=s.id %}" class="msp-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            Profile
+          </a>
+          <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=s.id %}" class="msp-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
+            Collect
+          </a>
+        </div>
       </div>
-    </div>
-    {% endfor %}
+      {% endfor %}
 
-    <!-- Pagination -->
-    <div class="pagination">
-      {% if students.has_previous %}
-        <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">First</a>
-        <a href="?page={{ students.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">‹</a>
-      {% else %}
-        <span class="disabled">First</span>
-        <span class="disabled">‹</span>
+      {% if students.paginator.num_pages > 1 %}
+      <div class="msp-pagination">
+        {% if students.has_previous %}
+          <a href="?page={{ students.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.class_id %}&class_id={{ request.GET.class_id }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}" class="msp-page">‹</a>
+        {% else %}
+          <span class="msp-page disabled">‹</span>
+        {% endif %}
+        <span class="msp-page current">{{ students.number }} / {{ students.paginator.num_pages }}</span>
+        {% if students.has_next %}
+          <a href="?page={{ students.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.class_id %}&class_id={{ request.GET.class_id }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}" class="msp-page">›</a>
+        {% else %}
+          <span class="msp-page disabled">›</span>
+        {% endif %}
+      </div>
       {% endif %}
 
-      <span class="active">Page {{ students.number }} of {{ students.paginator.num_pages }}</span>
-
-      {% if students.has_next %}
-        <a href="?page={{ students.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">›</a>
-        <a href="?page={{ students.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.category_id %}&category_id={{ request.GET.category_id }}{% endif %}{% if request.GET.grade %}&grade={{ request.GET.grade }}{% endif %}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.pending_only %}&pending_only=1{% endif %}">Last</a>
-      {% else %}
-        <span class="disabled">›</span>
-        <span class="disabled">Last</span>
-      {% endif %}
-    </div>
-  {% else %}
-    <div class="empty-state">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <circle cx="12" cy="12" r="10"/>
-        <path d="M8 12h8"/>
-      </svg>
-      <h3>No students yet</h3>
-      <p>Start by adding your first student.</p>
-      <a href="{% url 'add_student_mobile' schema_name=tenant.schema_name %}">➕ Add Student</a>
-    </div>
-  {% endif %}
+    {% else %}
+      <div class="msp-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg>
+        <h3>No students yet</h3>
+        <p>Start by adding your first student.</p>
+        <a href="{% url 'add_student_mobile' schema_name=tenant.schema_name %}">➕ Add Student</a>
+      </div>
+    {% endif %}
+  </div>
 </div>
 
-<!-- Floating Action Button -->
-<a href="{% url 'add_student_mobile' schema_name=tenant.schema_name %}" class="fab-add" aria-label="Add Student">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 4v16m8-8H4"/></svg>
+<a href="{% url 'add_student_mobile' schema_name=tenant.schema_name %}" class="msp-fab" aria-label="Add Student">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
 </a>
 
 <script>
-  (function() {
-    // Toggle filter drawer
-    const toggleBtn = document.getElementById('filterToggle');
-    const drawer = document.getElementById('filterDrawer');
-    toggleBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      drawer.classList.toggle('open');
+(function () {
+  const drawer     = document.getElementById('mspDrawer');
+  const toggleBtn  = document.getElementById('mspFilterToggle');
+  const searchIn   = document.getElementById('mspSearch');
+  const searchBtn  = document.getElementById('mspSearchBtn');
+  const category   = document.getElementById('mspCategory');
+  const classSel   = document.getElementById('mspClass');
+  const sectionSel = document.getElementById('mspSection');
+  const statusSel  = document.getElementById('mspStatus');
+
+  // Toggle drawer
+  toggleBtn.addEventListener('click', e => {
+    e.preventDefault();
+    drawer.classList.toggle('open');
+  });
+
+  // Section data
+  const classData = {};
+  {% for cls in classes %}
+    if (!classData[{{ cls.id }}]) classData[{{ cls.id }}] = [];
+    var _sec = '{{ cls.section|default:"" }}';
+    if (_sec && classData[{{ cls.id }}].indexOf(_sec) === -1) classData[{{ cls.id }}].push(_sec);
+  {% endfor %}
+  const allSections = [];
+  Object.values(classData).forEach(a => a.forEach(s => { if (!allSections.includes(s)) allSections.push(s); }));
+  allSections.sort();
+
+  const prevSection = "{{ request.GET.section|default:'' }}";
+
+  function updateSections() {
+    const cls = classSel.value;
+    const list = (cls && classData[cls]) ? classData[cls] : allSections;
+    sectionSel.innerHTML = '<option value="">All Sections</option>';
+    if (list.length === 0) {
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = 'No sections'; o.disabled = true;
+      sectionSel.appendChild(o);
+      return;
+    }
+    list.forEach(sec => {
+      const o = document.createElement('option');
+      o.value = sec; o.textContent = sec || '—';
+      if (sec === prevSection) o.selected = true;
+      sectionSel.appendChild(o);
     });
+  }
+  updateSections();
 
-    // Build URL with current filters
-    function buildUrl() {
-      const params = new URLSearchParams();
-      const q = document.getElementById('searchInput').value.trim();
-      if (q) params.set('q', q);
-      const category = document.getElementById('categorySelect');
-      if (category && category.value) params.set('category_id', category.value);
-      const classSelect = document.getElementById('classSelect');
-      if (classSelect && classSelect.value) params.set('class_id', classSelect.value);
-      const section = document.getElementById('sectionSelect').value;
-      if (section) params.set('section', section);
-      const status = document.getElementById('statusSelect').value;
-      if (status) params.set('status', status);
-      // Preserve pending_only if currently set
-      const pendingOnly = new URLSearchParams(window.location.search).get('pending_only');
-      if (pendingOnly) params.set('pending_only', pendingOnly);
-      const url = window.location.pathname + '?' + params.toString();
-      return url;
-    }
+  function buildUrl() {
+    const p = new URLSearchParams();
+    const q = searchIn.value.trim();
+    if (q) p.set('q', q);
+    if (category && category.value) p.set('category_id', category.value);
+    if (classSel && classSel.value) p.set('class_id', classSel.value);
+    if (sectionSel.value) p.set('section', sectionSel.value);
+    if (statusSel.value) p.set('status', statusSel.value);
+    const po = new URLSearchParams(location.search).get('pending_only');
+    if (po) p.set('pending_only', po);
+    return location.pathname + '?' + p.toString();
+  }
+  function apply() { location.href = buildUrl(); }
 
-    function applyFilters() {
-      window.location.href = buildUrl();
-    }
-
-    document.getElementById('searchBtn').addEventListener('click', applyFilters);
-    document.getElementById('searchInput').addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        applyFilters();
-      }
+  searchBtn.addEventListener('click', apply);
+  searchIn.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); apply(); }
+  });
+  [category, classSel, sectionSel, statusSel].forEach(el => {
+    if (el) el.addEventListener('change', () => {
+      if (el === classSel) updateSections();
+      apply();
     });
+  });
 
-    const categorySelect = document.getElementById('categorySelect');
-    if (categorySelect) categorySelect.addEventListener('change', applyFilters);
-    document.getElementById('classSelect').addEventListener('change', applyFilters);
-    document.getElementById('sectionSelect').addEventListener('change', applyFilters);
-    document.getElementById('statusSelect').addEventListener('change', applyFilters);
-
-    // Open filter drawer if any filter is active
-    const hasFilters = {{ request.GET.category_id|yesno:"true,false" }} || {{ request.GET.class_id|yesno:"true,false" }} || {{ request.GET.section|yesno:"true,false" }} || {{ request.GET.status|yesno:"true,false" }} || {{ request.GET.pending_only|yesno:"true,false" }};
-    if (hasFilters) {
-      drawer.classList.add('open');
-    }
-  })();
+  // Auto-open drawer if any filter active
+  const hasFilters =
+    {{ request.GET.category_id|yesno:"true,false" }} ||
+    {{ request.GET.class_id|yesno:"true,false" }} ||
+    {{ request.GET.section|yesno:"true,false" }} ||
+    {{ request.GET.status|yesno:"true,false" }} ||
+    {{ request.GET.pending_only|yesno:"true,false" }};
+  if (hasFilters) drawer.classList.add('open');
+})();
 </script>
 {% endblock %}

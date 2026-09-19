@@ -1,862 +1,882 @@
 {% extends 'mobile/base.html' %}
 {% load class_display %}
-{% load class_display %}
 {% load fee_extras %}
 {% block title %}{{ student.name }} | Profile{% endblock %}
 
 {% block extra_head %}
 <style>
-  /* ── Variables ── */
   :root {
-    --profile-card-radius: 18px;
-    --profile-shadow: 0 6px 20px rgba(0,0,0,0.05);
-    --profile-accent: var(--accent, #2563eb);
+    --p-accent:   var(--accent, #6366f1);
+    --p-accent-2: #8b5cf6;
+    --p-accent-3: #ec4899;
+    --p-surface:  var(--surface, #ffffff);
+    --p-surface-2:var(--surface-alt, #f8fafc);
+    --p-text:     var(--text, #0f172a);
+    --p-muted:    var(--muted, #64748b);
+    --p-border:   rgba(148,163,184,0.15);
+    --p-radius:   22px;
+    --p-radius-sm:14px;
+    --p-shadow:   0 8px 28px rgba(15,23,42,0.07);
+    --p-shadow-lg:0 20px 50px rgba(15,23,42,0.13);
   }
 
-  /* ── Hero Section ── */
-  .profile-hero {
-    background: linear-gradient(135deg, var(--profile-accent), #1e40af);
-    border-radius: var(--profile-card-radius);
-    padding: 1.5rem 1.25rem 1.25rem;
-    margin-bottom: 1.25rem;
-    color: #fff;
+  /* ── Base ── */
+  .pf-wrap { padding-bottom: 32px; }
+
+  /* ── HERO ── */
+  .pf-hero {
     position: relative;
     overflow: hidden;
-    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25);
+    border-radius: var(--p-radius);
+    padding: 22px 18px 18px;
+    margin-bottom: 18px;
+    color: #fff;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(255,255,255,0.22), transparent 45%),
+      radial-gradient(circle at 100% 100%, rgba(236,72,153,0.35), transparent 50%),
+      linear-gradient(135deg, var(--p-accent) 0%, var(--p-accent-2) 55%, #4f46e5 100%);
+    box-shadow: 0 16px 40px rgba(99,102,241,0.32);
+    animation: pfFadeUp .45s cubic-bezier(.2,.7,.2,1) both;
   }
-  .profile-hero::after {
-    content: '';
-    position: absolute;
-    top: -40%;
-    right: -20%;
-    width: 200px;
-    height: 200px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.06);
-    pointer-events: none;
+  .pf-hero::before,
+  .pf-hero::after {
+    content:'';
+    position:absolute;
+    border-radius:50%;
+    background:rgba(255,255,255,0.07);
+    pointer-events:none;
   }
-  .profile-hero-content {
+  .pf-hero::before { width:220px;height:220px; top:-90px; right:-70px; }
+  .pf-hero::after  { width:140px;height:140px; bottom:-60px; left:-40px; }
+
+  .pf-hero-inner {
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 14px;
-    position: relative;
-    z-index: 2;
   }
-  .profile-avatar {
-    width: 68px;
-    height: 68px;
+  .pf-avatar {
+    width: 72px; height:72px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.15);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-    font-weight: 700;
-    color: #fff;
-    flex-shrink: 0;
-    border: 2px solid rgba(255,255,255,0.25);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-  .profile-hero-text {
-    flex: 1;
-    min-width: 0;
-  }
-  .profile-hero-text h1 {
-    font-size: 1.5rem;
-    font-weight: 800;
-    margin: 0;
-    line-height: 1.2;
+    background: rgba(255,255,255,0.18);
+    border: 2px solid rgba(255,255,255,0.32);
+    display:flex;align-items:center;justify-content:center;
+    font-size: 30px; font-weight: 800;
     letter-spacing: -0.02em;
+    flex-shrink: 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
   }
-  .profile-hero-text .father-line {
-    font-size: 0.95rem;
+  .pf-hero-text { flex:1; min-width:0; }
+  .pf-hero-text h1 {
+    font-size: 1.4rem;
+    font-weight: 800;
+    margin: 0 0 3px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  }
+  .pf-hero-text .father-line {
+    font-size: 0.85rem;
+    opacity: 0.92;
     font-weight: 500;
-    opacity: 0.9;
-    margin-top: 2px;
+    margin-bottom: 6px;
   }
-  .profile-hero-text .father-line .relation-prefix {
-    opacity: 0.7;
+  .pf-hero-text .father-line strong { font-weight: 700; }
+  .pf-hero-text .father-line .relation-prefix {
+    opacity: 0.75;
     font-weight: 400;
+    margin-right: 3px;
   }
-  .profile-hero-text .sub {
-    font-size: 0.8rem;
-    opacity: 0.85;
-    margin-top: 4px;
+  .pf-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 8px;
+    gap: 6px;
+    margin-top: 4px;
   }
-  .profile-hero-text .sub a {
-    color: #fff;
-    text-decoration: underline;
+  .pf-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.22);
+    font-size: 0.7rem;
     font-weight: 700;
-  }
-  .profile-hero-text .sub span {
-    opacity: 0.7;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(6px);
   }
 
-  /* ── Hero Actions ── */
-  .profile-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
+  /* ── Actions ── */
+  .pf-actions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 18px;
     position: relative;
     z-index: 2;
-    flex-wrap: wrap;
   }
-  .profile-actions a,
-  .profile-actions button {
-    flex: 1;
-    min-width: 80px;
-    padding: 10px 8px;
-    border-radius: 30px;
-    font-weight: 600;
-    font-size: 0.75rem;
-    text-align: center;
-    text-decoration: none;
-    border: none;
-    cursor: pointer;
+  .pf-actions a,
+  .pf-actions button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    transition: all 0.2s;
-    background: rgba(255,255,255,0.12);
+    gap: 5px;
+    padding: 10px 6px;
+    border-radius: 14px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.14);
     color: #fff;
-    border: 1px solid rgba(255,255,255,0.08);
-    backdrop-filter: blur(4px);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(.2,.7,.2,1);
+    backdrop-filter: blur(8px);
+    letter-spacing: 0.01em;
   }
-  .profile-actions .btn-primary {
+  .pf-actions a:active,
+  .pf-actions button:active { transform: scale(0.96); }
+  .pf-actions .btn-primary {
     background: #fff;
-    color: var(--profile-accent);
-    border: none;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-  .profile-actions .btn-primary:hover {
-    transform: translateY(-2px);
+    color: var(--p-accent);
+    border-color: transparent;
     box-shadow: 0 6px 16px rgba(0,0,0,0.15);
   }
-  .profile-actions .btn-secondary {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #fff;
-  }
-  .profile-actions .btn-secondary:hover {
-    background: rgba(255,255,255,0.2);
-    transform: translateY(-2px);
-  }
+  .pf-actions .btn-primary:hover { transform: translateY(-2px); }
+  .pf-actions svg { width: 15px; height: 15px; stroke-width: 2.2; }
 
-  /* ── Stats Grid ── */
-  .stats-grid {
+  /* ── Stats ── */
+  .pf-stats {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
-    margin-bottom: 1.25rem;
+    margin-bottom: 18px;
   }
-  .stat-card {
-    background: var(--surface);
-    border-radius: var(--profile-card-radius);
-    padding: 14px 12px;
-    box-shadow: var(--profile-shadow);
-    border: 1px solid rgba(148,163,184,0.08);
+  .pf-stat {
+    position: relative;
+    background: var(--p-surface);
+    border: 1px solid var(--p-border);
+    border-radius: var(--p-radius-sm);
+    padding: 14px 14px 12px;
+    box-shadow: var(--p-shadow);
+    overflow: hidden;
     transition: transform 0.15s;
+    animation: pfFadeUp .5s cubic-bezier(.2,.7,.2,1) both;
   }
-  .stat-card:active {
-    transform: scale(0.97);
+  .pf-stat:nth-child(1){animation-delay:.02s}
+  .pf-stat:nth-child(2){animation-delay:.06s}
+  .pf-stat:nth-child(3){animation-delay:.10s}
+  .pf-stat:nth-child(4){animation-delay:.14s}
+  .pf-stat::after {
+    content:'';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent 60%, rgba(99,102,241,0.05));
+    pointer-events: none;
   }
-  .stat-card .label {
-    font-size: 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--muted);
+  .pf-stat:active { transform: scale(0.98); }
+  .pf-stat .s-head {
     display: flex;
     align-items: center;
-    gap: 4px;
-  }
-  .stat-card .label svg {
-    width: 16px;
-    height: 16px;
-    stroke: var(--muted);
-    stroke-width: 1.8;
-  }
-  .stat-card .value {
-    font-size: 1.3rem;
+    gap: 6px;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--p-muted);
     font-weight: 700;
-    margin-top: 4px;
-    color: var(--text);
   }
-  .stat-card .value .pending-blink {
-    animation: blinkPulse 1.2s ease-in-out infinite;
-    color: #b91c1c !important;
-    display: inline-block;
+  .pf-stat .s-icon {
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background: linear-gradient(135deg, rgba(99,102,241,0.14), rgba(139,92,246,0.14));
+    color: var(--p-accent);
+    flex-shrink: 0;
   }
-  @keyframes blinkPulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(1.05); }
-    100% { opacity: 1; transform: scale(1); }
+  .pf-stat .s-icon svg { width: 12px; height: 12px; stroke-width: 2.4; }
+  .pf-stat .s-value {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin-top: 8px;
+    letter-spacing: -0.02em;
+    color: var(--p-text);
+  }
+  .pf-stat .s-value.pending {
+    color: #e11d48;
+    animation: pfPulse 1.8s ease-in-out infinite;
+  }
+  .pf-stat .s-value.paid { color: #059669; }
+  .pf-stat .s-sub {
+    font-size: 0.62rem;
+    color: var(--p-muted);
+    margin-top: 2px;
+    font-weight: 500;
   }
 
   /* ── Info Grid ── */
-  .info-grid {
+  .pf-info-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-    margin-bottom: 1.25rem;
+    margin-bottom: 18px;
   }
-  .info-item {
-    background: var(--surface);
-    border-radius: var(--profile-card-radius);
+  .pf-info {
+    background: var(--p-surface);
+    border: 1px solid var(--p-border);
+    border-radius: var(--p-radius-sm);
     padding: 12px 12px;
-    border: 1px solid rgba(148,163,184,0.08);
-    box-shadow: var(--profile-shadow);
+    box-shadow: var(--p-shadow);
+    transition: border-color 0.2s;
   }
-  .info-item .label {
+  .pf-info:hover { border-color: rgba(99,102,241,0.35); }
+  .pf-info .label {
     font-size: 0.55rem;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--muted);
+    letter-spacing: 0.6px;
+    color: var(--p-muted);
+    font-weight: 700;
   }
-  .info-item .value {
-    font-weight: 600;
-    font-size: 0.9rem;
+  .pf-info .value {
+    font-size: 0.88rem;
+    font-weight: 700;
     margin-top: 3px;
-    color: var(--text);
+    color: var(--p-text);
     word-break: break-word;
   }
 
-  /* ── Teacher Section ── */
-  .teacher-section {
-    background: var(--surface);
-    border-radius: var(--profile-card-radius);
-    padding: 14px 12px;
-    margin-bottom: 1.25rem;
-    border: 1px solid rgba(148,163,184,0.08);
-    box-shadow: var(--profile-shadow);
+  /* ── Section ── */
+  .pf-section {
+    background: var(--p-surface);
+    border: 1px solid var(--p-border);
+    border-radius: var(--p-radius);
+    padding: 16px 14px;
+    box-shadow: var(--p-shadow);
+    margin-bottom: 16px;
+    animation: pfFadeUp .5s cubic-bezier(.2,.7,.2,1) both;
   }
-  .teacher-section .teacher-block {
+  .pf-section-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 12px;
+  }
+  .pf-section-title h2 {
+    font-size: 0.95rem;
+    font-weight: 800;
+    margin: 0;
+    display:flex;align-items:center;gap:8px;
+    letter-spacing: -0.01em;
+    color: var(--p-text);
+  }
+  .pf-section-title h2 .t-icon {
+    width: 28px; height: 28px;
+    border-radius: 9px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15));
+    color: var(--p-accent);
+  }
+  .pf-section-title h2 .t-icon svg { width: 15px; height: 15px; stroke-width: 2.2; }
+  .pf-section-title a,
+  .pf-section-title .link-btn {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--p-accent);
+    text-decoration: none;
+    background: none; border: none; cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgba(99,102,241,0.08);
+    transition: background 0.2s;
+  }
+  .pf-section-title a:hover,
+  .pf-section-title .link-btn:hover { background: rgba(99,102,241,0.16); }
+
+  /* ── Teacher blocks ── */
+  .pf-teacher {
+    padding: 12px;
+    border-radius: var(--p-radius-sm);
+    background: var(--p-surface-2);
+    border: 1px solid var(--p-border);
     margin-bottom: 8px;
   }
-  .teacher-section .teacher-block:last-child {
-    margin-bottom: 0;
-  }
-  .teacher-section .block-label {
+  .pf-teacher:last-child { margin-bottom: 0; }
+  .pf-teacher .block-label {
     font-size: 0.55rem;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--muted);
-    font-weight: 600;
+    letter-spacing: 0.6px;
+    color: var(--p-muted);
+    font-weight: 800;
+    margin-bottom: 6px;
   }
-  .teacher-section .teacher-name {
-    font-weight: 600;
-    color: var(--profile-accent);
+  .pf-teacher .teacher-name {
+    font-weight: 700;
+    color: var(--p-accent);
     text-decoration: none;
     font-size: 0.9rem;
+    display:inline-flex;align-items:center;gap:6px;
   }
-  .teacher-section .teacher-name:hover {
-    text-decoration: underline;
+  .pf-teacher .teacher-name:hover { text-decoration: underline; }
+  .pf-teacher .subject-list {
+    list-style: none; padding:0; margin:0;
+    display:flex; flex-direction:column; gap:5px;
   }
-  .teacher-section .subject-list {
-    list-style: none;
-    padding: 0;
-    margin: 4px 0 0;
-    display: flex;
+  .pf-teacher .subject-list li {
+    font-size: 0.8rem;
+    display:flex; align-items:center; gap:6px;
     flex-wrap: wrap;
-    gap: 4px 12px;
   }
-  .teacher-section .subject-list li {
-    font-size: 0.8rem;
-    display: flex;
-    align-items: baseline;
-    gap: 3px;
+  .pf-teacher .subject-list .s-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--p-accent), var(--p-accent-2));
+    flex-shrink: 0;
   }
-  .teacher-section .subject-list li .subject-name {
-    font-weight: 500;
-    color: var(--text);
-  }
-  .teacher-section .subject-list li .subject-teacher {
-    color: var(--profile-accent);
-    text-decoration: none;
-    font-weight: 500;
-  }
-  .teacher-section .subject-list li .subject-teacher:hover {
-    text-decoration: underline;
-  }
-  .teacher-section .subject-list li .unassigned {
-    color: var(--muted);
-    font-size: 0.75rem;
-  }
-
-  /* ── Section Titles ── */
-  .section-title {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin: 1.25rem 0 0.75rem;
-  }
-  .section-title h2 {
-    font-size: 1rem;
+  .pf-teacher .subject-list .subject-name {
     font-weight: 700;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text);
+    color: var(--p-text);
   }
-  .section-title h2 svg {
-    width: 20px;
-    height: 20px;
-    stroke: var(--profile-accent);
-  }
-  .section-title .link-btn,
-  .section-title a {
-    color: var(--profile-accent);
-    font-weight: 600;
-    font-size: 0.8rem;
+  .pf-teacher .subject-list .subject-teacher {
+    color: var(--p-accent);
     text-decoration: none;
-    background: none;
-    border: none;
-    cursor: pointer;
+    font-weight: 600;
+  }
+  .pf-teacher .subject-list .subject-teacher:hover { text-decoration: underline; }
+  .pf-teacher .subject-list .unassigned {
+    color: var(--p-muted);
+    font-size: 0.72rem;
+    font-style: italic;
   }
 
-  /* ── History Lists ── */
-  .history-list {
+  /* ── History List ── */
+  .pf-history { display:flex; flex-direction:column; gap:8px; }
+  .pf-hist-item {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .history-item {
-    background: var(--surface);
-    border-radius: var(--profile-card-radius);
+    align-items: center;
+    gap: 12px;
     padding: 12px 14px;
-    border: 1px solid rgba(148,163,184,0.08);
-    box-shadow: var(--profile-shadow);
+    border-radius: var(--p-radius-sm);
+    background: var(--p-surface-2);
+    border: 1px solid var(--p-border);
+    transition: all 0.2s;
   }
-  .history-item .item-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  .pf-hist-item:active { transform: scale(0.99); }
+  .pf-hist-item .h-icon {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    display:flex;align-items:center;justify-content:center;
+    background: linear-gradient(135deg, rgba(99,102,241,0.14), rgba(139,92,246,0.14));
+    color: var(--p-accent);
+    flex-shrink: 0;
   }
-  .history-item .item-label {
-    font-weight: 600;
-    font-size: 0.9rem;
-  }
-  .history-item .item-meta {
-    color: var(--muted);
-    font-size: 0.75rem;
-    margin-top: 4px;
-  }
-  .history-item .item-amount {
+  .pf-hist-item .h-icon svg { width: 16px; height: 16px; stroke-width: 2.2; }
+  .pf-hist-item .h-body { flex:1; min-width:0; }
+  .pf-hist-item .h-title {
+    font-size: 0.85rem;
     font-weight: 700;
-    font-size: 0.95rem;
-    color: var(--profile-accent);
+    color: var(--p-text);
+    display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  }
+  .pf-hist-item .h-meta {
+    font-size: 0.7rem;
+    color: var(--p-muted);
+    margin-top: 3px;
+  }
+  .pf-hist-item .h-amount {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: var(--p-accent);
+    flex-shrink: 0;
   }
 
-  /* ── Status Badges ── */
-  .status-badge {
-    display: inline-block;
-    padding: 3px 10px;
+  /* ── Badges ── */
+  .pf-badge {
+    display:inline-block;
+    padding: 3px 9px;
     border-radius: 999px;
     font-size: 0.6rem;
-    font-weight: 700;
+    font-weight: 800;
     letter-spacing: 0.3px;
     text-transform: uppercase;
   }
-  .status-pending { background: #fef3c7; color: #92400e; }
-  .status-partial { background: #dbeafe; color: #1e40af; }
-  .status-paid { background: #dcfce7; color: #166534; }
-  .status-overdue { background: #fee2e2; color: #991b1b; }
+  .pf-badge.pending  { background:#fef3c7; color:#92400e; }
+  .pf-badge.partial  { background:#dbeafe; color:#1e40af; }
+  .pf-badge.paid     { background:#d1fae5; color:#065f46; }
+  .pf-badge.overdue  { background:#fee2e2; color:#991b1b; }
+  .pf-badge.active   { background:#d1fae5; color:#065f46; }
+  .pf-badge.suspended{ background:#fed7aa; color:#9a3412; }
+  .pf-badge.graduated{ background:#e0e7ff; color:#3730a3; }
 
-  /* ── Empty State ── */
-  .empty-state {
+  /* ── Empty ── */
+  .pf-empty {
     text-align: center;
-    padding: 20px 12px;
-    color: var(--muted);
-    font-size: 0.85rem;
+    padding: 24px 12px;
+    color: var(--p-muted);
+    font-size: 0.82rem;
   }
-  .empty-state small {
-    display: block;
+  .pf-empty .e-icon {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.10));
+    color: var(--p-accent);
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-bottom: 10px;
+  }
+  .pf-empty .e-icon svg { width: 22px; height: 22px; stroke-width: 2; }
+  .pf-empty small {
+    display:block;
     margin-top: 4px;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
+    opacity: 0.85;
   }
 
-  /* ── Back Link ── */
-  .back-link {
+  /* ── Back ── */
+  .pf-back {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 20px;
-    color: var(--muted);
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px 18px;
+    color: var(--p-muted);
     text-decoration: none;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    border-radius: 14px;
+    background: var(--p-surface);
+    border: 1px solid var(--p-border);
+    box-shadow: var(--p-shadow);
+    transition: all 0.2s;
   }
-  .back-link svg {
-    width: 18px;
-    height: 18px;
-    stroke: currentColor;
-  }
+  .pf-back:active { transform: scale(0.97); }
+  .pf-back svg { width: 16px; height: 16px; }
 
-  /* ── Modal Styles ── */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(4px);
+  /* ── Modal ── */
+  .pf-modal {
+    position: fixed; inset: 0;
+    background: rgba(15,23,42,0.55);
+    backdrop-filter: blur(8px);
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 9999;
     padding: 16px;
   }
-  .modal-overlay.active {
-    display: flex;
-  }
-  .modal-box {
-    background: var(--surface);
+  .pf-modal.active { display:flex; }
+  .pf-modal-box {
+    background: var(--p-surface);
     border-radius: 24px;
     max-width: 520px;
     width: 100%;
     max-height: 90vh;
     overflow-y: auto;
-    padding: 24px 20px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    padding: 24px 22px;
+    box-shadow: 0 30px 80px rgba(15,23,42,0.35);
     position: relative;
-    animation: modalFade 0.2s ease-out;
+    animation: pfModalIn 0.25s cubic-bezier(.2,.7,.2,1);
   }
-  @keyframes modalFade {
-    from { opacity: 0; transform: scale(0.96) translateY(10px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
+  @keyframes pfModalIn {
+    from { opacity:0; transform: scale(0.94) translateY(12px); }
+    to   { opacity:1; transform: scale(1) translateY(0); }
   }
-  .modal-box .modal-close {
+  .pf-modal-box .m-close {
     position: absolute;
-    top: 12px;
-    right: 16px;
-    background: none;
+    top: 14px; right: 16px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--p-surface-2);
     border: none;
-    font-size: 1.6rem;
+    font-size: 1.2rem;
     cursor: pointer;
-    color: var(--muted);
-    line-height: 1;
+    color: var(--p-muted);
+    display:inline-flex;align-items:center;justify-content:center;
+    transition: all 0.2s;
   }
-  .modal-box h2 {
-    margin-top: 0;
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: var(--text);
+  .pf-modal-box .m-close:hover { background: #fee2e2; color: #dc2626; }
+  .pf-modal-box h2 {
+    margin: 0 0 4px;
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--p-text);
   }
-  .modal-box .form-group {
-    margin-bottom: 14px;
+  .pf-modal-box .m-sub {
+    font-size: 0.78rem;
+    color: var(--p-muted);
+    margin-bottom: 16px;
   }
-  .modal-box .form-group label {
-    display: block;
-    font-weight: 600;
-    font-size: 0.8rem;
-    margin-bottom: 3px;
-    color: var(--text);
+  .pf-modal-box .form-group { margin-bottom: 12px; }
+  .pf-modal-box .form-group label {
+    display:block;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--p-muted);
+    margin-bottom: 5px;
   }
-  .modal-box .form-group input,
-  .modal-box .form-group select {
+  .pf-modal-box .form-group input,
+  .pf-modal-box .form-group select {
     width: 100%;
-    padding: 10px 12px;
+    padding: 11px 14px;
     border-radius: 12px;
-    border: 1px solid var(--border);
-    background: var(--surface-alt);
-    font-size: 0.9rem;
-    color: var(--text);
-    transition: border 0.2s;
+    border: 1.5px solid var(--p-border);
+    background: var(--p-surface-2);
+    font-size: 0.88rem;
+    color: var(--p-text);
+    font-family: inherit;
+    transition: all 0.2s;
+    box-sizing: border-box;
   }
-  .modal-box .form-group input:focus,
-  .modal-box .form-group select:focus {
+  .pf-modal-box .form-group input:focus,
+  .pf-modal-box .form-group select:focus {
     outline: none;
-    border-color: var(--profile-accent);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    border-color: var(--p-accent);
+    box-shadow: 0 0 0 4px rgba(99,102,241,0.13);
+    background: #fff;
   }
-  .modal-box .form-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 20px;
+  .pf-modal-box .form-actions {
+    display: flex; gap: 8px;
+    margin-top: 18px;
     justify-content: flex-end;
   }
-  .modal-box .btn-primary,
-  .modal-box .btn-secondary {
-    padding: 10px 20px;
-    border-radius: 30px;
-    font-weight: 600;
+  .pf-modal-box .btn-cancel,
+  .pf-modal-box .btn-save {
+    padding: 11px 20px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.82rem;
     border: none;
     cursor: pointer;
-    font-size: 0.85rem;
+    transition: all 0.2s;
   }
-  .modal-box .btn-primary {
-    background: var(--profile-accent);
+  .pf-modal-box .btn-cancel {
+    background: var(--p-surface-2);
+    color: var(--p-text);
+    border: 1.5px solid var(--p-border);
+  }
+  .pf-modal-box .btn-save {
+    background: linear-gradient(135deg, var(--p-accent), var(--p-accent-2));
     color: #fff;
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    box-shadow: 0 6px 18px rgba(99,102,241,0.35);
   }
-  .modal-box .btn-primary:hover {
-    background: #1d4ed8;
-  }
-  .modal-box .btn-secondary {
-    background: var(--surface-alt);
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
+  .pf-modal-box .btn-save:hover { transform: translateY(-2px); }
+  .pf-modal-box .btn-cancel:hover { background: #f1f5f9; }
 
-  /* ── Transcript Table ── */
-  .transcript-table {
+  /* ── Transcript ── */
+  .pf-transcript {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.8rem;
-    margin: 12px 0;
+    font-size: 0.78rem;
+    margin: 10px 0;
   }
-  .transcript-table th,
-  .transcript-table td {
-    padding: 6px 4px;
+  .pf-transcript th,
+  .pf-transcript td {
+    padding: 8px 6px;
     text-align: left;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--p-border);
   }
-  .transcript-table th {
-    background: var(--surface-alt);
-    font-weight: 600;
-    font-size: 0.65rem;
+  .pf-transcript th {
+    background: var(--p-surface-2);
+    font-weight: 800;
+    font-size: 0.62rem;
     text-transform: uppercase;
-    color: var(--muted);
+    letter-spacing: 0.4px;
+    color: var(--p-muted);
   }
-  .transcript-total {
-    font-weight: 700;
-    margin-top: 12px;
+  .pf-transcript-total {
+    font-weight: 800;
+    margin-top: 14px;
     text-align: right;
-    color: var(--text);
-    font-size: 0.9rem;
+    color: var(--p-text);
+    font-size: 0.85rem;
   }
 
-  /* ── Responsive Tweaks ── */
-  @media (max-width: 400px) {
-    .profile-actions a,
-    .profile-actions button {
-      font-size: 0.7rem;
-      padding: 8px 4px;
-    }
-    .profile-avatar {
-      width: 56px;
-      height: 56px;
-      font-size: 24px;
-    }
-    .profile-hero-text h1 {
-      font-size: 1.25rem;
-    }
-    .stats-grid {
-      grid-template-columns: repeat(2, 1fr);
-    }
-    .info-grid {
-      grid-template-columns: 1fr 1fr;
-    }
+  /* ── Animations ── */
+  @keyframes pfFadeUp {
+    from { opacity:0; transform: translateY(10px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+  @keyframes pfPulse {
+    0%,100% { opacity:1; }
+    50%     { opacity:0.55; }
   }
 </style>
 {% endblock %}
 
 {% block body %}
-<!-- ====== HERO ====== -->
-<div class="profile-hero">
-  <div class="profile-hero-content">
-    <div class="profile-avatar">{{ student.name|slice:":1"|upper }}</div>
-    <div class="profile-hero-text">
-      <h1>{{ student.name }}</h1>
-      <div class="father-line">
-        {% if student.gender == 'male' %}
-          <span class="relation-prefix">Son of</span>
-        {% elif student.gender == 'female' %}
-          <span class="relation-prefix">Daughter of</span>
-        {% else %}
-          <span class="relation-prefix">Child of</span>
-        {% endif %}
-        <strong>{{ student.father_name }}</strong>
-      </div>
-      <div class="sub">
-        {{ student|display_class:tenant }}
-        <span>•</span>
-        <span>Roll {{ student.roll_number }}</span>
-      </div>
-    </div>
-  </div>
-  <div class="profile-actions">
-    <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn-primary">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/>
-      </svg>
-      Collect
-    </a>
-    <button class="btn-secondary" id="editProfileBtn">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-        <path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/>
-      </svg>
-      Edit
-    </button>
-    <button class="btn-primary" type="button" id="voucherBtnMobile" data-student-id="{{ student.id }}" data-schema="{{ tenant.schema_name }}">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M4 4v16h16M8 12h8M12 8v8"/>
-      </svg>
-      Voucher
-    </button>
-  </div>
-</div>
+<div class="pf-wrap">
 
-<!-- ====== STATS ====== -->
-<div class="stats-grid">
-  <div class="stat-card">
-    <div class="label">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
-        <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/>
-      </svg>
-      Total Fee
+  <!-- ═══ HERO ═══ -->
+  <div class="pf-hero">
+    <div class="pf-hero-inner">
+      <div class="pf-avatar">{{ student.name|slice:":1"|upper }}</div>
+      <div class="pf-hero-text">
+        <h1>{{ student.name }}</h1>
+        <div class="father-line">
+          {% if student.gender == 'male' %}<span class="relation-prefix">Son of</span>
+          {% elif student.gender == 'female' %}<span class="relation-prefix">Daughter of</span>
+          {% else %}<span class="relation-prefix">Child of</span>{% endif %}
+          <strong>{{ student.father_name }}</strong>
+        </div>
+        <div class="pf-chips">
+          <span class="pf-chip">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+            {{ student|display_class:tenant }}
+          </span>
+          <span class="pf-chip">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+            Roll {{ student.roll_number }}
+          </span>
+        </div>
+      </div>
     </div>
-    <div class="value">₹{{ total_fee|floatformat:2 }}</div>
+
+    <div class="pf-actions">
+      <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=student.id %}" class="btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
+        Collect
+      </a>
+      <button type="button" id="editProfileBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
+        Edit
+      </button>
+      <button type="button" id="voucherBtnMobile" data-student-id="{{ student.id }}" data-schema="{{ tenant.schema_name }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4v16h16M8 12h8M12 8v8"/></svg>
+        Voucher
+      </button>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="label">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M20 6L9 17l-5-5"/>
-      </svg>
-      Paid
+
+  <!-- ═══ STATS ═══ -->
+  <div class="pf-stats">
+    <div class="pf-stat">
+      <div class="s-head">
+        <span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></span>
+        Total Fee
+      </div>
+      <div class="s-value">₹{{ total_fee|floatformat:2 }}</div>
     </div>
-    <div class="value">₹{{ total_paid|floatformat:2 }}</div>
+    <div class="pf-stat">
+      <div class="s-head">
+        <span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg></span>
+        Paid
+      </div>
+      <div class="s-value paid">₹{{ total_paid|floatformat:2 }}</div>
+    </div>
+    <div class="pf-stat">
+      <div class="s-head">
+        <span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
+        Pending
+      </div>
+      <div class="s-value {% if pending_total > 0 %}pending{% endif %}">₹{{ pending_total|floatformat:2 }}</div>
+    </div>
+    <div class="pf-stat">
+      <div class="s-head">
+        <span class="s-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M12 12v4m-2-2h4"/></svg></span>
+        Items
+      </div>
+      <div class="s-value">₹{{ item_purchase_total|floatformat:2 }}</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="label">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <circle cx="12" cy="12" r="10"/>
-        <path d="M12 6v6l4 2"/>
-      </svg>
-      Pending
+
+  <!-- ═══ INFO ═══ -->
+  <div class="pf-info-grid">
+    <div class="pf-info">
+      <div class="label">Father</div>
+      <div class="value">{{ student.father_name }}</div>
     </div>
-    <div class="value">
-      {% if pending_total > 0 %}
-        <span class="pending-blink">₹{{ pending_total|floatformat:2 }}</span>
+    <div class="pf-info">
+      <div class="label">Parent Mobile</div>
+      <div class="value">{{ student.parent_mobile }}</div>
+    </div>
+    <div class="pf-info">
+      <div class="label">Admission</div>
+      <div class="value">{{ student.admission_date|date:'Y-m-d' }}</div>
+    </div>
+    <div class="pf-info">
+      <div class="label">Status</div>
+      <div class="value"><span class="pf-badge {{ student.status|lower }}">{{ student.get_status_display }}</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ TEACHERS ═══ -->
+  <div class="pf-section">
+    <div class="pf-section-title">
+      <h2>
+        <span class="t-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l3 6 6 .9-4.5 4.3L17.8 20 12 17l-5.8 3 1.3-6.8L3 8.9 9 8z"/></svg></span>
+        Teachers
+      </h2>
+    </div>
+
+    <div class="pf-teacher">
+      <div class="block-label">Class Teacher</div>
+      {% if class_teacher %}
+        <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="teacher-name">
+          {{ class_teacher.full_name }}
+        </a>
       {% else %}
-        ₹{{ pending_total|floatformat:2 }}
+        <span style="color:var(--p-muted); font-size:0.85rem; font-style:italic;">Not assigned</span>
+      {% endif %}
+    </div>
+
+    <div class="pf-teacher">
+      <div class="block-label">Subject Teachers</div>
+      {% if subject_teachers %}
+        <ul class="subject-list">
+          {% for item in subject_teachers %}
+            <li>
+              <span class="s-dot"></span>
+              <span class="subject-name">{{ item.subject }}:</span>
+              {% if item.teacher %}
+                <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="subject-teacher">{{ item.teacher.full_name }}</a>
+              {% else %}
+                <span class="unassigned">Unassigned</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <span style="color:var(--p-muted); font-size:0.82rem; font-style:italic;">No subject assignments</span>
       {% endif %}
     </div>
   </div>
-  <div class="stat-card">
-    <div class="label">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.18A3 3 0 008.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
-        <path d="M12 12v4m-2-2h4"/>
-      </svg>
-      Items Cost
+
+  <!-- ═══ FEE RECORDS ═══ -->
+  <div class="pf-section">
+    <div class="pf-section-title">
+      <h2>
+        <span class="t-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+        Fee Records
+      </h2>
+      <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=student.id %}">+ New</a>
     </div>
-    <div class="value">₹{{ item_purchase_total|floatformat:2 }}</div>
-  </div>
-</div>
-
-<!-- ====== PERSONAL INFO ====== -->
-<div class="info-grid">
-  <div class="info-item">
-    <div class="label">Father</div>
-    <div class="value">{{ student.father_name }}</div>
-  </div>
-  <div class="info-item">
-    <div class="label">Parent Mobile</div>
-    <div class="value">{{ student.parent_mobile }}</div>
-  </div>
-  <div class="info-item">
-    <div class="label">Admission</div>
-    <div class="value">{{ student.admission_date|date:'Y-m-d' }}</div>
-  </div>
-  <div class="info-item">
-    <div class="label">Status</div>
-    <div class="value"><span class="status-badge status-{{ student.status|lower }}">{{ student.get_status_display }}</span></div>
-  </div>
-</div>
-
-<!-- ====== TEACHER SECTION ====== -->
-<div class="teacher-section">
-  <div class="teacher-block">
-    <div class="block-label">Class Teacher</div>
-    {% if class_teacher %}
-      <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=class_teacher.id %}" class="teacher-name">
-        {{ class_teacher.full_name }}
-      </a>
-    {% else %}
-      <span style="color: var(--muted); font-size:0.85rem;">Not assigned</span>
-    {% endif %}
-  </div>
-  <div class="teacher-block">
-    <div class="block-label">Subject Teachers</div>
-    {% if subject_teachers %}
-      <ul class="subject-list">
-        {% for item in subject_teachers %}
-          <li>
-            <span class="subject-name">{{ item.subject }}:</span>
-            {% if item.teacher %}
-              <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=item.teacher.id %}" class="subject-teacher">
-                {{ item.teacher.full_name }}
-              </a>
-            {% else %}
-              <span class="unassigned">Unassigned</span>
-            {% endif %}
-          </li>
+    <div class="pf-history">
+      {% if fee_records %}
+        {% for record in fee_records %}
+          <div class="pf-hist-item">
+            <div class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+            <div class="h-body">
+              <div class="h-title">{{ record.month }}/{{ record.year }}
+                <span class="pf-badge {{ record.status|lower }}">{{ record.get_status_display }}</span>
+              </div>
+              <div class="h-meta">Amount: ₹{{ record.total_amount|floatformat:2 }} · Paid: ₹{{ record.paid_amount|floatformat:2 }}</div>
+            </div>
+          </div>
         {% endfor %}
-      </ul>
-    {% else %}
-      <span style="color: var(--muted); font-size:0.85rem;">No subject assignments</span>
-    {% endif %}
+      {% else %}
+        <div class="pf-empty">
+          <div class="e-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg></div>
+          No fee records yet.
+          <small>Use "Collect" to add current month fee.</small>
+        </div>
+      {% endif %}
+    </div>
   </div>
-</div>
 
-<!-- ====== FEE RECORDS ====== -->
-<div class="section-title">
-  <h2>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-      <line x1="16" y1="2" x2="16" y2="6"/>
-      <line x1="8" y1="2" x2="8" y2="6"/>
-      <line x1="3" y1="10" x2="21" y2="10"/>
-    </svg>
-    Fee Records
-  </h2>
-  <a href="{% url 'mobile_fee_collection' schema_name=tenant.schema_name student_id=student.id %}">+ New Charge</a>
-</div>
-<div class="history-list">
-  {% if fee_records %}
-    {% for record in fee_records %}
-      <div class="history-item">
-        <div class="item-head">
-          <span class="item-label">{{ record.month }}/{{ record.year }}</span>
-          <span class="status-badge status-{{ record.status|lower }}">{{ record.get_status_display }}</span>
+  <!-- ═══ PAYMENTS ═══ -->
+  <div class="pf-section">
+    <div class="pf-section-title">
+      <h2>
+        <span class="t-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></span>
+        Payments
+      </h2>
+      <button type="button" class="link-btn" id="viewTranscriptBtn">Transcript</button>
+    </div>
+    <div class="pf-history">
+      {% if payments %}
+        {% for item in payments %}
+          <div class="pf-hist-item">
+            <div class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6L9 17l-5-5"/></svg></div>
+            <div class="h-body">
+              <div class="h-title">{{ item.payment.payment_date|date:'d M Y' }}</div>
+              <div class="h-meta">Mode: {{ item.payment.get_payment_mode_display }} · Remaining: ₹{{ item.remaining_balance|floatformat:2 }}</div>
+            </div>
+            <div class="h-amount">₹{{ item.payment.amount|floatformat:2 }}</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="pf-empty">
+          <div class="e-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div>
+          No payments recorded yet.
         </div>
-        <div class="item-meta">Amount: ₹{{ record.total_amount|floatformat:2 }} &nbsp;|&nbsp; Paid: ₹{{ record.paid_amount|floatformat:2 }}</div>
-      </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty-state">No fee records yet.<small>Use "Collect Fee" to add current month fee.</small></div>
-  {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Back -->
+  <a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="pf-back">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+    Back to Students
+  </a>
 </div>
 
-<!-- ====== PAYMENT HISTORY ====== -->
-<div class="section-title">
-  <h2>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="2" y="5" width="20" height="14" rx="2" ry="2"/>
-      <line x1="2" y1="10" x2="22" y2="10"/>
-    </svg>
-    Payment History
-  </h2>
-  <button class="link-btn" id="viewTranscriptBtn">View Transcript</button>
-</div>
-<div class="history-list">
-  {% if payments %}
-    {% for item in payments %}
-      <div class="history-item">
-        <div class="item-head">
-          <span class="item-label">{{ item.payment.payment_date|date:'d M Y' }}</span>
-          <span class="item-amount">₹{{ item.payment.amount|floatformat:2 }}</span>
-        </div>
-        <div class="item-meta">
-          Mode: {{ item.payment.get_payment_mode_display }} &nbsp;|&nbsp; Remaining: ₹{{ item.remaining_balance|floatformat:2 }}
-        </div>
-      </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty-state">No payments recorded yet.</div>
-  {% endif %}
-</div>
-
-<!-- Back Link -->
-<a href="{% url 'mobile_student_list' schema_name=tenant.schema_name %}" class="back-link">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <path d="M15 18l-6-6 6-6"/>
-  </svg>
-  Back to Students
-</a>
-
-<!-- ========== EDIT MODAL ========== -->
-<div id="editModal" class="modal-overlay">
-  <div class="modal-box">
-    <button class="modal-close" id="closeEditModal">&times;</button>
+<!-- ═══ EDIT MODAL ═══ -->
+<div id="editModal" class="pf-modal">
+  <div class="pf-modal-box">
+    <button class="m-close" id="closeEditModal">&times;</button>
     <h2>Edit Student</h2>
+    <div class="m-sub">Update student information</div>
     <form id="editForm" method="post" action="{% url 'edit_student' schema_name=tenant.schema_name student_id=student.id %}">
       {% csrf_token %}
+      <div class="form-group"><label>Name</label><input type="text" name="name" value="{{ student.name }}" required></div>
+      <div class="form-group"><label>Father Name</label><input type="text" name="father_name" value="{{ student.father_name }}" required></div>
+      <div class="form-group"><label>Father CNIC</label><input type="text" name="father_cnic" value="{{ student.father_cnic }}" required></div>
+      <div class="form-group"><label>Parent Mobile</label><input type="text" name="parent_mobile" value="{{ student.parent_mobile }}" required></div>
       <div class="form-group">
-        <label for="edit_name">Name</label>
-        <input type="text" name="name" id="edit_name" value="{{ student.name }}" required>
+        <label>Class</label>
+        <select name="school_class" required>
+          <option value="">-- Select Class --</option>
+          {% for c in all_classes %}
+            <option value="{{ c.id }}" {% if student.school_class_id == c.id %}selected{% endif %}>{{ c.name }}{% if c.section %} - {{ c.section }}{% endif %}</option>
+          {% endfor %}
+        </select>
       </div>
+      <div class="form-group"><label>Grade</label><input type="text" name="grade" value="{{ student.grade }}" readonly></div>
+      <div class="form-group"><label>Section</label><input type="text" name="section" value="{{ student.section }}" readonly></div>
+      <div class="form-group"><label>Admission Date</label><input type="date" name="admission_date" value="{{ student.admission_date|date:'Y-m-d' }}" required></div>
       <div class="form-group">
-        <label for="edit_father_name">Father Name</label>
-        <input type="text" name="father_name" id="edit_father_name" value="{{ student.father_name }}" required>
-      </div>
-      <div class="form-group">
-        <label for="edit_father_cnic">Father CNIC</label>
-        <input type="text" name="father_cnic" id="edit_father_cnic" value="{{ student.father_cnic }}" required>
-      </div>
-      <div class="form-group">
-        <label for="edit_parent_mobile">Parent Mobile</label>
-        <input type="text" name="parent_mobile" id="edit_parent_mobile" value="{{ student.parent_mobile }}" required>
-      </div>
-      <div class="form-group">
-        <label for="edit_grade">Grade</label>
-        <input type="text" name="grade" id="edit_grade" value="{{ student.grade }}" required>
-      </div>
-      <div class="form-group">
-        <label for="edit_section">Section</label>
-        <input type="text" name="section" id="edit_section" value="{{ student.section }}" required>
-      </div>
-      <div class="form-group">
-        <label for="edit_admission_date">Admission Date</label>
-        <input type="date" name="admission_date" id="edit_admission_date" value="{{ student.admission_date|date:'Y-m-d' }}" required>
-      </div>
-      <div class="form-group">
-        <label for="edit_status">Status</label>
-        <select name="status" id="edit_status">
+        <label>Status</label>
+        <select name="status">
           <option value="active" {% if student.status == 'active' %}selected{% endif %}>Active</option>
           <option value="suspended" {% if student.status == 'suspended' %}selected{% endif %}>Suspended</option>
           <option value="graduated" {% if student.status == 'graduated' %}selected{% endif %}>Graduated</option>
         </select>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn-secondary" id="cancelEditBtn">Cancel</button>
-        <button type="submit" class="btn-primary">Save Changes</button>
+        <button type="button" class="btn-cancel" id="cancelEditBtn">Cancel</button>
+        <button type="submit" class="btn-save">Save Changes</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ========== TRANSCRIPT MODAL ========== -->
-<div id="transcriptModal" class="modal-overlay">
-  <div class="modal-box" style="max-width: 700px;">
-    <button class="modal-close" id="closeTranscriptModal">&times;</button>
-    <h2>Fee Transcript – {{ student.name }}</h2>
-    <div style="margin-bottom: 12px; font-size:0.85rem; color:var(--muted);">
-      {{ student.grade }} • Roll {{ student.roll_number }}
-    </div>
+<!-- ═══ TRANSCRIPT MODAL ═══ -->
+<div id="transcriptModal" class="pf-modal">
+  <div class="pf-modal-box" style="max-width:700px;">
+    <button class="m-close" id="closeTranscriptModal">&times;</button>
+    <h2>Fee Transcript</h2>
+    <div class="m-sub">{{ student.name }} · {{ student.grade }} · Roll {{ student.roll_number }}</div>
 
-    <h3 style="margin: 16px 0 8px; font-size:1rem;">Fee Records</h3>
-    <table class="transcript-table">
-      <thead>
-        <tr><th>Month/Year</th><th>Amount</th><th>Paid</th><th>Status</th></tr>
-      </thead>
+    <h3 style="margin:16px 0 8px; font-size:0.95rem; font-weight:800;">Fee Records</h3>
+    <table class="pf-transcript">
+      <thead><tr><th>Month/Year</th><th>Amount</th><th>Paid</th><th>Status</th></tr></thead>
       <tbody>
         {% for r in fee_records %}
         <tr>
           <td>{{ r.month }}/{{ r.year }}</td>
           <td>₹{{ r.total_amount|floatformat:2 }}</td>
           <td>₹{{ r.paid_amount|floatformat:2 }}</td>
-          <td><span class="status-badge status-{{ r.status|lower }}">{{ r.get_status_display }}</span></td>
+          <td><span class="pf-badge {{ r.status|lower }}">{{ r.get_status_display }}</span></td>
         </tr>
-        {% empty %}
-        <tr><td colspan="4">No fee records.</td></tr>
-        {% endfor %}
+        {% empty %}<tr><td colspan="4">No fee records.</td></tr>{% endfor %}
       </tbody>
     </table>
 
-    <h3 style="margin: 16px 0 8px; font-size:1rem;">Payment History</h3>
-    <table class="transcript-table">
-      <thead>
-        <tr><th>Date</th><th>Amount</th><th>Mode</th><th>Remaining</th></tr>
-      </thead>
+    <h3 style="margin:16px 0 8px; font-size:0.95rem; font-weight:800;">Payment History</h3>
+    <table class="pf-transcript">
+      <thead><tr><th>Date</th><th>Amount</th><th>Mode</th><th>Remaining</th></tr></thead>
       <tbody>
         {% for item in payments %}
         <tr>
@@ -865,95 +885,103 @@
           <td>{{ item.payment.get_payment_mode_display }}</td>
           <td>₹{{ item.remaining_balance|floatformat:2 }}</td>
         </tr>
-        {% empty %}
-        <tr><td colspan="4">No payments.</td></tr>
-        {% endfor %}
+        {% empty %}<tr><td colspan="4">No payments.</td></tr>{% endfor %}
       </tbody>
     </table>
 
-    <div class="transcript-total">
-      Total Paid: ₹{{ total_paid|floatformat:2 }} &nbsp;|&nbsp; Total Pending: ₹{{ pending_total|floatformat:2 }}
+    <div class="pf-transcript-total">
+      Total Paid: ₹{{ total_paid|floatformat:2 }} &nbsp;|&nbsp; Pending: ₹{{ pending_total|floatformat:2 }}
     </div>
-    <div style="margin-top: 16px; text-align: right;">
-      <button class="btn-secondary" id="printTranscriptBtn">Print Transcript</button>
+    <div class="form-actions"><button class="btn-cancel" id="printTranscriptBtn">Print</button></div>
+  </div>
+</div>
+
+<!-- ═══ VOUCHER MODAL ═══ -->
+<div id="voucherModal" class="pf-modal" style="z-index:10000;">
+  <div class="pf-modal-box" style="max-width:720px;">
+    <button class="m-close" id="voucherModalClose" type="button">&times;</button>
+    <h2>Fee Voucher</h2>
+    <div class="m-sub">Current month</div>
+    <div id="voucherModalBody" style="max-height:65vh; overflow:auto; background:var(--p-surface-2); border-radius:14px; padding:12px;">
+      <div style="padding:20px; text-align:center; color:var(--p-muted);">Loading…</div>
     </div>
+    <div class="form-actions"><button type="button" class="btn-save" id="voucherModalPrint">Print</button></div>
   </div>
 </div>
 
 <script>
-  (function() {
-    // ---- Edit Modal ----
-    const editModal = document.getElementById('editModal');
-    const editBtn = document.getElementById('editProfileBtn');
-    const closeEdit = document.getElementById('closeEditModal');
-    const cancelEdit = document.getElementById('cancelEditBtn');
+(function() {
+  'use strict';
 
-    function openEditModal() {
-      editModal.classList.add('active');
-    }
-    function closeEditModal() {
-      editModal.classList.remove('active');
-    }
-    editBtn.addEventListener('click', openEditModal);
-    closeEdit.addEventListener('click', closeEditModal);
-    cancelEdit.addEventListener('click', closeEditModal);
-    editModal.addEventListener('click', function(e) {
-      if (e.target === this) closeEditModal();
-    });
+  /* ─── Edit Modal ─── */
+  var editModal = document.getElementById('editModal');
+  var editForm  = document.getElementById('editForm');
 
-    // Submit edit form via AJAX (no page reload)
-    const editForm = document.getElementById('editForm');
-    editForm.addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const formData = new FormData(this);
-      const url = this.action;
-      try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          body: formData,
-          headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        });
-        if (resp.ok) {
-          window.location.reload(); // Refresh to show updated data
-        } else {
-          const text = await resp.text();
-          alert('Error updating student: ' + text);
-        }
-      } catch(err) {
-        alert('Network error: ' + err.message);
+  function openEdit(){ editModal.classList.add('active'); }
+  function closeEdit(){ editModal.classList.remove('active'); }
+
+  document.getElementById('editProfileBtn').addEventListener('click', openEdit);
+  document.getElementById('closeEditModal').addEventListener('click', closeEdit);
+  document.getElementById('cancelEditBtn').addEventListener('click', closeEdit);
+  editModal.addEventListener('click', function(e){ if(e.target===this) closeEdit(); });
+
+  editForm.addEventListener('submit', async function(e){
+    e.preventDefault();
+    try {
+      var resp = await fetch(this.action, {
+        method:'POST',
+        body: new FormData(this),
+        headers:{'X-Requested-With':'XMLHttpRequest'},
+        redirect:'follow'
+      });
+      if (resp.redirected && /updated=1/.test(resp.url)) { window.location.href = resp.url; return; }
+      if (resp.ok) {
+        var doc = new DOMParser().parseFromString(await resp.text(), 'text/html');
+        var errs = Array.from(doc.querySelectorAll('.errorlist, .field-error'))
+          .map(function(el){ return el.textContent.trim(); }).filter(Boolean);
+        alert('Could not save: ' + (errs.join('; ') || 'Please review the form.'));
+        return;
       }
-    });
+      alert('Error HTTP ' + resp.status);
+    } catch(err){ alert('Network error: ' + err.message); }
+  });
 
-    // ---- Transcript Modal ----
-    const transcriptModal = document.getElementById('transcriptModal');
-    const viewBtn = document.getElementById('viewTranscriptBtn');
-    const closeTranscript = document.getElementById('closeTranscriptModal');
+  /* ─── Transcript Modal ─── */
+  var transcriptModal = document.getElementById('transcriptModal');
+  document.getElementById('viewTranscriptBtn').addEventListener('click', function(){ transcriptModal.classList.add('active'); });
+  document.getElementById('closeTranscriptModal').addEventListener('click', function(){ transcriptModal.classList.remove('active'); });
+  transcriptModal.addEventListener('click', function(e){ if(e.target===this) transcriptModal.classList.remove('active'); });
+  document.getElementById('printTranscriptBtn').addEventListener('click', function(){ window.print(); });
 
-    function openTranscript() {
-      transcriptModal.classList.add('active');
-    }
-    function closeTranscriptModal() {
-      transcriptModal.classList.remove('active');
-    }
-    viewBtn.addEventListener('click', openTranscript);
-    closeTranscript.addEventListener('click', closeTranscriptModal);
-    transcriptModal.addEventListener('click', function(e) {
-      if (e.target === this) closeTranscriptModal();
-    });
+  /* ─── Voucher Modal ─── */
+  var voucherModal = document.getElementById('voucherModal');
+  var voucherBody  = document.getElementById('voucherModalBody');
 
-    // Print transcript
-    document.getElementById('printTranscriptBtn').addEventListener('click', function() {
-      window.print();
-    });
+  document.getElementById('voucherBtnMobile').addEventListener('click', function(){
+    var sid = this.dataset.studentId;
+    var schema = this.dataset.schema;
+    voucherModal.classList.add('active');
+    voucherBody.innerHTML = '<div style="padding:20px;text-align:center;color:var(--p-muted);">Loading voucher…</div>';
+    fetch('/portal/' + schema + '/api/student/' + sid + '/voucher-html/', { credentials:'same-origin' })
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        voucherBody.innerHTML = (html && html.trim())
+          ? html
+          : '<p style="padding:20px;text-align:center;color:var(--p-muted);">No voucher exists for the current month yet.</p>';
+      })
+      .catch(function(){
+        voucherBody.innerHTML = '<p style="padding:20px;text-align:center;color:#dc2626;">Failed to load voucher.</p>';
+      });
+  });
+  document.getElementById('voucherModalClose').addEventListener('click', function(){ voucherModal.classList.remove('active'); });
+  voucherModal.addEventListener('click', function(e){ if(e.target===this) voucherModal.classList.remove('active'); });
+  document.getElementById('voucherModalPrint').addEventListener('click', function(){
+    var w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write('<html><head><title>Voucher</title></head><body>' + voucherBody.innerHTML + '</body></html>');
+    w.document.close(); w.focus(); w.print();
+  });
 
-    // ---- Voucher Button ----
-    document.getElementById('voucherBtnMobile').addEventListener('click', function() {
-      const studentId = this.dataset.studentId;
-      const schema = this.dataset.schema;
-      alert('Voucher modal for student ' + studentId + ' (schema: ' + schema + ')');
-      // You can replace this with actual voucher modal logic.
-    });
-
-  })();
+})();
 </script>
 {% endblock %}

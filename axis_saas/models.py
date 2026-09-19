@@ -186,22 +186,63 @@ class Student(models.Model):
     wing_category = models.ForeignKey('WingCategory', on_delete=models.SET_NULL, null=True, blank=True, related_name='students')
 
     def save(self, *args, **kwargs):
-        # Ensure roll number
-        if not self.roll_number:
-            last = Student.objects.order_by('id').last()
-            if last and last.roll_number and last.roll_number.isdigit():
-                self.roll_number = str(int(last.roll_number) + 1)
-            else:
-                self.roll_number = "1001"
+        from django.db import transaction, IntegrityError
+
         # If school_class is set, update grade and section from it
         if self.school_class:
             self.grade = get_student_display_grade(self)
             self.section = self.school_class.section
-        # Set custom_fee from FeeStructure if not set
-        if not self.pk or self.custom_fee == 0:
+
+        # STUDENT_CUSTOM_FEE_ZERO_FIX_V1:
+        # The FeeStructure fallback must only run on CREATE. On UPDATE
+        # an explicit custom_fee=0 (admin intentionally waived the fee)
+        # must be preserved. The previous `not self.pk or self.custom_fee == 0`
+        # silently re-applied the grade fee on every edit, ignoring the
+        # admin's explicit zero.
+        if not self.pk:
             base = FeeStructure.objects.filter(grade=self.grade).first()
-            if base:
+            if base and (self.custom_fee is None or self.custom_fee == 0):
                 self.custom_fee = base.monthly_fee
+
+        # STUDENT_ROLL_NUMBER_RACE_FIX_V1:
+        # The old code read the last row without a lock, so two
+        # concurrent creates both computed the same next number and
+        # collided on the unique constraint -> uncaught IntegrityError.
+        # We now (a) allocate inside a transaction that locks the last
+        # row, (b) verify the candidate is unused, and (c) retry on
+        # IntegrityError before falling back to a timestamp-based
+        # unique number. Non-numeric roll numbers are handled by
+        # scanning upward from the previously observed maximum.
+        if not self.roll_number:
+            for _attempt in range(5):
+                try:
+                    with transaction.atomic():
+                        last = (
+                            Student.objects
+                            .select_for_update()
+                            .order_by('-id')
+                            .first()
+                        )
+                        if last and last.roll_number and last.roll_number.isdigit():
+                            candidate = str(int(last.roll_number) + 1)
+                        else:
+                            candidate = '1001'
+                        while Student.objects.filter(roll_number=candidate).exists():
+                            if candidate.isdigit():
+                                candidate = str(int(candidate) + 1)
+                            else:
+                                candidate = candidate + '-1'
+                        self.roll_number = candidate
+                        super().save(*args, **kwargs)
+                        return
+                except IntegrityError:
+                    # Lost the race — clear and retry.
+                    self.roll_number = None
+                    continue
+            # Last-ditch fallback: timestamp-based unique number.
+            import time as _t
+            self.roll_number = f"R{int(_t.time() * 1000)}"
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -273,12 +314,36 @@ class FeeRecord(models.Model):
         return self.paid_amount >= self.amount
 
     def save(self, *args, **kwargs):
+        # STUDENT_FEERECORD_DUE_DATE_COERCE_FIX_V1: a caller can
+        # construct a FeeRecord with `due_date` as a string (raw
+        # JSON payload, bulk import, test fixture). The old code
+        # silently set it to None on any parse failure, which then
+        # blew up on the model's NOT NULL constraint with a
+        # confusing IntegrityError. We now raise a clear
+        # ValidationError instead so the real problem is visible.
+        if isinstance(self.due_date, str):
+            from datetime import datetime as _dt
+            from django.core.exceptions import ValidationError
+            _s = self.due_date.strip()
+            if not _s:
+                raise ValidationError(
+                    "due_date is required (received an empty string)."
+                )
+            try:
+                self.due_date = _dt.strptime(
+                    _s, '%Y-%m-%d'
+                ).date()
+            except (TypeError, ValueError):
+                raise ValidationError(
+                    f"Invalid due_date: {self.due_date!r}. "
+                    f"Expected YYYY-MM-DD."
+                )
         # Use total_amount (base + extras) for status
         if self.remaining_total <= 0:
             self.status = 'paid'
         elif self.paid_amount > 0:
             self.status = 'partial'
-        elif date.today() > self.due_date and self.paid_amount == 0:
+        elif self.due_date is not None and date.today() > self.due_date and self.paid_amount == 0:
             self.status = 'overdue'
         else:
             self.status = 'pending'
@@ -1306,13 +1371,20 @@ class PeriodsTimetable(models.Model):
 
 class ClassTimetableAssignment(models.Model):
     """
-    Assigns one PeriodsTimetable to one SchoolClass.
-    A class has at most one active assignment at a time (OneToOne).
+    Assigns a PeriodsTimetable to a SchoolClass.
+
+    ASSIGN_MULTI_TIMETABLE_V1: a class may now have MULTIPLE
+    timetables assigned, but they MUST all share the same
+    ScheduleLabel. The same timetable cannot be assigned to
+    the same class twice (enforced by UniqueConstraint).
+    The same-label rule itself is enforced in
+    views/timetable_assignments.api_assign_timetable, because
+    it is not expressible as a simple DB constraint.
     """
-    school_class = models.OneToOneField(
+    school_class = models.ForeignKey(
         'SchoolClass',
         on_delete=models.CASCADE,
-        related_name='timetable_assignment',
+        related_name='timetable_assignments',
     )
     timetable = models.ForeignKey(
         PeriodsTimetable,
@@ -1323,6 +1395,12 @@ class ClassTimetableAssignment(models.Model):
 
     class Meta:
         ordering = ['-assigned_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['school_class', 'timetable'],
+                name='unique_class_timetable_assignment',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.school_class} -> {self.timetable.title}"
