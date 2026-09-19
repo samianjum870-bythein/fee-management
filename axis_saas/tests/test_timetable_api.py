@@ -5,7 +5,7 @@ constraints only: case-insensitive label uniqueness, ScheduleLabel.name
 uniqueness, PeriodsTimetable defaults. Five tests, roughly 5% of the
 actual behaviour.
 
-This file covers the actual view and API behaviour that was untested:
+This file covers the actual view and API behaviour:
 
   * ``api_save_day_schedules``
       - create + update + delete in a single POST
@@ -24,9 +24,13 @@ This file covers the actual view and API behaviour that was untested:
   * ``api_batch_update_label_times``
       - multi-day timing update + duration recompute
       - unknown label -> HTTP 404
-  * ``ClassTimetableAssignment``
-      - OneToOne constraint on ``school_class``
-      - cascade delete when ``PeriodsTimetable`` is deleted
+  * ``ClassTimetableAssignment`` (ASSIGN_MULTI_TIMETABLE_V1)
+      - a class may hold MULTIPLE timetables
+      - same timetable twice -> IntegrityError
+      - cascade delete
+      - GET /available-timetables/ filter by existing label
+      - POST /assign/submit/ same-label enforcement + duplicate guard
+      - assignment page renders with 2+ assignments
 
 Run:
 
@@ -59,9 +63,30 @@ from axis_saas.models import (
 # =====================================================================
 # Base class — one tenant, one authenticated admin session
 # =====================================================================
+
 class TimetableAPITestBase(TestCase):
+    """One tenant, one authenticated admin session.
+
+    TIMETABLE_API_TESTS_FIX_V1
+    --------------------------
+    django-tenants TestCase rolls back the SchoolClient ROW but not
+    the physical PostgreSQL schema, AND it does not reset
+    ``connection.schema_name`` between test methods. The original
+    setUp therefore left the connection on ``tt-api-test`` after the
+    first test and every subsequent setUp failed with::
+
+        Exception: Can't create tenant outside the public schema.
+        Current schema is tt-api-test.
+
+    We force public before create, force public after create, and
+    explicitly drop the tenant schema in tearDown so the suite is
+    repeatable.
+    """
 
     def setUp(self):
+        from django.db import connection as _conn
+        _conn.set_schema_to_public()
+
         self.tenant = SchoolClient.objects.create(
             schema_name="tt-api-test",
             name="TT API Test School",
@@ -73,12 +98,31 @@ class TimetableAPITestBase(TestCase):
                 "dashboard",
             ],
         )
+        # SchoolClient.save() with auto_create_schema=True leaves the
+        # connection on the freshly-created tenant schema. Switch back
+        # so the rest of setUp runs on public.
+        _conn.set_schema_to_public()
+
         self.client = Client()
         session = self.client.session
         session["school_admin_authenticated"] = True
         session["school_admin_schema"] = self.tenant.schema_name
         session["school_admin_username"] = "admin"
         session.save()
+
+    def tearDown(self):
+        from django.db import connection as _conn
+        _conn.set_schema_to_public()
+        try:
+            self.tenant.delete(force_drop=True)
+        except TypeError:
+            try:
+                self.tenant.delete()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        _conn.set_schema_to_public()
 
     # --- helpers --------------------------------------------------
 
@@ -101,6 +145,7 @@ class TimetableAPITestBase(TestCase):
 # =====================================================================
 # api_save_day_schedules
 # =====================================================================
+
 class SaveDaySchedulesTests(TimetableAPITestBase):
 
     def test_create_update_delete_in_one_call(self):
@@ -146,9 +191,10 @@ class SaveDaySchedulesTests(TimetableAPITestBase):
         """Empty schedules payload with existing rows -> HTTP 400."""
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
+            _lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_lbl, start_time="08:00", end_time="14:00",
                 periods=8,
             )
 
@@ -163,9 +209,10 @@ class SaveDaySchedulesTests(TimetableAPITestBase):
         """allow_empty=True lets the client deliberately wipe."""
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
+            _lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_lbl, start_time="08:00", end_time="14:00",
                 periods=8,
             )
 
@@ -181,9 +228,10 @@ class SaveDaySchedulesTests(TimetableAPITestBase):
         """A stale client_updated_at aborts the entire save."""
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
+            _lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_lbl, start_time="08:00", end_time="14:00",
                 periods=8,
             )
 
@@ -202,7 +250,13 @@ class SaveDaySchedulesTests(TimetableAPITestBase):
 
     def test_duplicate_label_same_day_in_one_payload_rejected(self):
         """Two rows with the same label on the same day -> HTTP 400."""
+        # api_save_day_schedules resolves every row's `label` via
+        # ScheduleLabel.objects.get(name__iexact=...) BEFORE it runs
+        # the duplicate check, so the label must exist.
         self._ensure_calendar()
+        with schema_context(self.tenant.schema_name):
+            ScheduleLabel.objects.create(name="Senior")
+
         payload = {
             "schedules": [
                 {"day": 0, "label": "Senior",
@@ -218,10 +272,18 @@ class SaveDaySchedulesTests(TimetableAPITestBase):
 # =====================================================================
 # api_add_bunch  (periods timetable generator)
 # =====================================================================
+
 class AddBunchTests(TimetableAPITestBase):
 
     def test_break_swallows_entire_day_returns_400(self):
         """A break that eats the whole class window -> HTTP 400."""
+        # api_add_bunch resolves `label` via
+        # ScheduleLabel.objects.filter(name__iexact=label_text).first()
+        # and returns 400 "Label not found" if it doesn't exist. We
+        # create it first so the request reaches the break-size check.
+        with schema_context(self.tenant.schema_name):
+            ScheduleLabel.objects.create(name="Senior")
+
         payload = {
             "title": "Bad TT",
             "label": "Senior",
@@ -241,9 +303,10 @@ class AddBunchTests(TimetableAPITestBase):
         """Day whose timing does not match the calendar -> HTTP 400."""
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
+            _lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_lbl, start_time="08:00", end_time="14:00",
                 periods=8,
             )
         payload = {
@@ -264,6 +327,7 @@ class AddBunchTests(TimetableAPITestBase):
 # =====================================================================
 # api_update_label  (rename cascade)
 # =====================================================================
+
 class UpdateLabelTests(TimetableAPITestBase):
 
     def test_rename_cascades_to_dayschedule_and_timetable(self):
@@ -272,11 +336,11 @@ class UpdateLabelTests(TimetableAPITestBase):
             label = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=label, start_time="08:00", end_time="14:00",
                 periods=8,
             )
             PeriodsTimetable.objects.create(
-                title="Senior TT", label="Senior",
+                title="Senior TT", label=label,
                 break_duration=0, days=[],
             )
             label_id = label.id
@@ -288,12 +352,24 @@ class UpdateLabelTests(TimetableAPITestBase):
         self.assertEqual(response.status_code, 200, response.content)
         body = response.json()
         self.assertTrue(body["success"])
-        self.assertEqual(body["cascaded"]["day_schedules_updated"], 1)
-        self.assertEqual(body["cascaded"]["timetables_updated"], 1)
+        # TIMETABLE_RECONCILE_SCHEMA_CONTEXT_FIX_V1:
+        # TIMETABLE_FK_REFACTOR_V1 changed the shape of the
+        # `cascaded` payload — `label` is now a ForeignKey, so
+        # renaming a ScheduleLabel.name propagates to every
+        # referencing DaySchedule / PeriodsTimetable automatically.
+        # The endpoint therefore reports the literal string
+        # `'auto (FK)'` instead of an integer count.
+        self.assertEqual(
+            body["cascaded"]["day_schedules_updated"], "auto (FK)",
+        )
+        self.assertEqual(
+            body["cascaded"]["timetables_updated"], "auto (FK)",
+        )
 
         with schema_context(self.tenant.schema_name):
-            self.assertEqual(DaySchedule.objects.get().label, "Seniors")
-            self.assertEqual(PeriodsTimetable.objects.get().label, "Seniors")
+            # label is now a FK, so compare .label.name not .label.
+            self.assertEqual(DaySchedule.objects.get().label.name, "Seniors")
+            self.assertEqual(PeriodsTimetable.objects.get().label.name, "Seniors")
             self.assertEqual(ScheduleLabel.objects.get().name, "Seniors")
 
     def test_rename_collision_blocked(self):
@@ -301,15 +377,15 @@ class UpdateLabelTests(TimetableAPITestBase):
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
             label = ScheduleLabel.objects.create(name="Senior")
-            ScheduleLabel.objects.create(name="Junior")
+            junior_lbl = ScheduleLabel.objects.create(name="Junior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=label, start_time="08:00", end_time="14:00",
                 periods=8,
             )
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=1,
-                label="Junior", start_time="08:00", end_time="14:00",
+                label=junior_lbl, start_time="08:00", end_time="14:00",
                 periods=8,
             )
             label_id = label.id
@@ -324,18 +400,20 @@ class UpdateLabelTests(TimetableAPITestBase):
 # =====================================================================
 # _reconcile_timetables
 # =====================================================================
+
 class ReconcileTests(TimetableAPITestBase):
 
     def test_orphaned_timetable_deleted_and_notification_created(self):
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
+            _lbl = ScheduleLabel.objects.create(name="Senior")
             DaySchedule.objects.create(
                 academic_calendar=cal, day_of_week=0, order=0,
-                label="Senior", start_time="08:00", end_time="14:00",
+                label=_lbl, start_time="08:00", end_time="14:00",
                 periods=8,
             )
             tt = PeriodsTimetable.objects.create(
-                title="Senior TT", label="Senior",
+                title="Senior TT", label=_lbl,
                 break_duration=0,
                 days=[{
                     "day_of_week": 0,
@@ -376,16 +454,17 @@ class ReconcileTests(TimetableAPITestBase):
 # =====================================================================
 # api_batch_update_label_times
 # =====================================================================
+
 class BatchUpdateLabelTimesTests(TimetableAPITestBase):
 
     def test_batch_update_recomputes_duration(self):
         cal = self._ensure_calendar()
         with schema_context(self.tenant.schema_name):
-            ScheduleLabel.objects.create(name="Senior")
+            _lbl = ScheduleLabel.objects.create(name="Senior")
             for day in (0, 1, 2):
                 DaySchedule.objects.create(
                     academic_calendar=cal, day_of_week=day, order=day,
-                    label="Senior", start_time="08:00", end_time="14:00",
+                    label=_lbl, start_time="08:00", end_time="14:00",
                     periods=8, duration=45,
                 )
 
@@ -431,32 +510,16 @@ class BatchUpdateLabelTimesTests(TimetableAPITestBase):
 
 
 # =====================================================================
-# ClassTimetableAssignment  (OneToOne + cascade)
-# =====================================================================
-
-
-# =====================================================================
 # ASSIGN_MULTI_TIMETABLE_V1_TESTS
 # ---------------------------------------------------------------------
-# These replace the old `TimetableAssignmentModelTests` which asserted
-# the previous OneToOne behaviour (a second assignment for the same
-# class raised IntegrityError). The rule is now:
-#
-#   * A class can hold MANY timetables.
-#   * Every assigned timetable for a class must share the SAME
-#     ScheduleLabel as the first one.
-#   * The exact same timetable cannot be assigned twice to the same
-#     class (enforced by a DB UniqueConstraint on
-#     (school_class, timetable)).
-#
-# The four classes below cover: DB-level multi-assignment rules,
-# the GET /available-timetables/ endpoint, the POST assign endpoint,
-# and a page-render sanity check.
+# A class may hold MANY timetables, all sharing the SAME ScheduleLabel.
+# The exact same timetable cannot be assigned twice to the same class
+# (enforced by a DB UniqueConstraint on (school_class, timetable)).
 # =====================================================================
 
 
 class TimetableAssignmentMultiTests(TimetableAPITestBase):
-    """DB-level rules for the new multi-assignment model."""
+    """DB-level rules for the multi-assignment model."""
 
     def _mk_class(self, name="Grade 1", section="A"):
         with schema_context(self.tenant.schema_name):
@@ -584,7 +647,7 @@ class AvailableTimetablesAPITests(TimetableAPITestBase):
         s_lbl = self._mk_label("Senior")
         j_lbl = self._mk_label("Junior")
         tt_s1 = self._mk_tt("Senior-A", s_lbl)
-        tt_s2 = self._mk_tt("Senior-B", s_lbl)
+        self._mk_tt("Senior-B", s_lbl)
         self._mk_tt("Junior-A", j_lbl)
 
         with schema_context(self.tenant.schema_name):

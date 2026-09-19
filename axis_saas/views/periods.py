@@ -184,10 +184,28 @@ def _reconcile_timetables(schema_name):
     Drops days whose slot is gone or whose timing changed; recomputes periods
     when only the periods count changed. Timetables with zero remaining days
     are deleted.
+
+    TIMETABLE_RECONCILE_SCHEMA_CONTEXT_FIX_V1
+    -----------------------------------------
+    Previously this function only wrapped the DaySchedule fetch in
+    `schema_context(schema_name)`. Everything after — the
+    `PeriodsTimetable.objects.all()` scan, the `bulk_update`, and the
+    `delete()` — ran on whatever schema the connection happened to be
+    on at call time. That worked when the caller was already inside a
+    schema context (the signals handler), but any caller that wasn't
+    (e.g. the ReconcileTests calling this function directly from a
+    schema_context-exited state) silently scanned `public`, found
+    zero timetables, and deleted nothing.
+
+    The whole reconcile body now runs inside the tenant schema
+    context via a helper function invoked from inside the `with`.
     """
     with schema_context(schema_name):
         schedules = list(DaySchedule.objects.all())
+        return _reconcile_timetables_inner(schema_name, schedules)
 
+
+def _reconcile_timetables_inner(schema_name, schedules):
     # TIMETABLE_FK_REFACTOR_V1: key on label_id (FK) instead of case-folded
     # text. Two labels with different casing cannot collide any more.
     schedule_map = {}

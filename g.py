@@ -1,37 +1,61 @@
 #!/usr/bin/env python3
 """
-axis_patcher.py — ASSIGN_MULTI_TIMETABLE_V1_FIX
-================================================
+axis_patcher.py — ATTENDANCE_TESTS_RUNNER_HELPER_V1
+====================================================
 
-Two fixes on top of the previous ASSIGN_MULTI_TIMETABLE_V1 patcher:
+Context
+-------
+The actual fix is ALREADY in place.  The current
+``axis_saas/tests/test_attendance_system.py`` contains BOTH markers:
 
-1. views/timetable_assignments.py
-   - `api_class_available_timetables` used `JsonResponse` but the
-     module never imported it. Result:
-         NameError: name 'JsonResponse' is not defined
-     We add `from django.http import JsonResponse` to the imports.
+    * ATTENDANCE_AUTO_MARK_LAZY_TEST_FIX_V1
+      (AdminDashboardViewTests.test_dashboard_auto_marked_column)
+    * ATTENDANCE_AUTO_MARK_LAZY_TEST_FIX_V2
+      (AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_count)
 
-2. tests/test_timetable_api.py
-   - The old `TimetableAssignmentModelTests` class asserts the OLD
-     OneToOne rule (a second assignment raises IntegrityError) and
-     uses `label="Senior"` (a string) instead of a ScheduleLabel FK,
-     which is now stale.
-   - We replace that class with four new test classes:
-       * TimetableAssignmentMultiTests — DB-level multi-assignment,
-         same-(class, timetable) unique constraint, cascade delete.
-       * AvailableTimetablesAPITests     — GET endpoint filter.
-       * AssignTimetablePOSTTests        — POST same-label rule,
-         duplicate guard, happy path.
-       * MultiTimetableRenderTests       — the page still renders
-         with one class holding 2 assignments.
+The failure you just saw was not a code failure — it was a typo in the
+``manage.py test`` command:
 
-Idempotent — safe to run multiple times.
+    python manage.py test ... \
+        AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_
+
+                                          ^^^^^
+                              truncated; missing "count"
+
+Django could not find a method named ``test_dashboard_shows_auto_marked_``
+and raised ``AttributeError``.  Running the FULL method name fixes it:
+
+    python manage.py test axis_saas.tests.test_attendance_system.\\
+        AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_count
+
+This patcher
+------------
+Adds a small shell helper ``scripts/run_attendance_tests.sh`` so the two
+long, easy-to-truncate test names live in one place and you never have
+to type them by hand again.
+
+It also VERIFIES (read-only) that both FIX_V1 and FIX_V2 markers are
+present in the test file — a quick sanity check after any git operation
+or file copy.
+
+Files created
+-------------
+  scripts/run_attendance_tests.sh
+
+Idempotent — safe to run multiple times.  Will NOT overwrite an
+existing ``scripts/run_attendance_tests.sh``.
 
 Usage
 -----
-    python g.py --dry-run --verbose
-    python g.py
-    python g.py --target-dir /srv/app
+    python axis_patcher.py --dry-run --verbose
+    python axis_patcher.py
+    python axis_patcher.py --target-dir /home/sami/fee_management
+
+After running
+-------------
+    bash scripts/run_attendance_tests.sh              # full suite
+    bash scripts/run_attendance_tests.sh --quick      # 2 fixed tests
+    bash scripts/run_attendance_tests.sh --auto-mark  # lazy-mark tests
 """
 
 from __future__ import annotations
@@ -73,13 +97,26 @@ def read_text(path: Path):
         return None
 
 
-def write_text(path: Path, content: str, dry_run: bool, log: Log) -> bool:
+def write_text(
+    path: Path,
+    content: str,
+    dry_run: bool,
+    log: Log,
+    overwrite: bool = False,
+) -> bool:
+    if path.exists() and not overwrite:
+        log.warn(f"refusing to overwrite existing file: {path}")
+        return False
     if dry_run:
         log.detail(f"would write: {path}")
         return True
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        try:
+            path.chmod(0o755)
+        except OSError:
+            pass
         log.detail(f"wrote: {path}")
         return True
     except OSError as exc:
@@ -87,436 +124,192 @@ def write_text(path: Path, content: str, dry_run: bool, log: Log) -> bool:
         return False
 
 
-def replace_literal(
-    path: Path,
-    old: str,
-    new: str,
-    log: Log,
-    dry_run: bool,
-    marker: str | None = None,
-    optional: bool = False,
-) -> bool:
+# =====================================================================
+# STEP 1 — sanity-check the two fix markers are present in the test file
+# =====================================================================
+
+TEST_FILE = "axis_saas/tests/test_attendance_system.py"
+
+MARKER_V1 = "ATTENDANCE_AUTO_MARK_LAZY_TEST_FIX_V1"
+MARKER_V2 = "ATTENDANCE_AUTO_MARK_LAZY_TEST_FIX_V2"
+
+
+def verify_fixes(root: Path, log: Log) -> None:
+    log.info("STEP 1 — verify both lazy-mark fix markers are present")
+    path = root / TEST_FILE
     src = read_text(path)
     if src is None:
         log.error(f"missing file: {path}")
-        return False
+        return
 
-    if marker and marker in src and old not in src:
-        log.detail(f"already patched ({marker}): {path.name}")
-        return True
-
-    if old not in src:
-        if optional:
-            log.detail(f"anchor absent in {path.name} (already clean)")
-            return True
-        log.error(f"anchor NOT found in {path.name}:\n    {old[:220]!r}")
-        return False
-
-    patched = src.replace(old, new, 1)
-    if patched == src:
-        log.detail(f"no-op for {path.name}")
-        return True
-    return write_text(path, patched, dry_run, log)
-
-
-# =====================================================================
-# FIX 1 — add missing JsonResponse import
-# =====================================================================
-
-def fix_jsonresponse_import(root: Path, log: Log, dry_run: bool) -> None:
-    log.info("FIX 1 — views/timetable_assignments.py: import JsonResponse")
-    path = root / "axis_saas" / "views" / "timetable_assignments.py"
-
-    old = (
-        "from django.shortcuts import render, redirect, get_object_or_404\n"
-        "from django.contrib import messages\n"
-        "from django.views.decorators.csrf import csrf_exempt\n"
-    )
-    new = (
-        "from django.shortcuts import render, redirect, get_object_or_404\n"
-        "from django.contrib import messages\n"
-        "from django.http import JsonResponse\n"
-        "from django.views.decorators.csrf import csrf_exempt\n"
-    )
-
-    ok = replace_literal(path, old, new, log, dry_run,
-                         marker="from django.http import JsonResponse")
-    if ok:
-        # Sanity check: confirm the import exists now.
-        src = read_text(path) or ""
-        if "from django.http import JsonResponse" in src:
-            log.detail("JsonResponse import present")
+    for name, marker in (
+        ("FIX_V1 (AdminDashboardViewTests.test_dashboard_auto_marked_column)",
+         MARKER_V1),
+        ("FIX_V2 (AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_count)",
+         MARKER_V2),
+    ):
+        if marker in src:
+            log.detail(f"OK  {name}")
         else:
-            log.error("JsonResponse import missing after patch")
+            log.warn(
+                f"{name}: marker {marker!r} is MISSING from "
+                f"{TEST_FILE}.  Re-run the corresponding patcher."
+            )
+
+    # Sanity: also confirm the exact long test method names exist so the
+    # helper script can rely on them.
+    for method_name in (
+        "def test_dashboard_auto_marked_column",
+        "def test_dashboard_shows_auto_marked_count",
+    ):
+        if method_name in src:
+            log.detail(f"OK  method present: {method_name}")
+        else:
+            log.error(f"method MISSING: {method_name}")
 
 
 # =====================================================================
-# FIX 2 — replace the stale TimetableAssignmentModelTests in
-#         test_timetable_api.py with new multi-timetable test classes
+# STEP 2 — create the runner helper shell script
 # =====================================================================
 
-NEW_TESTS = '''# =====================================================================
-# ASSIGN_MULTI_TIMETABLE_V1_TESTS
-# ---------------------------------------------------------------------
-# These replace the old `TimetableAssignmentModelTests` which asserted
-# the previous OneToOne behaviour (a second assignment for the same
-# class raised IntegrityError). The rule is now:
+RUNNER = r'''#!/usr/bin/env bash
+# ATTENDANCE_TESTS_RUNNER_HELPER_V1
+# -------------------------------------------------------------------
+# Runs the attendance test suite (or a specific sub-set of it) with
+# the correct, FULL dotted paths.
 #
-#   * A class can hold MANY timetables.
-#   * Every assigned timetable for a class must share the SAME
-#     ScheduleLabel as the first one.
-#   * The exact same timetable cannot be assigned twice to the same
-#     class (enforced by a DB UniqueConstraint on
-#     (school_class, timetable)).
+# Why this exists:
+#   `python manage.py test axis_saas.tests.test_attendance_system.`
+#   `AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_count`
+#   is very easy to truncate by accident.  A truncated name causes:
 #
-# The four classes below cover: DB-level multi-assignment rules,
-# the GET /available-timetables/ endpoint, the POST assign endpoint,
-# and a page-render sanity check.
-# =====================================================================
+#       AttributeError: type object 'AutoMarkedHandlingTests' has no
+#       attribute 'test_dashboard_shows_auto_marked_'.
+#
+#   Pasting that name from this file (or from the helper usage below)
+#   avoids the typo entirely.
+#
+# Usage:
+#   bash scripts/run_attendance_tests.sh              # full suite
+#   bash scripts/run_attendance_tests.sh --quick      # the 2 fixed tests
+#   bash scripts/run_attendance_tests.sh --auto-mark  # lazy-mark tests
+#   bash scripts/run_attendance_tests.sh --dashboard  # dashboard tests
+# -------------------------------------------------------------------
 
+set -u
 
-class TimetableAssignmentMultiTests(TimetableAPITestBase):
-    """DB-level rules for the new multi-assignment model."""
+# Resolve this script's directory (works through symlinks).
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" >/dev/null 2>&1 && pwd)"
+    SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+    [[ "$SCRIPT_SOURCE" != /* ]] && SCRIPT_SOURCE="$DIR/$SCRIPT_SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" >/dev/null 2>&1 && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
 
-    def _mk_class(self, name="Grade 1", section="A"):
-        with schema_context(self.tenant.schema_name):
-            return SchoolClass.objects.create(name=name, section=section)
+# Locate a usable python interpreter (prefer the project venv).
+PYTHON_BIN=""
+for candidate in \
+        "$PROJECT_ROOT/venv/bin/python" \
+        "$PROJECT_ROOT/.venv/bin/python" \
+        "$PROJECT_ROOT/env/bin/python" \
+        "$(command -v python3 2>/dev/null)" \
+        "$(command -v python 2>/dev/null)"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+    echo "[runner] FATAL: no python interpreter found" >&2
+    exit 127
+fi
 
-    def _mk_label(self, name):
-        with schema_context(self.tenant.schema_name):
-            return ScheduleLabel.objects.get_or_create(name=name)[0]
+cd "$PROJECT_ROOT" || {
+    echo "[runner] FATAL: cannot cd to $PROJECT_ROOT" >&2
+    exit 1
+}
 
-    def _mk_tt(self, title, label):
-        with schema_context(self.tenant.schema_name):
-            return PeriodsTimetable.objects.create(
-                title=title, label=label, break_duration=0, days=[],
-            )
+MODE="${1:-all}"
 
-    def test_one_to_one_constraint_is_gone(self):
-        """A class can hold MULTIPLE distinct timetables now."""
-        cls = self._mk_class()
-        lbl = self._mk_label("Senior")
-        tt_a = self._mk_tt("TT-A", lbl)
-        tt_b = self._mk_tt("TT-B", lbl)
-
-        with schema_context(self.tenant.schema_name):
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_a,
-            )
-            # No IntegrityError — the OneToOneField is now a ForeignKey.
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_b,
-            )
-            self.assertEqual(
-                ClassTimetableAssignment.objects.filter(
-                    school_class=cls,
-                ).count(),
-                2,
-            )
-
-    def test_same_timetable_twice_rejected(self):
-        """Same (class, timetable) pair is refused by the DB."""
-        cls = self._mk_class()
-        lbl = self._mk_label("Senior")
-        tt_a = self._mk_tt("TT-A", lbl)
-
-        with schema_context(self.tenant.schema_name):
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_a,
-            )
-            with self.assertRaises(IntegrityError):
-                with transaction.atomic():
-                    ClassTimetableAssignment.objects.create(
-                        school_class=cls, timetable=tt_a,
-                    )
-
-    def test_timetable_delete_cascades_to_all_assignments(self):
-        """Deleting a timetable removes every assignment that pointed
-        at it, even when the same class held several assignments."""
-        cls = self._mk_class()
-        lbl = self._mk_label("Senior")
-        tt_a = self._mk_tt("TT-A", lbl)
-        tt_b = self._mk_tt("TT-B", lbl)
-
-        with schema_context(self.tenant.schema_name):
-            a1 = ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_a,
-            )
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_b,
-            )
-            a1_id = a1.id
-            tt_a.delete()
-            self.assertFalse(
-                ClassTimetableAssignment.objects.filter(id=a1_id).exists()
-            )
-            # The other assignment survives.
-            self.assertTrue(
-                ClassTimetableAssignment.objects.filter(
-                    school_class=cls, timetable=tt_b,
-                ).exists()
-            )
-
-
-class AvailableTimetablesAPITests(TimetableAPITestBase):
-    """GET /api/timetable/class/<id>/available-timetables/."""
-
-    def _mk_class(self, name="Grade 1", section="A"):
-        with schema_context(self.tenant.schema_name):
-            return SchoolClass.objects.create(name=name, section=section)
-
-    def _mk_label(self, name):
-        with schema_context(self.tenant.schema_name):
-            return ScheduleLabel.objects.get_or_create(name=name)[0]
-
-    def _mk_tt(self, title, label):
-        with schema_context(self.tenant.schema_name):
-            return PeriodsTimetable.objects.create(
-                title=title, label=label, break_duration=0, days=[],
-            )
-
-    def _url(self, class_id):
-        return self.url(
-            f"api/timetable/class/{class_id}/available-timetables/"
-        )
-
-    def test_all_timetables_returned_when_no_assignment(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        j_lbl = self._mk_label("Junior")
-        self._mk_tt("Senior-A", s_lbl)
-        self._mk_tt("Junior-A", j_lbl)
-
-        response = self.client.get(
-            self._url(cls.id),
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        body = response.json()
-        self.assertTrue(body["ok"])
-        self.assertFalse(body["has_assignments"])
-        self.assertEqual(body["assigned_count"], 0)
-        titles = sorted(tt["title"] for tt in body["timetables"])
-        self.assertEqual(titles, ["Junior-A", "Senior-A"])
-
-    def test_only_same_label_returned_after_first_assignment(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        j_lbl = self._mk_label("Junior")
-        tt_s1 = self._mk_tt("Senior-A", s_lbl)
-        tt_s2 = self._mk_tt("Senior-B", s_lbl)
-        self._mk_tt("Junior-A", j_lbl)
-
-        with schema_context(self.tenant.schema_name):
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_s1,
-            )
-
-        response = self.client.get(
-            self._url(cls.id),
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        body = response.json()
-        self.assertTrue(body["has_assignments"])
-        self.assertEqual(body["assigned_count"], 1)
-        self.assertEqual(body["label_name"], "Senior")
-        titles = sorted(tt["title"] for tt in body["timetables"])
-        # Senior-A already assigned -> excluded.
-        # Junior-A different label -> excluded.
-        self.assertEqual(titles, ["Senior-B"])
-
-    def test_already_assigned_timetable_excluded(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        tt_s1 = self._mk_tt("Senior-A", s_lbl)
-
-        with schema_context(self.tenant.schema_name):
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_s1,
-            )
-
-        response = self.client.get(
-            self._url(cls.id),
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        body = response.json()
-        self.assertEqual(body["timetables"], [])
-
-    def test_unknown_class_404(self):
-        response = self.client.get(
-            self._url(99999),
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(response.status_code, 404)
-
-
-class AssignTimetablePOSTTests(TimetableAPITestBase):
-    """POST /timetable/assign/submit/ — same-label rule enforcement."""
-
-    def _mk_class(self, name="Grade 1", section="A"):
-        with schema_context(self.tenant.schema_name):
-            return SchoolClass.objects.create(name=name, section=section)
-
-    def _mk_label(self, name):
-        with schema_context(self.tenant.schema_name):
-            return ScheduleLabel.objects.get_or_create(name=name)[0]
-
-    def _mk_tt(self, title, label):
-        with schema_context(self.tenant.schema_name):
-            return PeriodsTimetable.objects.create(
-                title=title, label=label, break_duration=0, days=[],
-            )
-
-    def _post(self, class_id, timetable_id):
-        return self.client.post(
-            self.url("timetable/assign/submit/"),
-            data={
-                "class_id": class_id,
-                "timetable_id": timetable_id,
-            },
-        )
-
-    def _count(self, cls):
-        with schema_context(self.tenant.schema_name):
-            return ClassTimetableAssignment.objects.filter(
-                school_class_id=cls.id,
-            ).count()
-
-    def test_first_assignment_succeeds(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        tt = self._mk_tt("Senior-A", s_lbl)
-
-        response = self._post(cls.id, tt.id)
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(self._count(cls), 1)
-
-    def test_second_same_label_assignment_allowed(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        tt_a = self._mk_tt("Senior-A", s_lbl)
-        tt_b = self._mk_tt("Senior-B", s_lbl)
-
-        self._post(cls.id, tt_a.id)
-        self._post(cls.id, tt_b.id)
-        self.assertEqual(self._count(cls), 2)
-
-    def test_third_same_label_assignment_allowed(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        titles = ["Senior-A", "Senior-B", "Senior-C"]
-        tts = [self._mk_tt(t, s_lbl) for t in titles]
-        for tt in tts:
-            self._post(cls.id, tt.id)
-        self.assertEqual(self._count(cls), 3)
-
-    def test_different_label_assignment_refused(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        j_lbl = self._mk_label("Junior")
-        tt_s = self._mk_tt("Senior-A", s_lbl)
-        tt_j = self._mk_tt("Junior-A", j_lbl)
-
-        self._post(cls.id, tt_s.id)
-        self._post(cls.id, tt_j.id)
-        # Junior is refused -> only the Senior assignment exists.
-        self.assertEqual(self._count(cls), 1)
-        with schema_context(self.tenant.schema_name):
-            first = ClassTimetableAssignment.objects.get(
-                school_class=cls,
-            )
-            self.assertEqual(first.timetable.label.name, "Senior")
-
-    def test_duplicate_assignment_refused(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        tt = self._mk_tt("Senior-A", s_lbl)
-
-        self._post(cls.id, tt.id)
-        self._post(cls.id, tt.id)  # exact same timetable again
-        self.assertEqual(self._count(cls), 1)
-
-    def test_missing_class_or_timetable_is_redirected(self):
-        # A POST with no class_id / timetable_id must not 500 — it
-        # redirects back to the page with an error message.
-        response = self.client.post(
-            self.url("timetable/assign/submit/"),
-            data={},
-        )
-        self.assertEqual(response.status_code, 302)
-
-
-class MultiTimetableRenderTests(TimetableAPITestBase):
-    """The assignment page must render cleanly with multiple
-    timetables attached to one class."""
-
-    def _mk_class(self, name="Grade 1", section="A"):
-        with schema_context(self.tenant.schema_name):
-            return SchoolClass.objects.create(name=name, section=section)
-
-    def _mk_label(self, name):
-        with schema_context(self.tenant.schema_name):
-            return ScheduleLabel.objects.get_or_create(name=name)[0]
-
-    def _mk_tt(self, title, label):
-        with schema_context(self.tenant.schema_name):
-            return PeriodsTimetable.objects.create(
-                title=title, label=label, break_duration=0, days=[],
-            )
-
-    def test_page_renders_with_multiple_assignments(self):
-        cls = self._mk_class()
-        s_lbl = self._mk_label("Senior")
-        tt_a = self._mk_tt("Senior-A", s_lbl)
-        tt_b = self._mk_tt("Senior-B", s_lbl)
-        with schema_context(self.tenant.schema_name):
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_a,
-            )
-            ClassTimetableAssignment.objects.create(
-                school_class=cls, timetable=tt_b,
-            )
-
-        response = self.client.get(self.url("timetable/assign/"))
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(len(response.context["assignments"]), 2)
-        titles = sorted(
-            a.timetable.title for a in response.context["assignments"]
-        )
-        self.assertEqual(titles, ["Senior-A", "Senior-B"])
-
-    def test_page_renders_with_no_assignments(self):
-        response = self.client.get(self.url("timetable/assign/"))
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(list(response.context["assignments"]), [])
+case "$MODE" in
+    --quick)
+        echo "[runner] Running the 2 fixed dashboard tests (V1 + V2)..."
+        "$PYTHON_BIN" manage.py test \
+            axis_saas.tests.test_attendance_system.AdminDashboardViewTests.test_dashboard_auto_marked_column \
+            axis_saas.tests.test_attendance_system.AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_count \
+            -v 2
+        ;;
+    --auto-mark)
+        echo "[runner] Running LazyAutoMark* test classes..."
+        "$PYTHON_BIN" manage.py test \
+            axis_saas.tests.test_attendance_system.LazyAutoMarkUnitTests \
+            axis_saas.tests.test_attendance_system.LazyAutoMarkLockTests \
+            axis_saas.tests.test_attendance_system.LazyAutoMarkViewIntegrationTests \
+            -v 2
+        ;;
+    --dashboard)
+        echo "[runner] Running AdminDashboardViewTests..."
+        "$PYTHON_BIN" manage.py test \
+            axis_saas.tests.test_attendance_system.AdminDashboardViewTests \
+            -v 2
+        ;;
+    all|--all)
+        echo "[runner] Running the full attendance suite..."
+        "$PYTHON_BIN" manage.py test \
+            axis_saas.tests.test_attendance_system \
+            -v 2
+        ;;
+    -h|--help)
+        sed -n '2,25p' "$0"
+        exit 0
+        ;;
+    *)
+        echo "[runner] Unknown mode: $MODE" >&2
+        echo "[runner] Try: --quick | --auto-mark | --dashboard | all" >&2
+        exit 2
+        ;;
+esac
 '''
 
 
-def patch_tests(root: Path, log: Log, dry_run: bool) -> None:
-    log.info("FIX 2 — tests/test_timetable_api.py: replace stale tests")
-    path = root / "axis_saas" / "tests" / "test_timetable_api.py"
+def create_runner(root: Path, log: Log, dry_run: bool) -> None:
+    log.info("STEP 2 — create scripts/run_attendance_tests.sh")
+    path = root / "scripts" / "run_attendance_tests.sh"
+    write_text(path, RUNNER, dry_run, log, overwrite=False)
 
-    src = read_text(path)
-    if src is None:
-        log.error(f"missing file: {path}")
+
+# =====================================================================
+# Verify
+# =====================================================================
+
+def verify(root: Path, log: Log) -> None:
+    log.info("VERIFY")
+    path = root / "scripts" / "run_attendance_tests.sh"
+    if not path.exists():
+        log.error(f"verify: missing {path}")
         return
+    head = read_text(path) or ""
+    if not head.startswith("#!/usr/bin/env bash"):
+        log.warn(f"{path.name}: unexpected shebang")
+    else:
+        log.detail(f"OK  {path.relative_to(root)}")
 
-    if "ASSIGN_MULTI_TIMETABLE_V1_TESTS" in src:
-        log.detail("tests already patched")
-        return
-
-    marker = "class TimetableAssignmentModelTests(TimetableAPITestBase):"
-    idx = src.find(marker)
-    if idx == -1:
-        log.error(
-            f"anchor class not found in {path.name}: {marker!r}"
-        )
-        return
-
-    head = src[:idx].rstrip() + "\n\n\n"
-    patched = head + NEW_TESTS
-    write_text(path, patched, dry_run, log)
-    log.detail("replaced TimetableAssignmentModelTests with 4 new test classes")
+    # The runner must contain the FULL, un-truncated method names.
+    required = [
+        "test_dashboard_auto_marked_column",
+        "test_dashboard_shows_auto_marked_count",
+        "LazyAutoMarkUnitTests",
+        "LazyAutoMarkLockTests",
+        "LazyAutoMarkViewIntegrationTests",
+    ]
+    missing = [n for n in required if n not in head]
+    if missing:
+        for n in missing:
+            log.error(f"verify: runner is missing {n!r}")
+    else:
+        log.detail(f"OK  runner contains all {len(required)} expected names")
 
 
 # =====================================================================
@@ -526,9 +319,10 @@ def patch_tests(root: Path, log: Log, dry_run: bool) -> None:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "ASSIGN_MULTI_TIMETABLE_V1_FIX — add missing JsonResponse "
-            "import + replace stale OneToOne tests with multi-timetable "
-            "tests."
+            "ATTENDANCE_TESTS_RUNNER_HELPER_V1 — sanity-check the two "
+            "lazy-mark fix markers and install a small runner script "
+            "with the correct, FULL test names so you never truncate "
+            "them again."
         ),
     )
     parser.add_argument("--dry-run", action="store_true",
@@ -545,29 +339,56 @@ def main(argv=None) -> int:
     log.info(f"target root : {root}")
     if args.dry_run:
         log.info("mode        : DRY RUN (no files will be written)")
-    log.info("patcher     : ASSIGN_MULTI_TIMETABLE_V1_FIX")
+    log.info("patcher     : ATTENDANCE_TESTS_RUNNER_HELPER_V1")
     log.info("")
 
     if not root.exists() or not root.is_dir():
         log.error(f"invalid target directory: {root}")
         return 1
 
+    if not (root / "manage.py").exists():
+        log.warn(
+            f"manage.py not found in {root} — is this the project root?"
+        )
+
     steps = [
-        ("fix_jsonresponse_import", fix_jsonresponse_import),
-        ("patch_tests",             patch_tests),
+        ("verify_fixes", verify_fixes),
+        ("create_runner", create_runner),
     ]
 
     for name, fn in steps:
         try:
-            fn(root, log, args.dry_run)
+            fn(root, log, args.dry_run) if name == "create_runner" else fn(root, log)
         except Exception as exc:  # noqa: BLE001
             log.error(f"{name} raised: {exc!r}")
         log.info("")
 
+    try:
+        verify(root, log)
+    except Exception as exc:  # noqa: BLE001
+        log.error(f"verify raised: {exc!r}")
+
+    log.info("")
     if args.dry_run:
         log.info("dry run complete — no changes were written")
     elif log.errors == 0:
         log.info("done.")
+        log.info("")
+        log.info("Your previous failure was a TYPO in the test name —")
+        log.info("you ran `test_dashboard_shows_auto_marked_` but the")
+        log.info("real method is `test_dashboard_shows_auto_marked_count`.")
+        log.info("")
+        log.info("Use the runner from now on:")
+        log.info(f"    cd {root}")
+        log.info("    bash scripts/run_attendance_tests.sh --quick")
+        log.info("")
+        log.info("Or if you prefer to type it manually, the FULL command is:")
+        log.info(
+            "    python manage.py test "
+            "axis_saas.tests.test_attendance_system."
+            "AutoMarkedHandlingTests.test_dashboard_shows_auto_marked_count "
+            "-v 2"
+        )
     else:
         log.info(f"done with {log.errors} error(s) — see above.")
     return 0 if log.errors == 0 else 1

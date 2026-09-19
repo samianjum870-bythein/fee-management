@@ -800,10 +800,20 @@ class AdminDashboardViewTests(AttendanceTestBase):
         )
 
     def test_dashboard_auto_marked_column(self):
+        # ATTENDANCE_AUTO_MARK_LAZY_TEST_FIX_V1:
+        # The dashboard now triggers the lazy auto-mark on GET
+        # (ATTENDANCE_AUTO_MARK_LAZY_V1). Without disabling it,
+        # the last 7 days get backfilled with source='auto_system'
+        # and the assertion below would see 1 + 7 = 8, not 1.
+        from unittest import mock
         today = timezone.localdate()
         with schema_context(self.schema):
             self._mark_full_day(today, source="auto_system")
-        response = self.client.get(self.url("attendance/"))
+        with mock.patch(
+            "axis_saas.utils.attendance_auto_mark.trigger_lazy_auto_mark",
+            return_value=0,
+        ):
+            response = self.client.get(self.url("attendance/"))
         rows = json.loads(response.context["class_rows_json"])
         self.assertEqual(rows[0]["auto_marked_days"], 1)
         self.assertEqual(rows[0]["manual_marked_days"], 0)
@@ -2450,10 +2460,20 @@ class AutoMarkedHandlingTests(AttendanceTestBase):
     """Auto-marked rows in every surface."""
 
     def test_dashboard_shows_auto_marked_count(self):
+        # ATTENDANCE_AUTO_MARK_LAZY_TEST_FIX_V2:
+        # The dashboard now triggers the lazy auto-mark on GET
+        # (ATTENDANCE_AUTO_MARK_LAZY_V1). Without disabling it,
+        # the last 7 days get backfilled with source='auto_system'
+        # and the assertion below would see 1 + 7 = 8, not 1.
+        from unittest import mock
         today = timezone.localdate()
         with schema_context(self.schema):
             self._mark_full_day(today, source="auto_system")
-        response = self.client.get(self.url("attendance/"))
+        with mock.patch(
+            "axis_saas.utils.attendance_auto_mark.trigger_lazy_auto_mark",
+            return_value=0,
+        ):
+            response = self.client.get(self.url("attendance/"))
         rows = json.loads(response.context["class_rows_json"])
         self.assertEqual(rows[0]["auto_marked_days"], 1)
 
@@ -3255,3 +3275,342 @@ class AdminDailyLogsAnyDateTests(AttendanceTestBase):
             body["student_names"][str(self.students[0].id)],
             self.students[0].name,
         )
+
+
+
+# =====================================================================
+# ATTENDANCE_AUTO_MARK_LAZY_V1 — lazy catch-up on page load
+# ---------------------------------------------------------------------
+# The management command `attendance_auto_present` only fires when a
+# cron entry is configured. The lazy catch-up in
+# `axis_saas.utils.attendance_auto_mark` fires whenever the admin
+# dashboard or the staff attendance page is loaded, and is rate
+# limited to once per hour per tenant via Redis `cache.add`.
+#
+# These tests cover:
+#   * the pure `auto_mark_missed_dates` helper
+#   * the `trigger_lazy_auto_mark` lock
+#   * the two view integrations (admin + staff)
+# =====================================================================
+
+
+def _clear_all_holidays(schema_name):
+    """Delete every weekly / annual / vacation rule for the schema.
+
+    Used by the lazy-mark tests so the auto-mark window is fully
+    deterministic. Without this, a rule left behind by another test
+    on the same day_of_week / month-day would silently shrink the
+    window we are asserting on.
+    """
+    with schema_context(schema_name):
+        WeeklyHoliday.objects.all().delete()
+        AnnualHoliday.objects.all().delete()
+        Vacation.objects.all().delete()
+
+
+class LazyAutoMarkUnitTests(AttendanceTestBase):
+    """Direct tests of `auto_mark_missed_dates`."""
+
+    def test_creates_present_rows_for_missed_past_days(self):
+        """A past working day with zero marks gets filled 'present'."""
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        _clear_all_holidays(self.schema)
+
+        created = auto_mark_missed_dates(self.schema, days_back=3)
+
+        # 5 students × 3 past days (today is excluded by the helper).
+        self.assertEqual(created, 15)
+
+        with schema_context(self.schema):
+            rows = StudentAttendance.objects.filter(
+                school_class=self.class_obj,
+                period_order__isnull=True,
+                source='auto_system',
+            )
+            self.assertEqual(rows.count(), 15)
+            self.assertTrue(all(r.status == 'present' for r in rows))
+
+    def test_never_touches_today(self):
+        """Today must NEVER be auto-marked — humans still own it."""
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        _clear_all_holidays(self.schema)
+
+        auto_mark_missed_dates(self.schema, days_back=3)
+
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            today_rows = StudentAttendance.objects.filter(date=today)
+        self.assertEqual(today_rows.count(), 0)
+
+    def test_skips_weekly_holiday(self):
+        """Every day of the week marked off → 0 rows created."""
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        with schema_context(self.schema):
+            WeeklyHoliday.objects.all().delete()
+            AnnualHoliday.objects.all().delete()
+            Vacation.objects.all().delete()
+            for dow in range(7):
+                WeeklyHoliday.objects.create(
+                    day_of_week=dow, label=f'Off-{dow}',
+                )
+
+        created = auto_mark_missed_dates(self.schema, days_back=7)
+        self.assertEqual(created, 0)
+
+    def test_skips_vacation(self):
+        """Every day inside a vacation range is skipped."""
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            WeeklyHoliday.objects.all().delete()
+            AnnualHoliday.objects.all().delete()
+            Vacation.objects.all().delete()
+            Vacation.objects.create(
+                name='Test vacation',
+                start_date=today - timedelta(days=10),
+                end_date=today - timedelta(days=1),
+            )
+
+        created = auto_mark_missed_dates(self.schema, days_back=7)
+        self.assertEqual(created, 0)
+
+    def test_does_not_touch_existing_rows(self):
+        """A teacher's or admin's existing mark must not be overwritten."""
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+        _clear_all_holidays(self.schema)
+
+        with schema_context(self.schema):
+            self._mark_full_day(
+                yesterday,
+                statuses=['absent'] * len(self.students),
+                source='teacher',
+            )
+
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        auto_mark_missed_dates(self.schema, days_back=1)
+
+        with schema_context(self.schema):
+            rows = StudentAttendance.objects.filter(date=yesterday)
+            self.assertEqual(rows.count(), len(self.students))
+            self.assertTrue(all(r.status == 'absent' for r in rows))
+            self.assertTrue(all(r.source == 'teacher' for r in rows))
+
+    def test_idempotent(self):
+        """Running the catch-up twice must not create duplicates."""
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        _clear_all_holidays(self.schema)
+
+        first = auto_mark_missed_dates(self.schema, days_back=2)
+        second = auto_mark_missed_dates(self.schema, days_back=2)
+
+        self.assertGreater(first, 0)
+        self.assertEqual(second, 0)
+
+    def test_respects_days_back_window(self):
+        """`days_back=1` fills only yesterday; `days_back=4` fills 4 days."""
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        _clear_all_holidays(self.schema)
+
+        created = auto_mark_missed_dates(self.schema, days_back=4)
+        # 5 students × 4 past days.
+        self.assertEqual(created, 20)
+
+        with schema_context(self.schema):
+            dates = set(
+                StudentAttendance.objects
+                .filter(school_class=self.class_obj,
+                        period_order__isnull=True,
+                        source='auto_system')
+                .values_list('date', flat=True)
+            )
+        self.assertEqual(len(dates), 4)
+
+    def test_approved_leave_marks_excused(self):
+        """A student on approved leave gets 'excused', not 'present'.
+
+        We deliberately flip the leave to 'approved' with a
+        ``QuerySet.update()`` call so the post_save signal in
+        ``signals.py`` does NOT pre-create an 'excused' row. That
+        forces the LAZY mark itself to be the code that decides
+        between 'present' and 'excused'.
+        """
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        _clear_all_holidays(self.schema)
+
+        target = timezone.localdate() - timedelta(days=2)
+        with schema_context(self.schema):
+            leave = StudentLeave.objects.create(
+                student=self.students[0],
+                leave_type='sick', title='Sick', reason='Sick',
+                start_date=target, end_date=target,
+                total_days=1, status='pending',
+            )
+            # Bypass the post_save signal so no row is pre-created.
+            StudentLeave.objects.filter(pk=leave.pk).update(
+                status='approved',
+            )
+            self.assertFalse(
+                StudentAttendance.objects.filter(
+                    student=self.students[0],
+                    date=target,
+                    period_order__isnull=True,
+                ).exists()
+            )
+
+        auto_mark_missed_dates(self.schema, days_back=3)
+
+        with schema_context(self.schema):
+            row = StudentAttendance.objects.get(
+                student=self.students[0],
+                date=target,
+                period_order__isnull=True,
+            )
+        self.assertEqual(row.status, 'excused')
+        self.assertEqual(row.source, 'auto_leave')
+
+    def test_no_active_classes_returns_zero(self):
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        _clear_all_holidays(self.schema)
+        with schema_context(self.schema):
+            SchoolClass.objects.all().update(is_active=False)
+
+        self.assertEqual(
+            auto_mark_missed_dates(self.schema, days_back=3), 0,
+        )
+
+    def test_public_schema_is_noop(self):
+        from axis_saas.utils.attendance_auto_mark import (
+            auto_mark_missed_dates,
+        )
+        self.assertEqual(auto_mark_missed_dates('public'), 0)
+        self.assertEqual(auto_mark_missed_dates(None), 0)
+
+
+class LazyAutoMarkLockTests(AttendanceTestBase):
+    """`trigger_lazy_auto_mark` — Redis `cache.add` rate limiting."""
+
+    def test_runs_once_per_hour(self):
+        from axis_saas.utils.attendance_auto_mark import (
+            trigger_lazy_auto_mark,
+        )
+        _clear_all_holidays(self.schema)
+
+        first = trigger_lazy_auto_mark(self.schema, days_back=2)
+        second = trigger_lazy_auto_mark(self.schema, days_back=2)
+
+        self.assertGreater(first, 0)
+        self.assertEqual(second, 0)
+
+    def test_public_schema_is_noop(self):
+        from axis_saas.utils.attendance_auto_mark import (
+            trigger_lazy_auto_mark,
+        )
+        self.assertEqual(trigger_lazy_auto_mark('public'), 0)
+        self.assertEqual(trigger_lazy_auto_mark(None), 0)
+
+    def test_lock_released_on_failure(self):
+        """A crash inside the catch-up must release the lock so the
+        next call can retry (instead of waiting the full hour)."""
+        from axis_saas.utils import attendance_auto_mark as lam
+        from unittest import mock
+
+        _clear_all_holidays(self.schema)
+        cache.delete(f'attendance_auto_mark:last_run:{self.schema}')
+
+        with mock.patch.object(
+            lam, 'auto_mark_missed_dates',
+            side_effect=RuntimeError('boom'),
+        ):
+            result = lam.trigger_lazy_auto_mark(self.schema, days_back=2)
+        self.assertEqual(result, 0)
+
+        # The lock must be gone — a second call should run (and hit
+        # the still-patched side_effect again, returning 0 again) but
+        # the KEY must not be held.
+        held = cache.get(f'attendance_auto_mark:last_run:{self.schema}')
+        self.assertIsNone(held)
+
+
+class LazyAutoMarkViewIntegrationTests(AttendanceTestBase):
+    """The admin / staff attendance pages trigger the catch-up."""
+
+    def _reset_auto_mark_lock(self):
+        """Clear the Redis rate-limit key so the next view call runs."""
+        cache.delete(f'attendance_auto_mark:last_run:{self.schema}')
+
+    def test_admin_view_triggers_lazy_catchup(self):
+        _clear_all_holidays(self.schema)
+        self._reset_auto_mark_lock()
+
+        response = self.client.get(self.url('attendance/'))
+        self.assertEqual(response.status_code, 200)
+
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            past = StudentAttendance.objects.filter(
+                date__lt=today,
+                period_order__isnull=True,
+                source='auto_system',
+            ).count()
+        # 5 students × 7 days = 35 rows (no holidays configured).
+        self.assertGreater(past, 0)
+
+    def test_staff_view_triggers_lazy_catchup(self):
+        _clear_all_holidays(self.schema)
+        self._reset_auto_mark_lock()
+
+        request = self._staff_request(self.class_teacher)
+        response = staff_att.staff_attendance_view(request)
+        self.assertEqual(response.status_code, 200)
+
+        today = timezone.localdate()
+        with schema_context(self.schema):
+            past = StudentAttendance.objects.filter(
+                date__lt=today,
+                period_order__isnull=True,
+                source='auto_system',
+            ).count()
+        self.assertGreater(past, 0)
+
+    def test_admin_view_survives_auto_mark_failure(self):
+        """A crash inside the catch-up must not break the dashboard."""
+        from unittest import mock
+        self._reset_auto_mark_lock()
+
+        with mock.patch(
+            'axis_saas.utils.attendance_auto_mark.auto_mark_missed_dates',
+            side_effect=RuntimeError('boom'),
+        ):
+            response = self.client.get(self.url('attendance/'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_staff_view_survives_auto_mark_failure(self):
+        from unittest import mock
+        self._reset_auto_mark_lock()
+
+        with mock.patch(
+            'axis_saas.utils.attendance_auto_mark.auto_mark_missed_dates',
+            side_effect=RuntimeError('boom'),
+        ):
+            request = self._staff_request(self.class_teacher)
+            response = staff_att.staff_attendance_view(request)
+        self.assertEqual(response.status_code, 200)

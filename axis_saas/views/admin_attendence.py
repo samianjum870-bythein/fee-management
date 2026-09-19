@@ -174,6 +174,23 @@ def admin_attendance_view(request, schema_name):
     tenant = get_tenant(request, schema_name)
     today = _today()
 
+    # ATTENDANCE_AUTO_MARK_LAZY_V1
+    # ------------------------------------------------------
+    # Catch up on any past non-holiday dates where nobody
+    # (neither admin nor class teacher) marked attendance.
+    # Rate-limited to once per hour per tenant via Redis.
+    # Failure here must never break the dashboard render.
+    try:
+        from axis_saas.utils.attendance_auto_mark import (
+            trigger_lazy_auto_mark,
+        )
+        trigger_lazy_auto_mark(schema_name)
+    except Exception:
+        logger.exception(
+            'ATTENDANCE_AUTO_MARK_LAZY_V1: admin trigger failed '
+            'for schema=%s', schema_name,
+        )
+
     with schema_context(schema_name):
         # ---------- holiday context ----------
         try:

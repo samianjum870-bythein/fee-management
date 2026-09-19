@@ -295,6 +295,23 @@ def _compute_permission_payload(staff, school_class, on_date):
 @require_staff_feature('staff_attendance')
 def staff_attendance_view(request):
     schema_name = request.session['staff_schema_name']
+
+    # ATTENDANCE_AUTO_MARK_LAZY_V1
+    # ------------------------------------------------------
+    # Same lazy catch-up as the admin dashboard. Runs first so
+    # the numbers the teacher sees already reflect any missed
+    # days. Rate-limited to once per hour per tenant.
+    try:
+        from axis_saas.utils.attendance_auto_mark import (
+            trigger_lazy_auto_mark,
+        )
+        trigger_lazy_auto_mark(schema_name)
+    except Exception:
+        logger.exception(
+            'ATTENDANCE_AUTO_MARK_LAZY_V1: staff trigger failed '
+            'for schema=%s', schema_name,
+        )
+
     with schema_context(schema_name):
         staff = get_object_or_404(Staff, pk=request.session['staff_id'])
         today = _today()
