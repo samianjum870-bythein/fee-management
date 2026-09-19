@@ -8,7 +8,7 @@ import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.contrib import messages
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Count
 from django.core.paginator import Paginator
 from django.db import connection
 from django_tenants.utils import schema_context
@@ -58,6 +58,13 @@ def mobile_staff_list(request, schema_name):
     return render(request, 'mobile/staff_list.html', context)
 
 def get_staff_list_context(request, schema_name):
+    from datetime import date as _date
+    from django.utils import timezone as _tz
+    from ..models import (
+        ClassSubject, SchoolClass as _SchoolClass,
+        LeaveRequest as _LR, LeaveSuspension as _LS,
+    )
+
     class_id = request.GET.get('class_id')
     section = request.GET.get('section')
 
@@ -70,9 +77,14 @@ def get_staff_list_context(request, schema_name):
     with schema_context(schema_name):
         staff_qs = Staff.objects.all()
         if class_id:
-            staff_qs = staff_qs.filter(Q(class_teacher_of__id=class_id) | Q(class_subjects__school_class_id=class_id)).distinct()
+            staff_qs = staff_qs.filter(
+                Q(class_teacher_of__id=class_id) |
+                Q(class_subjects__school_class_id=class_id)
+            ).distinct()
         if section:
-            class_ids_with_section = SchoolClass.objects.filter(section=section).values_list('id', flat=True)
+            class_ids_with_section = SchoolClass.objects.filter(
+                section=section,
+            ).values_list('id', flat=True)
             staff_qs = staff_qs.filter(
                 Q(class_teacher_of__id__in=class_ids_with_section) |
                 Q(class_subjects__school_class_id__in=class_ids_with_section)
@@ -91,16 +103,107 @@ def get_staff_list_context(request, schema_name):
         if status:
             staff_qs = staff_qs.filter(status=status)
 
-        staff_qs = staff_qs.order_by('-created_on')
+        staff_qs = staff_qs.prefetch_related(
+            'class_teacher_of',
+            'class_subjects__subject',
+            'class_subjects__school_class',
+        ).annotate(
+            subject_count=Count(
+                'class_subjects',
+                filter=Q(class_subjects__is_active=True),
+                distinct=True,
+            ),
+            class_teacher_count=Count(
+                'class_teacher_of',
+                filter=Q(class_teacher_of__is_active=True),
+                distinct=True,
+            ),
+        ).order_by('-created_on')
 
-        classes = SchoolClass.objects.filter(is_active=True).order_by('name', 'section')
-        sections = classes.values_list('section', flat=True).distinct().order_by('section')
-        paginator = Paginator(staff_qs, 20)
+        classes = SchoolClass.objects.filter(
+            is_active=True,
+        ).order_by('name', 'section')
+        sections = classes.values_list(
+            'section', flat=True,
+        ).distinct().order_by('section')
+
+        paginator = Paginator(staff_qs, 50)
         page_obj = paginator.get_page(page_number)
 
-        departments = list(Staff.objects.values_list('department', flat=True).distinct().order_by('department'))
-        status_choices = Staff.STATUS_CHOICES
-        total_active = Staff.objects.filter(status='active').count()
+        today = _tz.localdate()
+        total = Staff.objects.count()
+        active_total = Staff.objects.filter(status='active').count()
+        inactive_total = total - active_total
+        teaching = Staff.objects.filter(department='teaching').count()
+        admin_count = Staff.objects.filter(department='admin').count()
+        support = Staff.objects.filter(department='support').count()
+        other = total - teaching - admin_count - support
+
+        top_department_key = None
+        top_department_count = 0
+        for key, count in (
+            ('Teaching', teaching),
+            ('Administration', admin_count),
+            ('Support', support),
+            ('Other', other),
+        ):
+            if count > top_department_count:
+                top_department_count = count
+                top_department_key = key
+
+        class_teachers = SchoolClass.objects.filter(
+            is_active=True, class_teacher__isnull=False,
+        ).count()
+        unassigned_classes = SchoolClass.objects.filter(
+            is_active=True, class_teacher__isnull=True,
+        ).count()
+        subject_assignments = ClassSubject.objects.filter(
+            is_active=True, teacher__isnull=False,
+        ).count()
+
+        on_leave_today = _LR.objects.filter(
+            status='approved',
+            start_date__lte=today,
+            end_date__gte=today,
+        ).values('staff_id').distinct().count()
+
+        on_suspension = _LS.objects.filter(
+            is_active=True, start_date__lte=today,
+        ).filter(
+            Q(end_date__isnull=True) | Q(end_date__gte=today),
+        ).values('staff_id').distinct().count()
+
+    with schema_context('public'):
+        with_credentials = StaffCredential.objects.filter(
+            schema_name=schema_name, is_active=True,
+        ).count()
+
+    analytics = {
+        'total': total,
+        'active': active_total,
+        'inactive': inactive_total,
+        'teaching': teaching,
+        'admin': admin_count,
+        'support': support,
+        'with_credentials': with_credentials,
+        'class_teachers': class_teachers,
+        'unassigned_classes': unassigned_classes,
+        'subject_assignments': subject_assignments,
+        'on_leave_today': on_leave_today,
+        'on_suspension': on_suspension,
+        'top_department': top_department_key,
+    }
+
+    pagination_parts = []
+    if query:
+        pagination_parts.append('q=' + query)
+    if department:
+        pagination_parts.append('department=' + department)
+    if status:
+        pagination_parts.append('status=' + status)
+    if class_id:
+        pagination_parts.append('class_id=' + str(class_id))
+    pagination_qs = ('&' + '&'.join(pagination_parts)) if pagination_parts else ''
 
     return {
         'tenant': tenant,
@@ -109,11 +212,14 @@ def get_staff_list_context(request, schema_name):
         'selected_class_id': class_id,
         'selected_section': section,
         'staff': page_obj,
-        'departments': departments,
-        'status_choices': status_choices,
-        'classes': classes,
+        'department_choices': Staff.DEPARTMENT_CHOICES,
+        'status_choices': Staff.STATUS_CHOICES,
         'search_query': query,
-        'total_active': total_active,
+        'department_filter': department,
+        'status_filter': status,
+        'class_filter': str(class_id or ''),
+        'pagination_qs': pagination_qs,
+        'analytics': analytics,
         'logo_url': tenant.school_logo.url if tenant.school_logo else None,
     }
 # ========== STAFF PROFILE ==========

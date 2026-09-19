@@ -1,634 +1,1359 @@
 {% extends 'tenant/base.html' %}
-{% block extra_head %}{% endblock %}
 {% load static %}
 {% load fee_extras %}
 {% block title %}Staff Management | {{ tenant.name }}{% endblock %}
 
-{% block body %}
-
+{% block extra_head %}
 <style>
-/* ---------- Global overrides / variables ---------- */
-:root {
-    --primary: #3b82f6;
-    --primary-dark: #2563eb;
-    --surface: #ffffff;
-    --surface-alt: #f8fafc;
-    --text: #1e293b;
-    --muted: #64748b;
-    --border: #e2e8f0;
-    --radius: 0.75rem;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-}
-[data-theme="dark"] {
-    --surface: #1e293b;
-    --surface-alt: #0f172a;
-    --text: #e2e8f0;
-    --muted: #94a3b8;
-    --border: #334155;
-}
+    .slx {
+        --slx-radius: 14px;
+        --slx-shadow: 0 1px 2px rgba(15, 23, 42, .04),
+                      0 8px 24px -12px rgba(15, 23, 42, .14);
+        --slx-shadow-lg: 0 4px 10px -2px rgba(15, 23, 42, .06),
+                         0 20px 40px -16px rgba(15, 23, 42, .22);
+        --slx-primary: #4f46e5;
+        --slx-primary-soft: rgba(79, 70, 229, .10);
+        --slx-success: #10b981;
+        --slx-success-soft: rgba(16, 185, 129, .12);
+        --slx-warn: #f59e0b;
+        --slx-warn-soft: rgba(245, 158, 11, .14);
+        --slx-danger: #ef4444;
+        --slx-danger-soft: rgba(239, 68, 68, .12);
+        --slx-info: #0ea5e9;
+        --slx-info-soft: rgba(14, 165, 233, .12);
+        --slx-purple: #8b5cf6;
+        --slx-purple-soft: rgba(139, 92, 246, .12);
+        --slx-border: #e5e9f0;
+        --slx-surface-2: #f8fafc;
+        --slx-surface-3: #f1f5f9;
+        --slx-muted: #94a3b8;
+    }
+    [data-theme="dark"] .slx {
+        --slx-border: #334155;
+        --slx-surface-2: #0f172a;
+        --slx-surface-3: #1e293b;
+        --slx-muted: #94a3b8;
+        --slx-primary-soft: rgba(99, 102, 241, .18);
+        --slx-success-soft: rgba(16, 185, 129, .18);
+        --slx-warn-soft: rgba(245, 158, 11, .18);
+        --slx-danger-soft: rgba(239, 68, 68, .18);
+        --slx-info-soft: rgba(14, 165, 233, .18);
+        --slx-purple-soft: rgba(139, 92, 246, .18);
+    }
 
-/* ---------- Page Header ---------- */
-.page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-    flex-wrap: wrap;
-    gap: 1rem;
-}
-.page-title {
-    font-size: 1.8rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    margin-bottom: 0.25rem;
-}
-.page-desc {
-    color: var(--muted);
-    font-size: 0.9rem;
-}
-.header-actions {
-    display: flex;
-    gap: 0.75rem;
-}
-.btn-primary, .btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1.25rem;
-    border-radius: 2rem;
-    font-weight: 500;
-    font-size: 0.85rem;
-    text-decoration: none;
-    transition: all 0.2s;
-}
-.btn-primary {
-    background: var(--primary);
-    color: white;
-    border: none;
-}
-.btn-primary:hover {
-    background: var(--primary-dark);
-    transform: translateY(-1px);
-}
-.btn-secondary {
-    background: var(--surface-alt);
-    color: var(--text);
-    border: 1px solid var(--border);
-}
-.btn-secondary:hover {
-    background: var(--border);
-}
+    /* ---- Header ---- */
+    .slx-header {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .slx-title {
+        font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em;
+        margin: 0 0 .25rem; color: var(--text);
+    }
+    .slx-subtitle { font-size: .875rem; color: var(--slx-muted); margin: 0; }
+    .slx-header-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 
-/* ---------- KPI Cards ---------- */
-.kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-.kpi-card {
-    background: var(--surface);
-    border-radius: var(--radius);
-    padding: 1.25rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-sm);
-}
-.kpi-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-.kpi-icon.blue { background: #3b82f6; }
-.kpi-icon.green { background: #22c55e; }
-.kpi-icon.orange { background: #f59e0b; }
-.kpi-icon.purple { background: #8b5cf6; }
-.kpi-info {
-    flex: 1;
-}
-.kpi-label {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    color: var(--muted);
-}
-.kpi-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text);
-}
-.kpi-sub {
-    font-size: 0.7rem;
-    color: var(--muted);
-}
+    .slx-btn {
+        display: inline-flex; align-items: center; gap: .45rem;
+        padding: .6rem 1.1rem; border-radius: 999px;
+        font-size: .82rem; font-weight: 600;
+        border: 1px solid transparent; cursor: pointer;
+        transition: transform .15s, box-shadow .2s, background .2s;
+        text-decoration: none; white-space: nowrap; font-family: inherit;
+    }
+    .slx-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .slx-btn-primary {
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #fff;
+        box-shadow: 0 8px 20px -10px rgba(79, 70, 229, .8);
+    }
+    .slx-btn-primary:hover { transform: translateY(-1px); }
+    .slx-btn-ghost {
+        background: var(--surface); color: var(--text);
+        border-color: var(--slx-border);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+    .slx-btn-ghost:hover {
+        border-color: var(--slx-primary); color: var(--slx-primary);
+        transform: translateY(-1px);
+    }
+    .slx-btn-danger {
+        background: var(--slx-danger-soft); color: var(--slx-danger);
+        border-color: transparent;
+    }
+    .slx-btn-danger:hover { background: var(--slx-danger); color: #fff; }
 
-/* ---------- Filter Card ---------- */
-.filter-card {
-    background: var(--surface);
-    border-radius: var(--radius);
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.5rem;
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-sm);
-}
-.filter-form {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 0.75rem 1.25rem;
-}
-.filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    flex: 0 1 auto;
-    min-width: 140px;
-}
-.filter-group label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-}
-.filter-input,
-.filter-select {
-    padding: 0.45rem 0.75rem;
-    border-radius: 0.5rem;
-    border: 1px solid var(--border);
-    background: var(--surface-alt);
-    color: var(--text);
-    font-size: 0.85rem;
-    transition: border-color 0.2s, box-shadow 0.2s;
-    height: 2.4rem;
-    width: 100%;
-}
-.filter-input:focus,
-.filter-select:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
-}
-.filter-select {
-    appearance: auto;
-    -webkit-appearance: auto;
-    background-image: none;
-    padding-right: 0.75rem;
-}
-.filter-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    margin-left: auto;
-    padding-bottom: 0.1rem;
-}
-.btn-filter,
-.btn-reset {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.4rem 1.2rem;
-    border-radius: 2rem;
-    font-weight: 500;
-    font-size: 0.8rem;
-    text-decoration: none;
-    transition: all 0.2s;
-    border: 1px solid transparent;
-    cursor: pointer;
-    height: 2.4rem;
-}
-.btn-filter {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-.btn-filter:hover {
-    background: var(--primary-dark);
-    transform: translateY(-1px);
-}
-.btn-reset {
-    background: transparent;
-    color: var(--muted);
-    border-color: var(--border);
-}
-.btn-reset:hover {
-    background: var(--surface-alt);
-    color: var(--text);
-    border-color: var(--primary);
-}
-.btn-reset svg {
-    width: 14px;
-    height: 14px;
-}
+    /* ---- KPI grid ---- */
+    .slx-kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: .9rem; margin-bottom: 1.5rem;
+    }
+    .slx-kpi {
+        background: var(--surface);
+        border: 1px solid var(--slx-border);
+        border-radius: var(--slx-radius);
+        padding: 1rem 1.1rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+        display: flex; align-items: center; gap: .85rem;
+        transition: transform .18s, box-shadow .2s, border-color .2s;
+        position: relative; overflow: hidden;
+    }
+    .slx-kpi:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--slx-shadow-lg);
+        border-color: var(--slx-primary);
+    }
+    .slx-kpi-icon {
+        width: 42px; height: 42px; border-radius: 12px;
+        display: grid; place-items: center; flex-shrink: 0;
+    }
+    .slx-kpi-icon svg { width: 20px; height: 20px; }
+    .slx-kpi--primary .slx-kpi-icon {
+        background: var(--slx-primary-soft); color: var(--slx-primary);
+    }
+    .slx-kpi--success .slx-kpi-icon {
+        background: var(--slx-success-soft); color: var(--slx-success);
+    }
+    .slx-kpi--warn .slx-kpi-icon {
+        background: var(--slx-warn-soft); color: var(--slx-warn);
+    }
+    .slx-kpi--danger .slx-kpi-icon {
+        background: var(--slx-danger-soft); color: var(--slx-danger);
+    }
+    .slx-kpi--info .slx-kpi-icon {
+        background: var(--slx-info-soft); color: var(--slx-info);
+    }
+    .slx-kpi--purple .slx-kpi-icon {
+        background: var(--slx-purple-soft); color: var(--slx-purple);
+    }
+    .slx-kpi-body { min-width: 0; }
+    .slx-kpi-label {
+        font-size: .65rem; text-transform: uppercase;
+        letter-spacing: .07em; font-weight: 700;
+        color: var(--slx-muted); margin: 0;
+    }
+    .slx-kpi-value {
+        font-size: 1.45rem; font-weight: 800;
+        letter-spacing: -.02em; margin: .05rem 0 0;
+        color: var(--text); line-height: 1.1;
+    }
+    .slx-kpi-sub {
+        font-size: .7rem; color: var(--slx-muted); margin: .1rem 0 0;
+    }
 
-/* ---------- Table ---------- */
-.table-card {
-    background: var(--surface);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
-}
-.table-responsive {
-    overflow-x: auto;
-}
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-.data-table th {
-    text-align: left;
-    padding: 1rem;
-    background: var(--surface-alt);
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.data-table td {
-    padding: 0.9rem 1rem;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-}
-.roll-badge {
-    font-family: monospace;
-    background: var(--surface-alt);
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.4rem;
-    font-size: 0.8rem;
-}
-.status-badge {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 2rem;
-    font-size: 0.7rem;
-    font-weight: 600;
-}
-.status-active { background: #d1fae5; color: #065f46; }
-.status-inactive { background: #fed7aa; color: #9a3412; }
-.status-graduated { background: #e0e7ff; color: #3730a3; }
-[data-theme="dark"] .status-active { background: #064e3b; color: #a7f3d0; }
-[data-theme="dark"] .status-inactive { background: #7c2d12; color: #fdba74; }
-[data-theme="dark"] .status-graduated { background: #312e81; color: #c7d2fe; }
+    /* ---- Filter bar ---- */
+    .slx-filters {
+        display: grid;
+        grid-template-columns: 2fr repeat(3, 1fr) auto;
+        gap: .65rem;
+        align-items: end;
+        background: var(--surface);
+        border: 1px solid var(--slx-border);
+        border-radius: var(--slx-radius);
+        padding: 1rem;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+    .slx-field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+    .slx-field label {
+        font-size: .65rem; text-transform: uppercase;
+        letter-spacing: .07em; font-weight: 700; color: var(--slx-muted);
+    }
+    .slx-input, .slx-select {
+        width: 100%; height: 42px; padding: 0 .85rem;
+        border: 1px solid var(--slx-border);
+        border-radius: 10px;
+        background: var(--surface-2, var(--slx-surface-2));
+        color: var(--text); font-size: .85rem;
+        font-family: inherit; font-weight: 500;
+        transition: border-color .2s, box-shadow .2s, background .2s;
+    }
+    .slx-input:focus, .slx-select:focus {
+        outline: none; border-color: var(--slx-primary);
+        background: var(--surface);
+        box-shadow: 0 0 0 3px var(--slx-primary-soft);
+    }
+    .slx-search-wrap { position: relative; }
+    .slx-search-wrap svg {
+        position: absolute; left: .75rem; top: 50%;
+        transform: translateY(-50%); width: 15px; height: 15px;
+        color: var(--slx-muted); pointer-events: none;
+    }
+    .slx-search-wrap .slx-input { padding-left: 2.15rem; }
 
-.action-btns {
-    display: flex;
-    gap: 0.5rem;
-}
-.action-icon {
-    color: var(--muted);
-    transition: color 0.2s;
-    display: inline-flex;
-}
-.action-icon:hover {
-    color: var(--primary);
-}
-.empty-row {
-    text-align: center;
-    padding: 2rem;
-    color: var(--muted);
-}
-.btn-sm {
-    background: var(--primary);
-    color: white;
-    padding: 0.2rem 0.6rem;
-    border-radius: 2rem;
-    font-size: 0.7rem;
-    text-decoration: none;
-}
-.inline-icon {
-    vertical-align: middle;
-}
+    .slx-filter-actions {
+        display: flex; gap: .4rem; align-items: center;
+    }
+    .slx-btn-filter, .slx-btn-reset {
+        height: 42px; padding: 0 1.1rem;
+        border-radius: 10px; font-size: .8rem;
+        font-weight: 600; cursor: pointer;
+        border: 1px solid var(--slx-border);
+        display: inline-flex; align-items: center;
+        justify-content: center; gap: .35rem;
+        text-decoration: none; font-family: inherit;
+        transition: .15s;
+    }
+    .slx-btn-filter {
+        background: var(--slx-primary); color: #fff;
+        border-color: var(--slx-primary);
+    }
+    .slx-btn-filter:hover { filter: brightness(1.08); }
+    .slx-btn-reset {
+        background: transparent; color: var(--slx-muted);
+    }
+    .slx-btn-reset:hover {
+        background: var(--surface-3, var(--slx-surface-3));
+        color: var(--text);
+    }
 
-/* ---------- Pagination ---------- */
-.pagination-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    border-top: 1px solid var(--border);
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-.pagination-info {
-    font-size: 0.85rem;
-    color: var(--muted);
-}
-.pagination-links {
-    display: flex;
-    gap: 0.25rem;
-}
-.page-link {
-    padding: 0.3rem 0.8rem;
-    border-radius: 0.4rem;
-    background: var(--surface-alt);
-    color: var(--text);
-    text-decoration: none;
-    font-size: 0.8rem;
-    border: 1px solid var(--border);
-    transition: all 0.2s;
-}
-.page-link:hover {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-.page-link.active {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-.page-link.disabled {
-    opacity: 0.4;
-    pointer-events: none;
-}
+    /* ---- Table card ---- */
+    .slx-table-card {
+        background: var(--surface);
+        border: 1px solid var(--slx-border);
+        border-radius: var(--slx-radius);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+        overflow: hidden;
+    }
+    .slx-table-scroll { overflow-x: auto; }
+    .slx-table {
+        width: 100%; border-collapse: collapse; min-width: 900px;
+    }
+    .slx-table thead th {
+        text-align: left; padding: .9rem 1.1rem;
+        background: var(--surface-2, var(--slx-surface-2));
+        border-bottom: 1px solid var(--slx-border);
+        font-size: .68rem; font-weight: 800;
+        color: var(--slx-muted); text-transform: uppercase;
+        letter-spacing: .07em; white-space: nowrap;
+    }
+    .slx-table tbody td {
+        padding: .85rem 1.1rem;
+        border-bottom: 1px solid var(--slx-border);
+        color: var(--text); font-size: .85rem;
+        vertical-align: middle;
+    }
+    .slx-table tbody tr:last-child td { border-bottom: none; }
+    .slx-table tbody tr:hover { background: var(--surface-2, var(--slx-surface-2)); }
 
-/* ---------- Mobile responsiveness ---------- */
-@media (max-width: 768px) {
-    .filter-form {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
+    .slx-roll {
+        display: inline-flex; align-items: center;
+        padding: .22rem .55rem; border-radius: 7px;
+        background: var(--surface-3, var(--slx-surface-3));
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .75rem; font-weight: 700;
+        color: var(--text);
     }
-    .filter-group {
-        min-width: 100%;
-    }
-    .filter-actions {
-        margin-left: 0;
-        justify-content: flex-end;
-    }
-    .page-header {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.75rem;
-    }
-    .header-actions {
-        justify-content: flex-start;
-    }
-    .kpi-grid {
-        grid-template-columns: 1fr 1fr;
-    }
-    .pagination-bar {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
-    }
-    .pagination-links {
-        justify-content: center;
-    }
-}
 
-/* ---- Compact, Clean Filter Bar (Override) ---- */
-.filter-card {
-    padding: 0.6rem 1rem !important;
-    margin-bottom: 1rem !important;
-}
-.filter-form {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 0.5rem !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-}
-.filter-group {
-    flex: 0 1 auto !important;
-    min-width: 120px !important;
-    margin: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 0.3rem !important;
-}
-.filter-group label {
-    font-size: 0.7rem !important;
-    font-weight: 600 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.3px !important;
-    margin: 0 !important;
-    white-space: nowrap !important;
-}
-.filter-input, .filter-select {
-    padding: 0.25rem 0.6rem !important;
-    font-size: 0.8rem !important;
-    border-radius: 0.4rem !important;
-    height: 2rem !important;
-    min-width: 100px !important;
-}
-.filter-actions {
-    display: flex !important;
-    gap: 0.4rem !important;
-    align-items: center !important;
-    margin-left: auto !important;
-}
-.btn-filter {
-    display: none !important;
-}
-.btn-reset {
-    background: transparent !important;
-    color: var(--muted, #6b7280) !important;
-    border: 1px solid var(--border, #e2e8f0) !important;
-    padding: 0.2rem 0.8rem !important;
-    border-radius: 2rem !important;
-    font-size: 0.75rem !important;
-    font-weight: 500 !important;
-    cursor: pointer !important;
-    transition: all 0.2s !important;
-    text-decoration: none !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 0.2rem !important;
-    height: 2rem !important;
-}
-.btn-reset:hover {
-    background: var(--surface-alt, #f1f5f9) !important;
-    color: var(--text, #1f2937) !important;
-    border-color: var(--primary, #3b82f6) !important;
-}
-.btn-reset svg {
-    width: 14px !important;
-    height: 14px !important;
-}
-@media (max-width: 640px) {
-    .filter-form {
-        flex-direction: column !important;
-        align-items: stretch !important;
+    .slx-staff-cell { display: flex; align-items: center; gap: .7rem; }
+    .slx-avatar {
+        width: 38px; height: 38px; border-radius: 50%;
+        display: grid; place-items: center;
+        font-size: .8rem; font-weight: 800;
+        color: #fff; flex-shrink: 0; letter-spacing: .02em;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        overflow: hidden;
     }
-    .filter-group {
-        flex: 1 !important;
-        min-width: 100% !important;
+    .slx-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .slx-name { font-weight: 700; line-height: 1.2; }
+    .slx-meta { font-size: .7rem; color: var(--slx-muted); margin-top: .1rem; }
+
+    .slx-pill {
+        display: inline-flex; align-items: center; gap: .35rem;
+        padding: .22rem .6rem; border-radius: 999px;
+        font-size: .68rem; font-weight: 700;
+        letter-spacing: .02em; white-space: nowrap;
     }
-    .filter-actions {
-        margin-left: 0 !important;
-        justify-content: flex-end !important;
+    .slx-pill::before {
+        content: ''; width: 6px; height: 6px; border-radius: 50%;
+        background: currentColor;
     }
-    .filter-input, .filter-select {
-        width: 100% !important;
-        min-width: 0 !important;
+    .slx-pill--active {
+        background: var(--slx-success-soft); color: #047857;
     }
-}
+    .slx-pill--inactive {
+        background: var(--slx-warn-soft); color: #b45309;
+    }
+    [data-theme="dark"] .slx-pill--active { color: #6ee7b7; }
+    [data-theme="dark"] .slx-pill--inactive { color: #fcd34d; }
+
+    .slx-tag {
+        display: inline-flex; align-items: center; gap: .3rem;
+        padding: .18rem .55rem; border-radius: 7px;
+        font-size: .66rem; font-weight: 700;
+        background: var(--slx-primary-soft); color: var(--slx-primary);
+        margin-right: .25rem; margin-bottom: .15rem;
+        white-space: nowrap;
+    }
+    .slx-tag--purple {
+        background: var(--slx-purple-soft); color: var(--slx-purple);
+    }
+    .slx-tag--info {
+        background: var(--slx-info-soft); color: var(--slx-info);
+    }
+
+    .slx-cell-actions { display: flex; gap: .35rem; justify-content: flex-end; }
+    .slx-icon-btn {
+        width: 34px; height: 34px; border-radius: 9px;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: var(--surface-2, var(--slx-surface-2));
+        border: 1px solid var(--slx-border);
+        color: var(--text); cursor: pointer;
+        transition: .18s; text-decoration: none;
+    }
+    .slx-icon-btn:hover {
+        background: var(--slx-primary); border-color: var(--slx-primary);
+        color: #fff; transform: translateY(-1px);
+    }
+    .slx-icon-btn svg { width: 15px; height: 15px; }
+
+    /* ---- Empty state ---- */
+    .slx-empty {
+        text-align: center; padding: 3rem 1rem;
+        color: var(--slx-muted);
+    }
+    .slx-empty svg {
+        width: 52px; height: 52px; opacity: .35;
+        margin-bottom: .75rem; color: var(--slx-primary);
+    }
+    .slx-empty h3 {
+        font-size: 1rem; font-weight: 700;
+        color: var(--text); margin: 0 0 .35rem;
+    }
+    .slx-empty p { font-size: .85rem; margin: 0 0 1rem; }
+    .slx-empty a {
+        display: inline-flex; align-items: center; gap: .4rem;
+        padding: .55rem 1.05rem; border-radius: 999px;
+        background: var(--slx-primary); color: #fff;
+        font-size: .82rem; font-weight: 600;
+        text-decoration: none;
+    }
+
+    /* ---- Pagination ---- */
+    .slx-pagination {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem; padding: .85rem 1.1rem;
+        border-top: 1px solid var(--slx-border);
+        background: var(--surface-2, var(--slx-surface-2));
+        flex-wrap: wrap;
+    }
+    .slx-pagination-info {
+        font-size: .78rem; color: var(--slx-muted); font-weight: 500;
+    }
+    .slx-pagination-info strong { color: var(--text); font-weight: 700; }
+    .slx-pagination-links {
+        display: flex; gap: .3rem; align-items: center; flex-wrap: wrap;
+    }
+    .slx-page-link {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 34px; height: 34px; padding: 0 .7rem;
+        border-radius: 9px; border: 1px solid var(--slx-border);
+        background: var(--surface); color: var(--text);
+        text-decoration: none; font-size: .78rem; font-weight: 600;
+        transition: .15s;
+    }
+    .slx-page-link:hover {
+        background: var(--slx-primary); color: #fff;
+        border-color: var(--slx-primary);
+    }
+    .slx-page-link.active {
+        background: var(--slx-primary-soft); color: var(--slx-primary);
+        border-color: transparent;
+    }
+    .slx-page-link.disabled {
+        opacity: .4; pointer-events: none;
+    }
+
+    /* ---- Modal ---- */
+    .slx-modal-backdrop {
+        position: fixed; inset: 0;
+        background: rgba(15, 23, 42, .6);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        display: none; align-items: flex-start; justify-content: center;
+        padding: 4rem 1rem 2rem;
+        z-index: 2000;
+        overflow-y: auto;
+        animation: slxFade .18s ease;
+    }
+    .slx-modal-backdrop.show { display: flex; }
+    @keyframes slxFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slxScale {
+        from { transform: translateY(10px) scale(.98); opacity: 0; }
+        to   { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    .slx-modal {
+        background: var(--surface);
+        border-radius: 18px;
+        box-shadow: 0 30px 70px rgba(15, 23, 42, .45);
+        border: 1px solid var(--slx-border);
+        width: min(960px, 100%);
+        max-height: 84vh;
+        display: flex; flex-direction: column;
+        overflow: hidden;
+        animation: slxScale .2s cubic-bezier(.2, .7, .2, 1);
+    }
+    .slx-modal.slx-modal--sm { width: min(560px, 100%); }
+    .slx-modal.slx-modal--lg { width: min(1200px, 100%); }
+    .slx-modal-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 1rem; padding: 1.15rem 1.35rem;
+        border-bottom: 1px solid var(--slx-border);
+        background: var(--surface);
+    }
+    .slx-modal-head h3 {
+        font-size: 1.05rem; font-weight: 800;
+        letter-spacing: -.01em; margin: 0 0 .15rem;
+    }
+    .slx-modal-head p {
+        font-size: .78rem; color: var(--slx-muted); margin: 0;
+    }
+    .slx-modal-close {
+        background: transparent; border: none; cursor: pointer;
+        font-size: 1.35rem; line-height: 1;
+        color: var(--slx-muted); padding: 0 .35rem;
+        transition: color .15s, transform .15s;
+    }
+    .slx-modal-close:hover { color: var(--text); transform: rotate(90deg); }
+    .slx-modal-body {
+        padding: 1.2rem 1.35rem;
+        overflow-y: auto; flex: 1 1 auto; min-height: 0;
+    }
+    .slx-modal-foot {
+        display: flex; gap: .6rem; align-items: center;
+        justify-content: flex-end; padding: .9rem 1.35rem;
+        border-top: 1px solid var(--slx-border);
+        background: var(--surface-2, var(--slx-surface-2));
+    }
+
+    /* ---- Inline mini-table used in modals ---- */
+    .slx-mini-table {
+        width: 100%; border-collapse: collapse; font-size: .82rem;
+    }
+    .slx-mini-table thead th {
+        text-align: left; padding: .55rem .7rem;
+        background: var(--surface-2, var(--slx-surface-2));
+        font-size: .65rem; text-transform: uppercase;
+        letter-spacing: .07em; font-weight: 800;
+        color: var(--slx-muted); border-bottom: 1px solid var(--slx-border);
+        white-space: nowrap;
+    }
+    .slx-mini-table tbody td {
+        padding: .55rem .7rem;
+        border-bottom: 1px solid var(--slx-border);
+        vertical-align: middle;
+    }
+    .slx-mini-table tbody tr:last-child td { border-bottom: none; }
+    .slx-mini-table tbody tr:hover {
+        background: var(--surface-2, var(--slx-surface-2));
+    }
+    .slx-mini-table select, .slx-mini-table input {
+        width: 100%; height: 34px; padding: 0 .55rem;
+        border: 1px solid var(--slx-border);
+        border-radius: 8px;
+        background: var(--surface); color: var(--text);
+        font-size: .8rem; font-family: inherit;
+    }
+    .slx-mini-table select:focus, .slx-mini-table input:focus {
+        outline: none; border-color: var(--slx-primary);
+        box-shadow: 0 0 0 2px var(--slx-primary-soft);
+    }
+
+    /* ---- Loading skeleton ---- */
+    .slx-skel {
+        background: linear-gradient(90deg,
+            var(--surface-2, #f1f5f9) 0%,
+            var(--surface-3, #e2e8f0) 50%,
+            var(--surface-2, #f1f5f9) 100%);
+        background-size: 200% 100%;
+        animation: slxSk 1.3s linear infinite;
+        border-radius: 6px; height: 1rem;
+    }
+    @keyframes slxSk {
+        from { background-position: 200% 0; }
+        to   { background-position: -200% 0; }
+    }
+    .slx-loading {
+        display: flex; flex-direction: column; gap: .5rem;
+        padding: .75rem 0;
+    }
+
+    /* ---- Fixtures list ---- */
+    .slx-fixture-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem; align-items: center;
+        padding: .85rem 1rem;
+        border: 1px solid var(--slx-border);
+        border-radius: 12px;
+        margin-bottom: .6rem;
+        background: var(--surface-2, var(--slx-surface-2));
+    }
+    .slx-fixture-row strong { font-size: .88rem; }
+    .slx-fixture-meta {
+        font-size: .72rem; color: var(--slx-muted); margin-top: .15rem;
+    }
+
+    /* ---- Toast ---- */
+    .slx-toast {
+        position: fixed; bottom: 1.5rem; right: 1.5rem;
+        background: var(--text); color: var(--surface);
+        padding: .75rem 1.1rem; border-radius: 12px;
+        font-size: .82rem; font-weight: 600;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, .35);
+        z-index: 3000; opacity: 0; transform: translateY(20px);
+        transition: opacity .25s, transform .25s;
+        max-width: 380px;
+    }
+    .slx-toast.show { opacity: 1; transform: translateY(0); }
+    .slx-toast.ok { background: var(--slx-success); color: #fff; }
+    .slx-toast.err { background: var(--slx-danger); color: #fff; }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 1080px) {
+        .slx-filters { grid-template-columns: 1fr 1fr; }
+        .slx-field--search { grid-column: 1 / -1; }
+        .slx-filter-actions { grid-column: 1 / -1; justify-content: flex-end; }
+    }
+    @media (max-width: 720px) {
+        .slx-kpis { grid-template-columns: 1fr 1fr; }
+        .slx-filters { grid-template-columns: 1fr; }
+        .slx-header-actions .slx-btn { flex: 1; justify-content: center; }
+        .slx-modal-backdrop { padding: 1rem; }
+        .slx-modal { max-height: 92vh; }
+    }
 </style>
-<div class="page-header">
-    <div>
-        <h1 class="page-title">Staff Management</h1>
-        <p class="page-desc">Manage teachers, administrators, and support staff</p>
-    </div>
-    <div class="header-actions">
-        <a href="{% url 'staff_add' schema_name=tenant.schema_name %}" class="btn-primary">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg>
-            Add Staff
-        </a>
-    </div>
-</div>
+{% endblock %}
 
-<!-- KPIs -->
-<div class="kpi-grid">
-    <div class="kpi-card">
-        <div class="kpi-icon blue"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Total Staff</div>
-            <div class="kpi-value">{{ staff.paginator.count }}</div>
-            <div class="kpi-sub">All staff</div>
-        </div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-icon green"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Active</div>
-            <div class="kpi-value">{{ total_active }}</div>
-            <div class="kpi-sub">Currently working</div>
-        </div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-icon orange"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M3 12h3l3-9 3 18 3-9h3"/></svg></div>
-        <div class="kpi-info">
-            <div class="kpi-label">Departments</div>
-            <div class="kpi-value">{{ departments|length }}</div>
-            <div class="kpi-sub">Unique</div>
-        </div>
-    </div>
-</div>
+{% block body %}
+<div class="slx">
 
-<!-- Filters -->
-<div class="filter-card">
-    <form method="get" class="filter-form">
-        <div class="filter-group">
-            <input type="text" name="q" placeholder="Search name, ID, email..." value="{{ search_query }}" class="filter-input">
+    <header class="slx-header">
+        <div>
+            <h1 class="slx-title">Staff Management</h1>
+            <p class="slx-subtitle">
+                Manage faculty, administrators and support personnel - assign
+                subjects, class teachers, and substitutes without leaving the page.
+            </p>
         </div>
-        <div class="filter-group">
-            <select name="department" class="filter-select">
+        <div class="slx-header-actions">
+            <a href="{% url 'staff_add' schema_name=tenant.schema_name %}" class="slx-btn slx-btn-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                Add Staff
+            </a>
+            <button type="button" class="slx-btn slx-btn-ghost" id="slxOpenSubjects">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                Assign Subjects
+            </button>
+            <button type="button" class="slx-btn slx-btn-ghost" id="slxOpenClassTeachers">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                Manage Class Teachers
+            </button>
+            <button type="button" class="slx-btn slx-btn-ghost" id="slxOpenFixtures">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+                Assign Fixture
+            </button>
+        </div>
+    </header>
+
+    <section class="slx-kpis">
+        <div class="slx-kpi slx-kpi--primary">
+            <div class="slx-kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <div class="slx-kpi-body">
+                <p class="slx-kpi-label">Total Staff</p>
+                <p class="slx-kpi-value">{{ analytics.total }}</p>
+                <p class="slx-kpi-sub">{{ analytics.with_credentials }} with portal access</p>
+            </div>
+        </div>
+        <div class="slx-kpi slx-kpi--success">
+            <div class="slx-kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+            </div>
+            <div class="slx-kpi-body">
+                <p class="slx-kpi-label">Active</p>
+                <p class="slx-kpi-value">{{ analytics.active }}</p>
+                <p class="slx-kpi-sub">{{ analytics.inactive }} inactive</p>
+            </div>
+        </div>
+        <div class="slx-kpi slx-kpi--purple">
+            <div class="slx-kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            </div>
+            <div class="slx-kpi-body">
+                <p class="slx-kpi-label">Teaching Staff</p>
+                <p class="slx-kpi-value">{{ analytics.teaching }}</p>
+                <p class="slx-kpi-sub">{{ analytics.class_teachers }} class teachers</p>
+            </div>
+        </div>
+        <div class="slx-kpi slx-kpi--info">
+            <div class="slx-kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            </div>
+            <div class="slx-kpi-body">
+                <p class="slx-kpi-label">Subject Assignments</p>
+                <p class="slx-kpi-value">{{ analytics.subject_assignments }}</p>
+                <p class="slx-kpi-sub">{{ analytics.unassigned_classes }} classes without CT</p>
+            </div>
+        </div>
+        <div class="slx-kpi slx-kpi--warn">
+            <div class="slx-kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+            </div>
+            <div class="slx-kpi-body">
+                <p class="slx-kpi-label">On Leave Today</p>
+                <p class="slx-kpi-value">{{ analytics.on_leave_today }}</p>
+                <p class="slx-kpi-sub">{{ analytics.on_suspension }} on suspension</p>
+            </div>
+        </div>
+        <div class="slx-kpi slx-kpi--danger">
+            <div class="slx-kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9M12 17V5M6 17v-3"/></svg>
+            </div>
+            <div class="slx-kpi-body">
+                <p class="slx-kpi-label">Top Department</p>
+                <p class="slx-kpi-value">{{ analytics.top_department|default:"—" }}</p>
+                <p class="slx-kpi-sub">By headcount</p>
+            </div>
+        </div>
+    </section>
+
+    <form method="get" class="slx-filters" id="slxFilterForm">
+        <div class="slx-field slx-field--search">
+            <label for="slxQ">Search</label>
+            <div class="slx-search-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+                <input type="text" id="slxQ" name="q" class="slx-input"
+                       value="{{ search_query|default:'' }}"
+                       placeholder="Name, staff ID, email, phone, job title…"
+                       autocomplete="off">
+            </div>
+        </div>
+        <div class="slx-field">
+            <label for="slxDept">Department</label>
+            <select id="slxDept" name="department" class="slx-select">
                 <option value="">All Departments</option>
-                {% for dept in departments %}
-                <option value="{{ dept }}" {% if request.GET.department == dept %}selected{% endif %}>{{ dept|title }}</option>
-                {% endfor %}
-            </select>
-        
-        <div class="filter-group">
-            <select name="class_id" class="filter-select">
-                <option value="">All Classes</option>
-                {% for cls in classes %}
-                <option value="{{ cls.id }}" {% if request.GET.class_id == cls.id|stringformat:"s" %}selected{% endif %}>{{ cls.name }} - {{ cls.section }}</option>
+                {% for k, v in department_choices %}
+                    <option value="{{ k }}" {% if department_filter == k %}selected{% endif %}>{{ v }}</option>
                 {% endfor %}
             </select>
         </div>
-        
-        </div>
-        <div class="filter-group">
-            <select name="status" class="filter-select">
-                <option value="">All Status</option>
+        <div class="slx-field">
+            <label for="slxStatus">Status</label>
+            <select id="slxStatus" name="status" class="slx-select">
+                <option value="">All Statuses</option>
                 {% for k, v in status_choices %}
-                <option value="{{ k }}" {% if request.GET.status == k %}selected{% endif %}>{{ v }}</option>
+                    <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
                 {% endfor %}
             </select>
         </div>
-        <div class="filter-actions">
-            <button type="submit" class="btn-filter">Apply</button>
-            <a href="{% url 'staff_list' schema_name=tenant.schema_name %}" class="btn-reset">Reset</a>
+        <div class="slx-field">
+            <label for="slxClass">Class</label>
+            <select id="slxClass" name="class_id" class="slx-select">
+                <option value="">All Classes</option>
+                {% for c in classes %}
+                    <option value="{{ c.id }}" {% if class_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="slx-filter-actions">
+            <button type="submit" class="slx-btn-filter">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+            </button>
+            <a href="{% url 'staff_list' schema_name=tenant.schema_name %}" class="slx-btn-reset">Reset</a>
         </div>
     </form>
+
+    <section class="slx-table-card">
+        <div class="slx-table-scroll">
+            <table class="slx-table">
+                <thead>
+                    <tr>
+                        <th>Staff ID</th>
+                        <th>Name</th>
+                        <th>Job Title</th>
+                        <th>Department</th>
+                        <th>Roles</th>
+                        <th>Contact</th>
+                        <th>Status</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in staff %}
+                    <tr data-staff-id="{{ s.id }}">
+                        <td><span class="slx-roll">{{ s.staff_id }}</span></td>
+                        <td>
+                            <div class="slx-staff-cell">
+                                <div class="slx-avatar">
+                                    {% if s.photo %}
+                                        <img src="{{ s.photo.url }}" alt="">
+                                    {% else %}
+                                        {{ s.full_name|slice:":1"|upper }}
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <div class="slx-name">{{ s.full_name }}</div>
+                                    <div class="slx-meta">
+                                        {{ s.gender|default:"—"|title }}
+                                        {% if s.cnic %} • {{ s.cnic }}{% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>{{ s.job_title|default:"—" }}</td>
+                        <td>{{ s.get_department_display }}</td>
+                        <td>
+                            {% with ct_count=s.class_teacher_count subj_count=s.subject_count %}
+                                {% if ct_count %}
+                                    <span class="slx-tag slx-tag--info">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                                        CT × {{ ct_count }}
+                                    </span>
+                                {% endif %}
+                                {% if subj_count %}
+                                    <span class="slx-tag slx-tag--purple">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                                        {{ subj_count }} subject{{ subj_count|pluralize }}
+                                    </span>
+                                {% endif %}
+                                {% if not ct_count and not subj_count %}
+                                    <span class="slx-meta">Unassigned</span>
+                                {% endif %}
+                            {% endwith %}
+                        </td>
+                        <td>
+                            {% if s.email %}<div class="slx-meta">{{ s.email }}</div>{% endif %}
+                            {% if s.phone %}<div class="slx-meta">{{ s.phone }}</div>{% endif %}
+                            {% if not s.email and not s.phone %}<span class="slx-meta">—</span>{% endif %}
+                        </td>
+                        <td>
+                            <span class="slx-pill slx-pill--{{ s.status }}">
+                                {{ s.get_status_display }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="slx-cell-actions">
+                                <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=s.id %}"
+                                   class="slx-icon-btn" title="View profile">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                </a>
+                                <a href="{% url 'staff_edit' schema_name=tenant.schema_name staff_id=s.id %}"
+                                   class="slx-icon-btn" title="Edit">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/></svg>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8">
+                            <div class="slx-empty">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg>
+                                <h3>No staff members found</h3>
+                                <p>Try adjusting the filters, or add a new staff member.</p>
+                                <a href="{% url 'staff_add' schema_name=tenant.schema_name %}">+ Add Staff</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if staff.paginator.num_pages > 1 %}
+        <div class="slx-pagination">
+            <div class="slx-pagination-info">
+                Showing <strong>{{ staff.start_index }}–{{ staff.end_index }}</strong>
+                of <strong>{{ staff.paginator.count }}</strong> staff members
+            </div>
+            <div class="slx-pagination-links">
+                {% if staff.has_previous %}
+                    <a class="slx-page-link" href="?page=1{{ pagination_qs }}">«</a>
+                    <a class="slx-page-link" href="?page={{ staff.previous_page_number }}{{ pagination_qs }}">‹</a>
+                {% else %}
+                    <span class="slx-page-link disabled">«</span>
+                    <span class="slx-page-link disabled">‹</span>
+                {% endif %}
+                <span class="slx-page-link active">{{ staff.number }} / {{ staff.paginator.num_pages }}</span>
+                {% if staff.has_next %}
+                    <a class="slx-page-link" href="?page={{ staff.next_page_number }}{{ pagination_qs }}">›</a>
+                    <a class="slx-page-link" href="?page={{ staff.paginator.num_pages }}{{ pagination_qs }}">»</a>
+                {% else %}
+                    <span class="slx-page-link disabled">›</span>
+                    <span class="slx-page-link disabled">»</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
 </div>
 
-<!-- Staff Table -->
-<div class="table-card">
-    <div class="table-responsive">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Staff ID</th>
-                    <th>Full Name</th>
-                    <th>Job Title</th>
-                    <th>Department</th>
-                            <th>Email</th>
-                            <th>Classes</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for s in staff %}
-                <tr>
-                    <td><span class="roll-badge">{{ s.staff_id }}</span></td>
-                    <td><strong>{{ s.full_name }}</strong></td>
-                    <td>{{ s.job_title|default:"—" }}</td>
-                    <td>{{ s.get_department_display }}</td>
-                            <td>{{ s.email|default:"—" }}</td>
-                            <td>
-                                {% if s.class_teacher_of.all %}
-                                    <span class="badge badge-primary">Class Teacher: {{ s.class_teacher_of.first.name }}</span>
-                                {% endif %}
-                                {% if s.class_subjects.all %}
-                                    <span class="badge badge-secondary">Subject Teacher: {{ s.class_subjects.all|join:", " }}</span>
-                                {% endif %}
-                            </td>
-                    <td><span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span></td>
-                    <td class="action-btns">
-                        <a href="{% url 'staff_profile' schema_name=tenant.schema_name staff_id=s.id %}" class="action-icon" title="Profile">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        </a>
-                        <a href="{% url 'staff_edit' schema_name=tenant.schema_name staff_id=s.id %}" class="action-icon" title="Edit">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4Z"/></svg>
-                        </a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr><td colspan="7" class="empty-row">No staff members found. <a href="{% url 'staff_add' schema_name=tenant.schema_name %}" class="btn-sm">Add one</a></td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Pagination -->
-    <div class="pagination-bar">
-        <div class="pagination-info">
-            Showing {{ staff.start_index }} – {{ staff.end_index }} of {{ staff.paginator.count }}
+<!-- ================= Modal: Assign Subjects ================= -->
+<div class="slx-modal-backdrop" id="slxSubjectsModal">
+    <div class="slx-modal slx-modal--lg">
+        <div class="slx-modal-head">
+            <div>
+                <h3>Assign Subject Teachers</h3>
+                <p>Pick a class, subject, and teacher. Changes save instantly.</p>
+            </div>
+            <button type="button" class="slx-modal-close" data-close="slxSubjectsModal">×</button>
         </div>
-        <div class="pagination-links">
-            {% if staff.has_previous %}
-                <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">«</a>
-                <a href="?page={{ staff.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">‹</a>
-            {% else %}
-                <span class="page-link disabled">«</span>
-                <span class="page-link disabled">‹</span>
-            {% endif %}
+        <div class="slx-modal-body">
+            <div class="slx-field" style="margin-bottom:1rem;">
+                <label for="slxAsgSearch">Search assignments</label>
+                <input type="text" id="slxAsgSearch" class="slx-input"
+                       placeholder="Filter by class, subject or teacher…">
+            </div>
+            <div id="slxAsgLoading" class="slx-loading">
+                <div class="slx-skel" style="width:60%;"></div>
+                <div class="slx-skel" style="width:85%;"></div>
+                <div class="slx-skel" style="width:70%;"></div>
+            </div>
+            <div id="slxAsgWrapper" style="display:none; overflow-x:auto;">
+                <table class="slx-mini-table" id="slxAsgTable">
+                    <thead>
+                        <tr>
+                            <th>Class</th>
+                            <th>Subject</th>
+                            <th>Teacher</th>
+                            <th style="width:130px; text-align:right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="slxAsgTbody"></tbody>
+                </table>
+            </div>
 
-            <span class="page-link active">{{ staff.number }}</span>
+            <div style="border-top:1px solid var(--slx-border); margin:1.25rem 0 1rem;"></div>
 
-            {% if staff.has_next %}
-                <a href="?page={{ staff.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">›</a>
-                <a href="?page={{ staff.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-link">»</a>
-            {% else %}
-                <span class="page-link disabled">›</span>
-                <span class="page-link disabled">»</span>
-            {% endif %}
+            <h4 style="font-size:.9rem; font-weight:800; margin:0 0 .7rem;">Add / Update Assignment</h4>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:.6rem; align-items:end;">
+                <div class="slx-field">
+                    <label for="slxAsgClass">Class</label>
+                    <select id="slxAsgClass" class="slx-select"></select>
+                </div>
+                <div class="slx-field">
+                    <label for="slxAsgSubject">Subject</label>
+                    <select id="slxAsgSubject" class="slx-select"></select>
+                </div>
+                <div class="slx-field">
+                    <label for="slxAsgTeacher">Teacher</label>
+                    <select id="slxAsgTeacher" class="slx-select"></select>
+                </div>
+                <button type="button" class="slx-btn-filter" id="slxAsgSave" style="height:42px;">
+                    Save
+                </button>
+            </div>
+        </div>
+        <div class="slx-modal-foot">
+            <button type="button" class="slx-btn slx-btn-ghost" data-close="slxSubjectsModal">Close</button>
         </div>
     </div>
 </div>
+
+<!-- ================= Modal: Manage Class Teachers ================= -->
+<div class="slx-modal-backdrop" id="slxClassTeachersModal">
+    <div class="slx-modal slx-modal--lg">
+        <div class="slx-modal-head">
+            <div>
+                <h3>Manage Class Teachers</h3>
+                <p>Assign a class teacher to each class. One teacher can only lead one class.</p>
+            </div>
+            <button type="button" class="slx-modal-close" data-close="slxClassTeachersModal">×</button>
+        </div>
+        <div class="slx-modal-body">
+            <div class="slx-field" style="margin-bottom:1rem;">
+                <label for="slxCtSearch">Search classes</label>
+                <input type="text" id="slxCtSearch" class="slx-input"
+                       placeholder="Filter by class name or teacher…">
+            </div>
+            <div id="slxCtLoading" class="slx-loading">
+                <div class="slx-skel" style="width:60%;"></div>
+                <div class="slx-skel" style="width:85%;"></div>
+                <div class="slx-skel" style="width:70%;"></div>
+            </div>
+            <div id="slxCtWrapper" style="display:none; overflow-x:auto;">
+                <table class="slx-mini-table">
+                    <thead>
+                        <tr>
+                            <th>Class</th>
+                            <th>Students</th>
+                            <th>Class Teacher</th>
+                            <th style="width:260px;">Assign / Change</th>
+                        </tr>
+                    </thead>
+                    <tbody id="slxCtTbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="slx-modal-foot">
+            <button type="button" class="slx-btn slx-btn-ghost" data-close="slxClassTeachersModal">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= Modal: Today's Leave & Fixtures ================= -->
+<div class="slx-modal-backdrop" id="slxFixturesModal">
+    <div class="slx-modal slx-modal--lg">
+        <div class="slx-modal-head">
+            <div>
+                <h3>Today's Leave &amp; Fixtures</h3>
+                <p id="slxFixMeta">Loading…</p>
+            </div>
+            <button type="button" class="slx-modal-close" data-close="slxFixturesModal">×</button>
+        </div>
+        <div class="slx-modal-body">
+            <div id="slxFixLoading" class="slx-loading">
+                <div class="slx-skel" style="width:60%;"></div>
+                <div class="slx-skel" style="width:85%;"></div>
+                <div class="slx-skel" style="width:70%;"></div>
+            </div>
+            <div id="slxFixWrapper" style="display:none;"></div>
+        </div>
+        <div class="slx-modal-foot">
+            <button type="button" class="slx-btn slx-btn-ghost" data-close="slxFixturesModal">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="slx-toast" id="slxToast"></div>
+{% endblock %}
+
+{% block extra_body_js %}{% endblock %}
+
+{% block extra_body %}
+{{ block.super }}
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+(function () {
+    'use strict';
+
+    var SCHEMA = '{{ tenant.schema_name|escapejs }}';
+    var URLS = {
+        asgList:   '/portal/' + SCHEMA + '/api/staff/subject-assignments/',
+        asgSave:   '/portal/' + SCHEMA + '/api/staff/assign-subject-teacher/',
+        asgUnassign: '/portal/' + SCHEMA + '/api/staff/unassign-subject-teacher/',
+        ctList:    '/portal/' + SCHEMA + '/api/staff/class-teacher-management/',
+        ctSave:    '/portal/' + SCHEMA + '/api/staff/assign-class-teacher/',
+        fixtures:  '/portal/' + SCHEMA + '/api/timetable/todays-leave/'
+    };
+
+    function csrf() {
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m && m.getAttribute('content')) return m.getAttribute('content');
+        var parts = (document.cookie || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf('csrftoken=') === 0) return c.substring(10);
+        }
+        return '';
+    }
+
+    function toast(msg, kind) {
+        var el = document.getElementById('slxToast');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'slx-toast show ' + (kind === 'err' ? 'err' : (kind === 'ok' ? 'ok' : ''));
+        clearTimeout(el._t);
+        el._t = setTimeout(function () {
+            el.className = 'slx-toast';
+        }, 3200);
+    }
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function openModal(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.add('show');
+    }
+    function closeModal(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove('show');
+    }
+
+    document.addEventListener('click', function (e) {
+        var closer = e.target.closest('[data-close]');
+        if (closer) {
+            closeModal(closer.getAttribute('data-close'));
+            return;
+        }
+        var back = e.target.closest('.slx-modal-backdrop');
+        if (back && e.target === back) {
+            back.classList.remove('show');
+        }
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.slx-modal-backdrop.show').forEach(function (el) {
+                el.classList.remove('show');
+            });
+        }
+    });
+
+    // ================== Assign Subjects ==================
+    var asgCache = { rows: [], classes: [], subjects: [], teachers: [] };
+    var asgLoaded = false;
+
+    function fillSelect(el, items, placeholder) {
+        if (!el) return;
+        el.innerHTML = '';
+        var opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = placeholder;
+        el.appendChild(opt0);
+        items.forEach(function (it) {
+            var o = document.createElement('option');
+            o.value = it.id;
+            o.textContent = it.name + (it.job_title ? ' — ' + it.job_title : '');
+            el.appendChild(o);
+        });
+    }
+
+    function renderAssignments() {
+        var tb = document.getElementById('slxAsgTbody');
+        if (!tb) return;
+        var needle = (document.getElementById('slxAsgSearch').value || '').trim().toLowerCase();
+        var rows = asgCache.rows;
+        if (needle) {
+            rows = rows.filter(function (r) {
+                return (r.class_name + ' ' + r.subject_name + ' ' + r.teacher_name).toLowerCase().indexOf(needle) !== -1;
+            });
+        }
+        if (!rows.length) {
+            tb.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--slx-muted); padding:1rem;">No assignments match.</td></tr>';
+            return;
+        }
+        var html = '';
+        rows.forEach(function (r) {
+            html += '<tr data-row-id="' + r.id + '">'
+                 +   '<td>' + esc(r.class_name) + '</td>'
+                 +   '<td>' + esc(r.subject_name) + '</td>'
+                 +   '<td>' + (r.teacher_name ? esc(r.teacher_name) : '<span style="color:var(--slx-muted);">— unassigned —</span>') + '</td>'
+                 +   '<td style="text-align:right; white-space:nowrap;">'
+                 +     '<button type="button" class="slx-icon-btn slx-asg-edit" data-id="' + r.id + '" title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/></svg></button>'
+                 +     (r.teacher_id ? '<button type="button" class="slx-icon-btn slx-asg-remove" data-id="' + r.id + '" title="Unassign"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' : '')
+                 +   '</td>'
+                 + '</tr>';
+        });
+        tb.innerHTML = html;
+    }
+
+    function loadAssignments(force) {
+        if (asgLoaded && !force) return Promise.resolve();
+        var loading = document.getElementById('slxAsgLoading');
+        var wrapper = document.getElementById('slxAsgWrapper');
+        loading.style.display = 'flex';
+        wrapper.style.display = 'none';
+        return fetch(URLS.asgList, { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { toast(j.error || 'Failed to load assignments', 'err'); return; }
+                asgCache = j;
+                asgLoaded = true;
+                fillSelect(document.getElementById('slxAsgClass'), j.classes, '— Select Class —');
+                fillSelect(document.getElementById('slxAsgSubject'), j.subjects, '— Select Subject —');
+                fillSelect(document.getElementById('slxAsgTeacher'), j.teachers, '— Unassigned —');
+                renderAssignments();
+                loading.style.display = 'none';
+                wrapper.style.display = 'block';
+            })
+            .catch(function (err) {
+                loading.style.display = 'none';
+                toast('Network error: ' + err.message, 'err');
+            });
+    }
+
+    document.getElementById('slxOpenSubjects').addEventListener('click', function () {
+        openModal('slxSubjectsModal');
+        loadAssignments(false);
+    });
+    document.getElementById('slxAsgSearch').addEventListener('input', renderAssignments);
+
+    document.getElementById('slxAsgSave').addEventListener('click', function () {
+        var cid = document.getElementById('slxAsgClass').value;
+        var sid = document.getElementById('slxAsgSubject').value;
+        var tid = document.getElementById('slxAsgTeacher').value;
+        if (!cid || !sid) { toast('Pick a class and subject.', 'err'); return; }
+        fetch(URLS.asgSave, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ class_id: cid, subject_id: sid, teacher_id: tid || null })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+            if (!j.ok) { toast(j.error || 'Failed to save', 'err'); return; }
+            toast('Assignment saved.', 'ok');
+            loadAssignments(true);
+        })
+        .catch(function (err) { toast('Network error: ' + err.message, 'err'); });
+    });
+
+    document.getElementById('slxAsgTbody').addEventListener('click', function (e) {
+        var editBtn = e.target.closest('.slx-asg-edit');
+        var removeBtn = e.target.closest('.slx-asg-remove');
+        if (editBtn) {
+            var rowId = parseInt(editBtn.getAttribute('data-id'), 10);
+            var row = asgCache.rows.find(function (r) { return r.id === rowId; });
+            if (!row) return;
+            document.getElementById('slxAsgClass').value = String(row.class_id);
+            document.getElementById('slxAsgSubject').value = String(row.subject_id);
+            document.getElementById('slxAsgTeacher').value = row.teacher_id ? String(row.teacher_id) : '';
+            toast('Row loaded into the form below.');
+        } else if (removeBtn) {
+            var rid = parseInt(removeBtn.getAttribute('data-id'), 10);
+            fetch(URLS.asgUnassign, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf(),
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ assignment_id: rid })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { toast(j.error || 'Failed to remove', 'err'); return; }
+                toast('Teacher unassigned.', 'ok');
+                loadAssignments(true);
+            })
+            .catch(function (err) { toast('Network error: ' + err.message, 'err'); });
+        }
+    });
+
+    // ================== Manage Class Teachers ==================
+    var ctCache = { rows: [], candidates: [] };
+    var ctLoaded = false;
+
+    function renderClassTeachers() {
+        var tb = document.getElementById('slxCtTbody');
+        if (!tb) return;
+        var needle = (document.getElementById('slxCtSearch').value || '').trim().toLowerCase();
+        var rows = ctCache.rows;
+        if (needle) {
+            rows = rows.filter(function (r) {
+                return (r.name + ' ' + r.class_teacher_name).toLowerCase().indexOf(needle) !== -1;
+            });
+        }
+        if (!rows.length) {
+            tb.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--slx-muted); padding:1rem;">No classes match.</td></tr>';
+            return;
+        }
+        var html = '';
+        rows.forEach(function (r) {
+            html += '<tr data-class-id="' + r.id + '">'
+                 +   '<td><strong>' + esc(r.name) + '</strong>' + (r.wing_parent ? ' <span class="slx-meta">(' + esc(r.wing_parent) + ')</span>' : '') + '</td>'
+                 +   '<td>' + r.student_count + '</td>'
+                 +   '<td>' + (r.class_teacher_name ? esc(r.class_teacher_name) : '<span style="color:var(--slx-muted);">— unassigned —</span>') + '</td>'
+                 +   '<td>'
+                 +     '<select class="slx-ct-select" data-class-id="' + r.id + '">'
+                 +       '<option value="">— Unassigned —</option>';
+            ctCache.candidates.forEach(function (c) {
+                var sel = (r.class_teacher_id && c.id === r.class_teacher_id) ? ' selected' : '';
+                html += '<option value="' + c.id + '"' + sel + '>' + esc(c.name) + (c.job_title ? ' — ' + esc(c.job_title) : '') + '</option>';
+            });
+            html += '</select></td></tr>';
+        });
+        tb.innerHTML = html;
+    }
+
+    function loadClassTeachers(force) {
+        if (ctLoaded && !force) return Promise.resolve();
+        var loading = document.getElementById('slxCtLoading');
+        var wrapper = document.getElementById('slxCtWrapper');
+        loading.style.display = 'flex';
+        wrapper.style.display = 'none';
+        return fetch(URLS.ctList, { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { toast(j.error || 'Failed to load', 'err'); return; }
+                ctCache = j;
+                ctLoaded = true;
+                renderClassTeachers();
+                loading.style.display = 'none';
+                wrapper.style.display = 'block';
+            })
+            .catch(function (err) {
+                loading.style.display = 'none';
+                toast('Network error: ' + err.message, 'err');
+            });
+    }
+
+    document.getElementById('slxOpenClassTeachers').addEventListener('click', function () {
+        openModal('slxClassTeachersModal');
+        loadClassTeachers(false);
+    });
+    document.getElementById('slxCtSearch').addEventListener('input', renderClassTeachers);
+
+    document.getElementById('slxCtTbody').addEventListener('change', function (e) {
+        var sel = e.target.closest('.slx-ct-select');
+        if (!sel) return;
+        var classId = parseInt(sel.getAttribute('data-class-id'), 10);
+        var teacherId = sel.value;
+        fetch(URLS.ctSave, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ class_id: classId, teacher_id: teacherId || null })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+            if (!j.ok) { toast(j.error || 'Failed to save', 'err'); return; }
+            toast('Class teacher updated.', 'ok');
+            loadClassTeachers(true);
+        })
+        .catch(function (err) { toast('Network error: ' + err.message, 'err'); });
+    });
+
+    // ================== Fixtures ==================
+    var fixLoaded = false;
+    function loadFixtures(force) {
+        if (fixLoaded && !force) return Promise.resolve();
+        var loading = document.getElementById('slxFixLoading');
+        var wrapper = document.getElementById('slxFixWrapper');
+        var meta = document.getElementById('slxFixMeta');
+        loading.style.display = 'flex';
+        wrapper.style.display = 'none';
+        meta.textContent = 'Loading…';
+        return fetch(URLS.fixtures, { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                loading.style.display = 'none';
+                if (!j.success) { toast(j.error || 'Failed to load fixtures', 'err'); return; }
+                fixLoaded = true;
+                meta.textContent = (j.day_name || '') + ' • ' + (j.date || '') + ' • ' +
+                                   (j.on_leave_count || 0) + ' teacher(s) on leave';
+
+                if (j.is_holiday) {
+                    wrapper.innerHTML = '<div class="slx-empty"><h3>🎉 Holiday</h3><p>' + esc(j.holiday_reason || 'Today is a holiday') + '</p></div>';
+                    wrapper.style.display = 'block';
+                    return;
+                }
+                var list = j.assignments || [];
+                if (!list.length) {
+                    wrapper.innerHTML = '<div class="slx-empty"><h3>No absent periods today</h3><p>No teacher on leave has a scheduled class today. Nothing to cover.</p></div>';
+                    wrapper.style.display = 'block';
+                    return;
+                }
+                var html = '';
+                list.forEach(function (a, idx) {
+                    var existing = a.existing_substitute;
+                    var subLine = '';
+                    if (existing) {
+                        subLine = '<div class="slx-fixture-meta" style="color:var(--slx-success); font-weight:700;">✓ Covered by ' + esc(existing.teacher_name) + '</div>';
+                    } else if (!a.free_teachers || !a.free_teachers.length) {
+                        subLine = '<div class="slx-fixture-meta" style="color:var(--slx-danger);">No free teacher available at this period.</div>';
+                    } else {
+                        var opts = '<option value="">— Pick substitute —</option>';
+                        a.free_teachers.forEach(function (t) {
+                            opts += '<option value="' + t.id + '">' + esc(t.name) + (t.job_title ? ' — ' + esc(t.job_title) : '') + '</option>';
+                        });
+                        subLine = '<div style="display:flex; gap:.5rem; margin-top:.5rem; flex-wrap:wrap;">'
+                                +   '<select class="slx-select slx-fix-pick" data-idx="' + idx + '" style="height:36px; max-width:260px;">' + opts + '</select>'
+                                +   '<button type="button" class="slx-btn-filter slx-fix-assign" data-idx="' + idx + '" style="height:36px;">Assign</button>'
+                                + '</div>';
+                    }
+                    html += '<div class="slx-fixture-row">'
+                         +   '<div>'
+                         +     '<strong>P' + a.period_order + ' • ' + esc(a.class_display) + '</strong>'
+                         +     '<div class="slx-fixture-meta">' + esc(a.absent_teacher_name) + ' (on leave)' + (a.subject_name ? ' • ' + esc(a.subject_name) : '') + '</div>'
+                         +     subLine
+                         +   '</div>'
+                         +   (existing ? '<button type="button" class="slx-btn slx-btn-danger slx-fix-remove" data-id="' + existing.id + '">Remove</button>' : '<div></div>')
+                         + '</div>';
+                });
+                wrapper.innerHTML = html;
+                wrapper.style.display = 'block';
+                wrapper._data = list;
+            })
+            .catch(function (err) {
+                loading.style.display = 'none';
+                toast('Network error: ' + err.message, 'err');
+            });
+    }
+
+    document.getElementById('slxOpenFixtures').addEventListener('click', function () {
+        openModal('slxFixturesModal');
+        loadFixtures(false);
+    });
+
+    document.getElementById('slxFixWrapper').addEventListener('click', function (e) {
+        var assignBtn = e.target.closest('.slx-fix-assign');
+        var removeBtn = e.target.closest('.slx-fix-remove');
+        var wrapper = document.getElementById('slxFixWrapper');
+        var list = wrapper._data || [];
+
+        if (assignBtn) {
+            var idx = parseInt(assignBtn.getAttribute('data-idx'), 10);
+            var sel = wrapper.querySelector('.slx-fix-pick[data-idx="' + idx + '"]');
+            var subId = sel ? sel.value : '';
+            if (!subId) { toast('Pick a substitute first.', 'err'); return; }
+            var a = list[idx];
+            if (!a) return;
+            fetch('/portal/' + SCHEMA + '/api/timetable/substitute/create/', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf(),
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({
+                    absent_teacher_id: a.absent_teacher_id,
+                    substitute_teacher_id: parseInt(subId, 10),
+                    class_id: a.class_id,
+                    subject_id: a.subject_id,
+                    period_order: a.period_order
+                })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.success) { toast(j.error || 'Failed', 'err'); return; }
+                toast('Substitute assigned.', 'ok');
+                loadFixtures(true);
+            })
+            .catch(function (err) { toast('Network error: ' + err.message, 'err'); });
+        } else if (removeBtn) {
+            var id = parseInt(removeBtn.getAttribute('data-id'), 10);
+            fetch('/portal/' + SCHEMA + '/api/timetable/substitute/delete/', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf(),
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ id: id })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.success) { toast(j.error || 'Failed', 'err'); return; }
+                toast('Substitute removed.', 'ok');
+                loadFixtures(true);
+            })
+            .catch(function (err) { toast('Network error: ' + err.message, 'err'); });
+        }
+    });
+})();
+</script>
 {% endblock %}

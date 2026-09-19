@@ -1301,6 +1301,7 @@
     // Also cache the main pages statically (defined in the original script)
     const mainPageUrls = [
         `/portal/${schema}/dashboard/`,
+        `/portal/${schema}/staff/`,
         `/portal/${schema}/dashboard/mobile/`,
         `/portal/${schema}/defaulters/`,
         `/portal/${schema}/defaulters/mobile/`,
@@ -1400,5 +1401,9 @@
 })();
 </script>
 
+</body>
+    {% block extra_body %}{% endblock %}
+    {% block extra_body_js %}{% endblock %}
+    {% block extra_scripts %}{% endblock %}
 </body>
 </html>
